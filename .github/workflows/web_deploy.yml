@@ -5,6 +5,12 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+# Add permissions at the workflow level
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -18,12 +24,18 @@ jobs:
         with:
           flutter-version: '3.27.1'
           channel: 'stable'
+          cache: true
 
-      - name: Get dependencies
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Generate Hive adapters
+      - name: Generate Hive Adapters
         run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Verify generated files exist
+        run: |
+          echo "Checking for generated files:"
+          ls -la lib/features/inventory_management/models/
 
       - name: Build web
         run: flutter build web --release --base-href /inventory_manageent/
