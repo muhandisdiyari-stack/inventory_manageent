@@ -37,16 +37,12 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
     final listProvider = context.read<InventoryListProvider>();
     listProvider.selectInventory(id);
     
-    Future.microtask(() {
-      if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const InventoryHomeScreen(),
-          ),
-        );
-      }
-    });
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const InventoryHomeScreen(),
+      ),
+    );
   }
 
   void _showCreateDialog() {
@@ -54,11 +50,7 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
     final listProvider = context.read<InventoryListProvider>();
     final service = context.read<InventoryService>();
     
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        CreateInventoryDialog.show(context, listProvider, service);
-      }
-    });
+    CreateInventoryDialog.show(context, listProvider, service);
   }
 
   @override
