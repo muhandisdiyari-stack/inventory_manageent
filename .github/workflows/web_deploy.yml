@@ -3,9 +3,7 @@ name: Deploy Flutter Web to GitHub Pages
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:  # Allows manual trigger
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
@@ -13,23 +11,22 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.1'  # Update to your Flutter version
+          flutter-version: '3.27.1'
           channel: 'stable'
-          cache: true
-
-      - name: Verify Flutter version
-        run: flutter --version
 
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Generate Hive adapters
+        run: dart run build_runner build --delete-conflicting-outputs
+
       - name: Build web
-        run: flutter build web --release --base-href /${{ github.event.repository.name }}/
+        run: flutter build web --release --base-href /inventory_manageent/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
@@ -38,4 +35,3 @@ jobs:
           publish_dir: ./build/web
           publish_branch: gh-pages
           force_orphan: true
-          commit_message: 'Deploy to GitHub Pages: ${{ github.sha }}'
