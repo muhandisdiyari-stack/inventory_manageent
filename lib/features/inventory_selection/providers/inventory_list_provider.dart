@@ -9,33 +9,30 @@ class InventoryListProvider extends ChangeNotifier {
   List<InventoryListItem> _inventories = [];
   String? _selectedInventoryId;
   bool _isInitialized = false;
+  bool _isLoading = false;
+  String? _error;
 
-  InventoryListProvider() : _inventoriesListBox = Hive.box('inventories_list') {
-    debugPrint('Provider created');
-  }
+  InventoryListProvider() : _inventoriesListBox = Hive.box('inventories_list'); // Fixed: semicolon instead of {}
 
   List<InventoryListItem> get inventories => List.unmodifiable(_inventories);
   String? get selectedInventoryId => _selectedInventoryId;
   bool get hasInventories => _inventories.isNotEmpty;
   bool get isInitialized => _isInitialized;
+  bool get isLoading => _isLoading;
+  String? get error => _error;
 
-  /// Initialize and load inventories - call this after widget is built
   void initialize() {
     if (!_isInitialized) {
-      debugPrint('Initializing provider');
       _loadInventories();
       _isInitialized = true;
       notifyListeners();
-      debugPrint('After init - inventories count: ${_inventories.length}');
     }
   }
 
   void _loadInventories() {
-    debugPrint('Loading inventories from Hive');
     _inventories = [];
     for (var key in _inventoriesListBox.keys) {
       final value = _inventoriesListBox.get(key);
-      debugPrint('Hive key: $key, value: $value');
       if (value is Map) {
         final Map<String, dynamic> typedMap = {};
         value.forEach((k, v) {
@@ -44,84 +41,106 @@ class InventoryListProvider extends ChangeNotifier {
         final name = typedMap['name'] as String? ?? '';
         if (name.isNotEmpty) {
           _inventories.add(InventoryListItem.fromMap(key, typedMap));
-          debugPrint('Added inventory: $name');
         }
       }
     }
-    debugPrint('Total inventories loaded: ${_inventories.length}');
+    _inventories.sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
-  /// Public method to refresh inventories (for pull-to-refresh)
   Future<void> refreshInventories() async {
-    debugPrint('Refreshing inventories');
+    _isLoading = true;
+    notifyListeners();
+    
+    await Future.delayed(const Duration(milliseconds: 300));
+    
     _loadInventories();
+    _isLoading = false;
     notifyListeners();
   }
 
   Future<String> createInventory(String name, InventoryService service) async {
-    debugPrint('Creating inventory: $name');
-    final id = DateTime.now().millisecondsSinceEpoch.toString();
-    await _inventoriesListBox.put(id, {
-      'name': name,
-      'created': DateTime.now().toIso8601String(),
-    });
-    
-    await service.initializeForInventory(id);
-    
-    _selectedInventoryId ??= id;
-    
-    _loadInventories();
+    if (name.trim().isEmpty) throw Exception('Inventory name cannot be empty');
+
+    _isLoading = true;
+    _error = null;
     notifyListeners();
-    debugPrint('Created inventory with id: $id');
-    return id;
+
+    try {
+      final id = DateTime.now().millisecondsSinceEpoch.toString();
+      await _inventoriesListBox.put(id, {
+        'name': name.trim(),
+        'created': DateTime.now().toIso8601String(),
+      });
+      
+      await service.initializeForInventory(id);
+      _selectedInventoryId ??= id;
+      
+      _loadInventories();
+      _isLoading = false;
+      notifyListeners();
+      
+      return id;
+    } catch (e) {
+      _isLoading = false;
+      _error = 'Failed to create inventory: $e';
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> renameInventory(String id, String newName) async {
-    debugPrint('Renaming inventory $id to $newName');
-    final data = _inventoriesListBox.get(id);
-    if (data is Map) {
-      data['name'] = newName;
-      await _inventoriesListBox.put(id, data);
-      _loadInventories();
-      notifyListeners();
+    if (newName.trim().isEmpty) throw Exception('Inventory name cannot be empty');
+
+    try {
+      final data = _inventoriesListBox.get(id);
+      if (data is Map) {
+        data['name'] = newName.trim();
+        await _inventoriesListBox.put(id, data);
+        _loadInventories();
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Error renaming inventory: $e');
     }
   }
 
   Future<void> deleteInventory(String id, InventoryService service) async {
-    debugPrint('Deleting inventory: $id');
-    debugPrint('Before delete - Hive contains key $id: ${_inventoriesListBox.containsKey(id)}');
-    
-    await _inventoriesListBox.delete(id);
-    await service.deleteInventoryData(id);
-    
-    debugPrint('After Hive delete - contains key $id: ${_inventoriesListBox.containsKey(id)}');
-    
-    if (_selectedInventoryId == id) {
-      _selectedInventoryId = _inventories
-          .where((inv) => inv.id != id)
-          .toList()
-          .isNotEmpty
-          ? _inventories.firstWhere((inv) => inv.id != id).id
-          : null;
-    }
-    
-    _loadInventories();
+    _isLoading = true;
+    _error = null;
     notifyListeners();
-    debugPrint('After delete - inventories count: ${_inventories.length}');
+
+    try {
+      await _inventoriesListBox.delete(id);
+      await service.deleteInventoryData(id);
+      
+      _loadInventories();
+      
+      if (_selectedInventoryId == id) {
+        _selectedInventoryId = _inventories.isNotEmpty ? _inventories.first.id : null;
+      }
+      
+      _isLoading = false;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error deleting inventory: $e');
+      _isLoading = false;
+      _error = 'Failed to delete inventory: $e';
+      notifyListeners();
+      rethrow;
+    }
   }
 
   void selectInventory(String id) {
-    debugPrint('Selecting inventory: $id');
-    _selectedInventoryId = id;
-    notifyListeners();
+    if (_selectedInventoryId != id) {
+      _selectedInventoryId = id;
+      notifyListeners();
+    }
   }
 
   String? getSelectedInventoryName() {
     if (_selectedInventoryId == null) return null;
     final data = _inventoriesListBox.get(_selectedInventoryId);
-    if (data is Map) {
-      return data['name'] as String?;
-    }
+    if (data is Map) return data['name'] as String?;
     return null;
   }
 }

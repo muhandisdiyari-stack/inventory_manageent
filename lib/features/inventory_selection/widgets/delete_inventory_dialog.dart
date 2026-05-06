@@ -47,12 +47,12 @@ class DeleteInventoryDialog {
               // Close the delete dialog first
               Navigator.pop(ctx);
               
-              // Show loading indicator using the original context
+              // Show loading indicator
               if (context.mounted) {
                 showDialog(
                   context: context,
                   barrierDismissible: false,
-                  builder: (loadingContext) => const Center(
+                  builder: (loadingCtx) => const Center(
                     child: CircularProgressIndicator(),
                   ),
                 );
@@ -72,6 +72,8 @@ class DeleteInventoryDialog {
                     SnackBar(
                       content: Text('"$name" deleted successfully'),
                       backgroundColor: Colors.green,
+                      behavior: SnackBarBehavior.floating,
+                      duration: const Duration(seconds: 2),
                     ),
                   );
                 }
@@ -87,6 +89,7 @@ class DeleteInventoryDialog {
                     SnackBar(
                       content: Text('Failed to delete inventory: $e'),
                       backgroundColor: Colors.red,
+                      behavior: SnackBarBehavior.floating,
                     ),
                   );
                 }
