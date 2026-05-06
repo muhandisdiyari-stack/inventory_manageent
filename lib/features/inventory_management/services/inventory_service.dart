@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/inventory_item.dart';
 import '../models/inventory_settings.dart';
@@ -11,10 +12,7 @@ class InventoryService {
 
   String? get currentInventoryId => _currentInventoryId;
 
-  /// Ensure the boxes for [inventoryId] are open AND cached in the
-  /// local maps, even if they were already opened by another code path.
   Future<void> initializeForInventory(String inventoryId) async {
-    // ── Labels box ──────────────────────────────────────────────
     Box labelsBox;
     if (Hive.isBoxOpen('labels_$inventoryId')) {
       labelsBox = Hive.box('labels_$inventoryId');
@@ -26,7 +24,6 @@ class InventoryService {
     }
     _labelsBoxes[inventoryId] = labelsBox;
 
-    // ── Items box ───────────────────────────────────────────────
     Box<InventoryItem> itemsBox;
     if (Hive.isBoxOpen('items_$inventoryId')) {
       itemsBox = Hive.box<InventoryItem>('items_$inventoryId');
@@ -35,7 +32,6 @@ class InventoryService {
     }
     _itemsBoxes[inventoryId] = itemsBox;
 
-    // ── Settings box ────────────────────────────────────────────
     Box<InventorySettings> settingsBox;
     if (Hive.isBoxOpen('inventory_settings_$inventoryId')) {
       settingsBox = Hive.box<InventorySettings>('inventory_settings_$inventoryId');
@@ -55,25 +51,82 @@ class InventoryService {
   }
 
   Future<void> deleteInventoryData(String id) async {
-    if (_itemsBoxes.containsKey(id)) {
-      await _itemsBoxes[id]!.deleteFromDisk();
-      _itemsBoxes.remove(id);
-    }
-    if (_labelsBoxes.containsKey(id)) {
-      await _labelsBoxes[id]!.deleteFromDisk();
-      _labelsBoxes.remove(id);
-    }
-    if (_settingsBoxes.containsKey(id)) {
-      await _settingsBoxes[id]!.deleteFromDisk();
-      _settingsBoxes.remove(id);
-    }
-
-    if (_currentInventoryId == id) {
-      _currentInventoryId = null;
+    debugPrint('=== Deleting inventory data for: $id ===');
+    
+    try {
+      if (_itemsBoxes.containsKey(id)) {
+        debugPrint('Clearing items box...');
+        try {
+          await _itemsBoxes[id]!.clear();
+          await _itemsBoxes[id]!.deleteFromDisk();
+        } catch (e) {
+          debugPrint('Error clearing items: $e');
+          final boxName = 'items_$id';
+          if (Hive.isBoxOpen(boxName)) {
+            await Hive.box(boxName).deleteFromDisk();
+          }
+        }
+        _itemsBoxes.remove(id);
+      } else {
+        final boxName = 'items_$id';
+        if (Hive.isBoxOpen(boxName)) {
+          debugPrint('Deleting uncached items box...');
+          await Hive.box(boxName).deleteFromDisk();
+        }
+      }
+      
+      if (_labelsBoxes.containsKey(id)) {
+        debugPrint('Clearing labels box...');
+        try {
+          await _labelsBoxes[id]!.clear();
+          await _labelsBoxes[id]!.deleteFromDisk();
+        } catch (e) {
+          debugPrint('Error clearing labels: $e');
+          final boxName = 'labels_$id';
+          if (Hive.isBoxOpen(boxName)) {
+            await Hive.box(boxName).deleteFromDisk();
+          }
+        }
+        _labelsBoxes.remove(id);
+      } else {
+        final boxName = 'labels_$id';
+        if (Hive.isBoxOpen(boxName)) {
+          debugPrint('Deleting uncached labels box...');
+          await Hive.box(boxName).deleteFromDisk();
+        }
+      }
+      
+      if (_settingsBoxes.containsKey(id)) {
+        debugPrint('Clearing settings box...');
+        try {
+          await _settingsBoxes[id]!.clear();
+          await _settingsBoxes[id]!.deleteFromDisk();
+        } catch (e) {
+          debugPrint('Error clearing settings: $e');
+          final boxName = 'inventory_settings_$id';
+          if (Hive.isBoxOpen(boxName)) {
+            await Hive.box(boxName).deleteFromDisk();
+          }
+        }
+        _settingsBoxes.remove(id);
+      } else {
+        final boxName = 'inventory_settings_$id';
+        if (Hive.isBoxOpen(boxName)) {
+          debugPrint('Deleting uncached settings box...');
+          await Hive.box(boxName).deleteFromDisk();
+        }
+      }
+      
+      if (_currentInventoryId == id) {
+        _currentInventoryId = null;
+      }
+      
+      debugPrint('=== Inventory data deleted successfully: $id ===');
+    } catch (e) {
+      debugPrint('=== Error deleting inventory data: $e ===');
+      rethrow;
     }
   }
-
-  // ── Label Management ──────────────────────────────────────────
 
   List<String> get labels {
     if (_currentInventoryId == null || !_labelsBoxes.containsKey(_currentInventoryId!)) {
@@ -89,7 +142,6 @@ class InventoryService {
   Future<void> createLabel(String label) async {
     if (_currentInventoryId == null) return;
 
-    // Ensure box is cached (may have been opened by search)
     if (!_labelsBoxes.containsKey(_currentInventoryId!)) {
       await initializeForInventory(_currentInventoryId!);
     }
@@ -139,8 +191,6 @@ class InventoryService {
     }
   }
 
-  // ── Item Management ───────────────────────────────────────────
-
   List<InventoryItem> getItemsByLabel(String label) {
     if (_currentInventoryId == null || !_itemsBoxes.containsKey(_currentInventoryId!)) {
       return [];
@@ -162,11 +212,6 @@ class InventoryService {
     }
   }
 
-  /// Saves items for a label using a **diff-and-update** strategy
-  /// instead of delete-all + re-insert.
-  ///
-  /// This preserves existing Hive keys (and therefore any in-memory
-  /// references) and only writes records that actually changed.
   Future<void> saveItems(String label, List<InventoryItem> newItems) async {
     if (_currentInventoryId == null) return;
 
@@ -177,7 +222,6 @@ class InventoryService {
     final box = _itemsBoxes[_currentInventoryId!]!;
     final existingItems = box.values.where((i) => i.label == label).toList();
 
-    // Build lookup of existing items by their stable Hive key
     final existingByKey = <int, InventoryItem>{};
     for (var item in existingItems) {
       if (item.key != null) {
@@ -185,22 +229,18 @@ class InventoryService {
       }
     }
 
-    // Track which existing keys are still referenced in the new list
     final keysUsed = <int>{};
 
     for (var item in newItems) {
       item.label = label;
       if (item.key != null && existingByKey.containsKey(item.key)) {
-        // Existing item — update in place
         await item.save();
         keysUsed.add(item.key!);
       } else {
-        // New item — add to box
         await box.add(item);
       }
     }
 
-    // Remove any items that are no longer in the new list
     for (var key in existingByKey.keys) {
       if (!keysUsed.contains(key)) {
         await existingByKey[key]!.delete();
@@ -218,8 +258,6 @@ class InventoryService {
     return allItems;
   }
 
-  // ── Inventory Name Lookup ─────────────────────────────────────
-
   Map<String, String> getAllInventoryNames() {
     final names = <String, String>{};
     try {
@@ -232,7 +270,7 @@ class InventoryService {
         }
       }
     } catch (e) {
-      // Silently handle error
+      debugPrint('Error getting inventory names: $e');
     }
     return names;
   }
@@ -245,12 +283,10 @@ class InventoryService {
         return value['name'] as String? ?? inventoryId;
       }
     } catch (e) {
-      // Fallback to ID
+      debugPrint('Error getting inventory name: $e');
     }
     return inventoryId;
   }
-
-  // ── Cross-Inventory Search ───────────────────────────────────
 
   List<Map<String, dynamic>> searchAllInventories(String query) {
     final results = <Map<String, dynamic>>[];
@@ -275,15 +311,7 @@ class InventoryService {
           if (Hive.isBoxOpen(boxName)) {
             box = Hive.box<InventoryItem>(boxName);
           } else {
-            // Try to open the box synchronously if possible,
-            // otherwise mark for lazy loading
-            try {
-              box = Hive.box<InventoryItem>(boxName);
-            } catch (e) {
-              // Skip inventories that cannot be opened synchronously
-              // In production, consider async pre-loading at startup
-              continue;
-            }
+            continue;
           }
         }
 
@@ -301,11 +329,10 @@ class InventoryService {
           }
         }
       } catch (e) {
-        // Skip problematic inventories
+        debugPrint('Error searching inventory $inventoryId: $e');
       }
     }
 
-    // Sort results by relevance
     results.sort((a, b) {
       final itemA = a['item'] as InventoryItem;
       final itemB = b['item'] as InventoryItem;
@@ -315,18 +342,6 @@ class InventoryService {
 
       if (aNameMatch && !bNameMatch) return -1;
       if (!aNameMatch && bNameMatch) return 1;
-
-      final aBarcodeMatch = itemA.barcode.toLowerCase() == lowerQuery;
-      final bBarcodeMatch = itemB.barcode.toLowerCase() == lowerQuery;
-
-      if (aBarcodeMatch && !bBarcodeMatch) return -1;
-      if (!aBarcodeMatch && bBarcodeMatch) return 1;
-
-      final aCodeMatch = itemA.code.toLowerCase() == lowerQuery;
-      final bCodeMatch = itemB.code.toLowerCase() == lowerQuery;
-
-      if (aCodeMatch && !bCodeMatch) return -1;
-      if (!aCodeMatch && bCodeMatch) return 1;
 
       return itemA.name.compareTo(itemB.name);
     });
@@ -345,8 +360,6 @@ class InventoryService {
         item.material.toLowerCase().contains(lowerQuery) ||
         item.customFields.values.any((v) => v.toLowerCase().contains(lowerQuery));
   }
-
-  // ── Settings ─────────────────────────────────────────────────
 
   InventorySettings? get currentSettings {
     if (_currentInventoryId == null) return null;
