@@ -13,30 +13,36 @@ class InventoryService {
   String? get currentInventoryId => _currentInventoryId;
 
   Future<void> initializeForInventory(String inventoryId) async {
+    // ── Labels box ──────────────────────────────────────────────
+    final String labelsBoxName = 'labels_$inventoryId';
     Box labelsBox;
-    if (Hive.isBoxOpen('labels_$inventoryId')) {
-      labelsBox = Hive.box('labels_$inventoryId');
+    if (Hive.isBoxOpen(labelsBoxName)) {
+      labelsBox = Hive.box(labelsBoxName);
     } else {
-      labelsBox = await Hive.openBox('labels_$inventoryId');
+      labelsBox = await Hive.openBox(labelsBoxName);
     }
     if (!labelsBox.containsKey('labels')) {
       await labelsBox.put('labels', <String>[]);
     }
     _labelsBoxes[inventoryId] = labelsBox;
 
+    // ── Items box ───────────────────────────────────────────────
+    final String itemsBoxName = 'items_$inventoryId';
     Box<InventoryItem> itemsBox;
-    if (Hive.isBoxOpen('items_$inventoryId')) {
-      itemsBox = Hive.box<InventoryItem>('items_$inventoryId');
+    if (Hive.isBoxOpen(itemsBoxName)) {
+      itemsBox = Hive.box<InventoryItem>(itemsBoxName);
     } else {
-      itemsBox = await Hive.openBox<InventoryItem>('items_$inventoryId');
+      itemsBox = await Hive.openBox<InventoryItem>(itemsBoxName);
     }
     _itemsBoxes[inventoryId] = itemsBox;
 
+    // ── Settings box ────────────────────────────────────────────
+    final String settingsBoxName = 'inventory_settings_$inventoryId';
     Box<InventorySettings> settingsBox;
-    if (Hive.isBoxOpen('inventory_settings_$inventoryId')) {
-      settingsBox = Hive.box<InventorySettings>('inventory_settings_$inventoryId');
+    if (Hive.isBoxOpen(settingsBoxName)) {
+      settingsBox = Hive.box<InventorySettings>(settingsBoxName);
     } else {
-      settingsBox = await Hive.openBox<InventorySettings>('inventory_settings_$inventoryId');
+      settingsBox = await Hive.openBox<InventorySettings>(settingsBoxName);
     }
     if (!settingsBox.containsKey('main')) {
       await settingsBox.put('main', InventorySettings());
@@ -50,83 +56,50 @@ class InventoryService {
     _currentInventoryId = id;
   }
 
+  /// Delete all data associated with an inventory
   Future<void> deleteInventoryData(String id) async {
     debugPrint('=== Deleting inventory data for: $id ===');
     
+    // Helper function to close and delete a box
+    Future<void> closeAndDeleteBox(String boxName) async {
+      try {
+        if (Hive.isBoxOpen(boxName)) {
+          final box = Hive.box(boxName);
+          await box.compact(); // Compact before deleting
+          await box.deleteFromDisk();
+          debugPrint('Deleted box: $boxName');
+        }
+      } catch (e) {
+        debugPrint('Error deleting box $boxName: $e');
+      }
+    }
+
     try {
-      if (_itemsBoxes.containsKey(id)) {
-        debugPrint('Clearing items box...');
-        try {
-          await _itemsBoxes[id]!.clear();
-          await _itemsBoxes[id]!.deleteFromDisk();
-        } catch (e) {
-          debugPrint('Error clearing items: $e');
-          final boxName = 'items_$id';
-          if (Hive.isBoxOpen(boxName)) {
-            await Hive.box(boxName).deleteFromDisk();
-          }
-        }
-        _itemsBoxes.remove(id);
-      } else {
-        final boxName = 'items_$id';
-        if (Hive.isBoxOpen(boxName)) {
-          debugPrint('Deleting uncached items box...');
-          await Hive.box(boxName).deleteFromDisk();
-        }
-      }
-      
-      if (_labelsBoxes.containsKey(id)) {
-        debugPrint('Clearing labels box...');
-        try {
-          await _labelsBoxes[id]!.clear();
-          await _labelsBoxes[id]!.deleteFromDisk();
-        } catch (e) {
-          debugPrint('Error clearing labels: $e');
-          final boxName = 'labels_$id';
-          if (Hive.isBoxOpen(boxName)) {
-            await Hive.box(boxName).deleteFromDisk();
-          }
-        }
-        _labelsBoxes.remove(id);
-      } else {
-        final boxName = 'labels_$id';
-        if (Hive.isBoxOpen(boxName)) {
-          debugPrint('Deleting uncached labels box...');
-          await Hive.box(boxName).deleteFromDisk();
-        }
-      }
-      
-      if (_settingsBoxes.containsKey(id)) {
-        debugPrint('Clearing settings box...');
-        try {
-          await _settingsBoxes[id]!.clear();
-          await _settingsBoxes[id]!.deleteFromDisk();
-        } catch (e) {
-          debugPrint('Error clearing settings: $e');
-          final boxName = 'inventory_settings_$id';
-          if (Hive.isBoxOpen(boxName)) {
-            await Hive.box(boxName).deleteFromDisk();
-          }
-        }
-        _settingsBoxes.remove(id);
-      } else {
-        final boxName = 'inventory_settings_$id';
-        if (Hive.isBoxOpen(boxName)) {
-          debugPrint('Deleting uncached settings box...');
-          await Hive.box(boxName).deleteFromDisk();
-        }
-      }
-      
+      // Delete items box
+      await closeAndDeleteBox('items_$id');
+      _itemsBoxes.remove(id);
+
+      // Delete labels box
+      await closeAndDeleteBox('labels_$id');
+      _labelsBoxes.remove(id);
+
+      // Delete settings box
+      await closeAndDeleteBox('inventory_settings_$id');
+      _settingsBoxes.remove(id);
+
+      // Clear current inventory if it was the deleted one
       if (_currentInventoryId == id) {
         _currentInventoryId = null;
       }
-      
+
       debugPrint('=== Inventory data deleted successfully: $id ===');
     } catch (e) {
       debugPrint('=== Error deleting inventory data: $e ===');
-      rethrow;
+      // Don't rethrow - allow deletion to continue even if data cleanup fails
     }
   }
+
+  // ── Label Management ──────────────────────────────────────────
 
   List<String> get labels {
     if (_currentInventoryId == null || !_labelsBoxes.containsKey(_currentInventoryId!)) {
@@ -190,6 +163,8 @@ class InventoryService {
       await item.delete();
     }
   }
+
+  // ── Item Management ───────────────────────────────────────────
 
   List<InventoryItem> getItemsByLabel(String label) {
     if (_currentInventoryId == null || !_itemsBoxes.containsKey(_currentInventoryId!)) {
@@ -258,6 +233,8 @@ class InventoryService {
     return allItems;
   }
 
+  // ── Inventory Name Lookup ─────────────────────────────────────
+
   Map<String, String> getAllInventoryNames() {
     final names = <String, String>{};
     try {
@@ -287,6 +264,8 @@ class InventoryService {
     }
     return inventoryId;
   }
+
+  // ── Cross-Inventory Search ───────────────────────────────────
 
   List<Map<String, dynamic>> searchAllInventories(String query) {
     final results = <Map<String, dynamic>>[];
@@ -360,6 +339,8 @@ class InventoryService {
         item.material.toLowerCase().contains(lowerQuery) ||
         item.customFields.values.any((v) => v.toLowerCase().contains(lowerQuery));
   }
+
+  // ── Settings ─────────────────────────────────────────────────
 
   InventorySettings? get currentSettings {
     if (_currentInventoryId == null) return null;
