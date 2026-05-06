@@ -70,24 +70,18 @@ app.*.map.json
 *.db
 *.sqlite
 
-# Environment files (if you have any)
-.env
-.env.local
-.env.production
-
-# Generated files
-*.g.dart
+# Generated files - BUT KEEP HIVE ADAPTERS
+# *.g.dart  # COMMENTED OUT - Hive adapters (*.g.dart) must be committed
 *.freezed.dart
 *.mocks.dart
 
 # Code generation
 *.config.dart
 
-# Package lock files
-pubspec.lock
-
-# Analysis
-analysis_options.yaml
+# Environment files
+.env
+.env.local
+.env.production
 
 # Temporary files
 *.tmp
@@ -98,3 +92,6 @@ analysis_options.yaml
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Package lock (uncomment if you want to ignore)
+# pubspec.lock
