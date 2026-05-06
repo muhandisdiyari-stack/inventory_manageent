@@ -1,0 +1,270 @@
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:camera/camera.dart';
+import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
+
+class DesktopCameraScannerSheet {
+  static Future<void> show(
+    BuildContext context, {
+    required Function(String) onBarcodeScanned,
+  }) async {
+    try {
+      final cameras = await availableCameras();
+      
+      if (cameras.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No camera available')),
+          );
+        }
+        return;
+      }
+      
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => _DesktopCameraScannerDialog(
+            cameras: cameras,
+            onBarcodeScanned: (barcode) {
+              Navigator.pop(context);
+              onBarcodeScanned(barcode);
+            },
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Camera error: $e')),
+        );
+      }
+    }
+  }
+}
+
+class _DesktopCameraScannerDialog extends StatefulWidget {
+  final List<CameraDescription> cameras;
+  final Function(String) onBarcodeScanned;
+
+  const _DesktopCameraScannerDialog({
+    required this.cameras,
+    required this.onBarcodeScanned,
+  });
+
+  @override
+  State<_DesktopCameraScannerDialog> createState() => _DesktopCameraScannerDialogState();
+}
+
+class _DesktopCameraScannerDialogState extends State<_DesktopCameraScannerDialog> {
+  CameraController? _controller;
+  CameraDescription? _selectedCamera;
+  bool _isInitialized = false;
+  bool _isScanning = true;
+  String? _lastScanned;
+  final BarcodeScanner _barcodeScanner = BarcodeScanner(formats: [
+    BarcodeFormat.all,
+  ]);
+  DateTime _lastScanTime = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCamera = widget.cameras.firstWhere(
+      (c) => c.lensDirection == CameraLensDirection.back,
+      orElse: () => widget.cameras.first,
+    );
+    _initializeCamera();
+  }
+
+  Future<void> _initializeCamera() async {
+    if (_selectedCamera == null) return;
+    
+    _controller = CameraController(
+      _selectedCamera!,
+      ResolutionPreset.medium,
+      enableAudio: false,
+      imageFormatGroup: Platform.isAndroid 
+          ? ImageFormatGroup.nv21 
+          : ImageFormatGroup.bgra8888,
+    );
+    
+    await _controller!.initialize();
+    
+    if (mounted) {
+      setState(() => _isInitialized = true);
+      _startBarcodeScanning();
+    }
+  }
+
+  void _startBarcodeScanning() {
+    _controller?.startImageStream((image) {
+      if (!_isScanning) return;
+      
+      // Throttle scanning to every 300ms
+      final now = DateTime.now();
+      if (now.difference(_lastScanTime).inMilliseconds < 300) return;
+      _lastScanTime = now;
+      
+      _scanBarcode(image);
+    });
+  }
+
+  Future<void> _scanBarcode(CameraImage image) async {
+    try {
+      final inputImage = _convertCameraImage(image);
+      if (inputImage == null) return;
+      
+      final barcodes = await _barcodeScanner.processImage(inputImage);
+      
+      for (var barcode in barcodes) {
+        if (barcode.rawValue != null && 
+            barcode.rawValue != _lastScanned &&
+            _isScanning) {
+          _lastScanned = barcode.rawValue;
+          _isScanning = false;
+          widget.onBarcodeScanned(barcode.rawValue!);
+          return;
+        }
+      }
+    } catch (e) {
+      // Silently ignore scanning errors
+    }
+  }
+
+  InputImage? _convertCameraImage(CameraImage image) {
+    final rotation = _getImageRotation();
+    
+    final format = Platform.isAndroid
+        ? InputImageFormat.nv21
+        : InputImageFormat.bgra8888;
+    
+    final plane = image.planes.first;
+    
+    return InputImage.fromBytes(
+      bytes: plane.bytes,
+      metadata: InputImageMetadata(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        rotation: rotation,
+        format: format,
+        bytesPerRow: plane.bytesPerRow,
+      ),
+    );
+  }
+
+  InputImageRotation _getImageRotation() {
+    final rotation = _selectedCamera?.sensorOrientation ?? 0;
+    switch (rotation) {
+      case 0: return InputImageRotation.rotation0deg;
+      case 90: return InputImageRotation.rotation90deg;
+      case 180: return InputImageRotation.rotation180deg;
+      case 270: return InputImageRotation.rotation270deg;
+      default: return InputImageRotation.rotation0deg;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    _barcodeScanner.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.black,
+      child: SizedBox(
+        width: 640,
+        height: 480,
+        child: Column(
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(12),
+              color: Colors.grey[900],
+              child: Row(
+                children: [
+                  const Icon(Icons.qr_code_scanner, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Scan Barcode',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                  ),
+                  const Spacer(),
+                  if (_lastScanned != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _lastScanned!,
+                        style: const TextStyle(color: Colors.green, fontSize: 12),
+                      ),
+                    ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Camera view
+            Expanded(
+              child: _isInitialized
+                  ? Stack(
+                      children: [
+                        CameraPreview(_controller!),
+                        Center(
+                          child: Container(
+                            width: 300,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: _isScanning ? Colors.green : Colors.white,
+                                width: 2,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(height: 16),
+                          Text(
+                            'Initializing camera...',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
+            
+            // Bottom controls
+            Container(
+              padding: const EdgeInsets.all(12),
+              color: Colors.grey[900],
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Position barcode in the green frame',
+                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
