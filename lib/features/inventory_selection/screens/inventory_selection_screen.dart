@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/inventory_list_provider.dart';
-import '../models/inventory_list_item.dart';
 import '../../inventory_management/services/inventory_service.dart';
 import '../../inventory_management/screens/inventory_home_screen.dart';
 import '../widgets/empty_state_widget.dart';
@@ -67,7 +66,6 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
     final listProvider = context.watch<InventoryListProvider>();
     final service = context.read<InventoryService>();
     final inventories = listProvider.inventories;
-    final isLoading = listProvider.isLoading;
 
     return Scaffold(
       floatingActionButton: FloatingActionButton.extended(
@@ -83,48 +81,20 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
         backgroundColor: Theme.of(context).colorScheme.surface,
         displacement: 60,
         child: SafeArea(
-          child: _buildBody(context, inventories, isLoading, listProvider, service),
+          child: inventories.isEmpty
+              ? EmptyStateWidget(
+                  onCreateInventory: _showCreateDialog,
+                )
+              : InventoryListWidget(
+                  inventories: inventories,
+                  listProvider: listProvider,
+                  service: service,
+                  onOpenInventory: (String id, dynamic provider) {
+                    _openInventory(id);
+                  },
+                ),
         ),
       ),
-    );
-  }
-
-  Widget _buildBody(
-    BuildContext context,
-    List<InventoryListItem> inventories,
-    bool isLoading,
-    InventoryListProvider listProvider,
-    InventoryService service,
-  ) {
-    // Show loading indicator when loading
-    if (isLoading && inventories.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Loading inventories...'),
-          ],
-        ),
-      );
-    }
-
-    // Show empty state when no inventories
-    if (inventories.isEmpty) {
-      return EmptyStateWidget(
-        onCreateInventory: _showCreateDialog,
-      );
-    }
-
-    // Show inventory list
-    return InventoryListWidget(
-      inventories: inventories,
-      listProvider: listProvider,
-      service: service,
-      onOpenInventory: (String id, dynamic provider) {
-        _openInventory(id);
-      },
     );
   }
 }

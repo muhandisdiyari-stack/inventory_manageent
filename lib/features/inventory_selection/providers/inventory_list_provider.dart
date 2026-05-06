@@ -12,7 +12,7 @@ class InventoryListProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
 
-  InventoryListProvider() : _inventoriesListBox = Hive.box('inventories_list'); // Fixed: semicolon instead of {}
+  InventoryListProvider() : _inventoriesListBox = Hive.box('inventories_list');
 
   List<InventoryListItem> get inventories => List.unmodifiable(_inventories);
   String? get selectedInventoryId => _selectedInventoryId;
@@ -105,25 +105,34 @@ class InventoryListProvider extends ChangeNotifier {
   }
 
   Future<void> deleteInventory(String id, InventoryService service) async {
-    _isLoading = true;
+    // Don't set loading here - let the dialog handle the loading UI
     _error = null;
-    notifyListeners();
 
     try {
+      // Delete from Hive
       await _inventoriesListBox.delete(id);
+      
+      // Delete associated data
       await service.deleteInventoryData(id);
       
+      // Reload inventories
       _loadInventories();
       
+      // Handle selected inventory
       if (_selectedInventoryId == id) {
         _selectedInventoryId = _inventories.isNotEmpty ? _inventories.first.id : null;
       }
       
-      _isLoading = false;
+      // Force notify listeners to update UI
+      notifyListeners();
+      
+      // Add a small delay to ensure UI updates
+      await Future.delayed(const Duration(milliseconds: 100));
+      
+      // Notify again to be safe
       notifyListeners();
     } catch (e) {
       debugPrint('Error deleting inventory: $e');
-      _isLoading = false;
       _error = 'Failed to delete inventory: $e';
       notifyListeners();
       rethrow;

@@ -44,30 +44,45 @@ class DeleteInventoryDialog {
           ),
           FilledButton(
             onPressed: () async {
-              // Close the delete dialog first
+              // Close the delete dialog immediately
               Navigator.pop(ctx);
               
               // Show loading indicator
-              if (context.mounted) {
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (loadingCtx) => const Center(
-                    child: CircularProgressIndicator(),
+              if (!context.mounted) return;
+              
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (loadingCtx) => PopScope(
+                  canPop: false,
+                  child: Center(
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const CircularProgressIndicator(),
+                            const SizedBox(height: 16),
+                            Text('Deleting "$name"...'),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                );
-              }
+                ),
+              );
               
               try {
                 await listProvider.deleteInventory(id, service);
                 
                 // Dismiss loading dialog
                 if (context.mounted) {
-                  Navigator.pop(context);
-                }
-                
-                // Show success message
-                if (context.mounted) {
+                  // Pop all dialogs
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                  
+                  // Show success message
+                  ScaffoldMessenger.of(context).clearSnackBars();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('"$name" deleted successfully'),
@@ -78,13 +93,12 @@ class DeleteInventoryDialog {
                   );
                 }
               } catch (e) {
+                debugPrint('Error deleting inventory: $e');
+                
                 // Dismiss loading dialog
                 if (context.mounted) {
-                  Navigator.pop(context);
-                }
-                
-                debugPrint('Error deleting inventory: $e');
-                if (context.mounted) {
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                  
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Failed to delete inventory: $e'),
