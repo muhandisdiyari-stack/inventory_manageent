@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import '../providers/inventory_list_provider.dart';
 
 class RenameInventoryDialog {
   static void show(
     BuildContext context,
     String id,
     String currentName,
-    dynamic listProvider,
+    InventoryListProvider listProvider,
   ) {
     final controller = TextEditingController(text: currentName);
 
@@ -52,8 +53,7 @@ class RenameInventoryDialog {
               ),
               onSubmitted: (value) {
                 if (value.trim().isNotEmpty && value.trim() != currentName) {
-                  listProvider.renameInventory(id, value.trim());
-                  Navigator.pop(dialogContext);
+                  _rename(dialogContext, id, value.trim(), listProvider);
                 }
               },
             ),
@@ -78,8 +78,7 @@ class RenameInventoryDialog {
                     onPressed: () {
                       final name = controller.text.trim();
                       if (name.isNotEmpty && name != currentName) {
-                        listProvider.renameInventory(id, name);
-                        Navigator.pop(dialogContext);
+                        _rename(dialogContext, id, name, listProvider);
                       }
                     },
                     style: FilledButton.styleFrom(
@@ -100,6 +99,30 @@ class RenameInventoryDialog {
         ),
       ),
     );
+  }
+
+  static Future<void> _rename(
+    BuildContext dialogContext,
+    String id,
+    String newName,
+    InventoryListProvider listProvider,
+  ) async {
+    try {
+      await listProvider.renameInventory(id, newName);
+      if (dialogContext.mounted) {
+        Navigator.pop(dialogContext);
+      }
+    } catch (e) {
+      if (dialogContext.mounted) {
+        ScaffoldMessenger.of(dialogContext).showSnackBar(
+          SnackBar(
+            content: Text('Error renaming: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   static Widget _buildDragHandle(BuildContext context) {

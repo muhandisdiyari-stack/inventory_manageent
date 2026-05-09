@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import '../providers/inventory_list_provider.dart';
+import '../../inventory_management/services/inventory_service.dart';
 
 class CreateInventoryDialog {
   static void show(
     BuildContext context,
-    dynamic listProvider,
-    dynamic service,
+    InventoryListProvider listProvider,
+    InventoryService service,
   ) {
     final controller = TextEditingController();
 
@@ -43,10 +45,16 @@ class CreateInventoryDialog {
                 filled: true,
                 fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
               ),
-              onSubmitted: (value) {
+              onSubmitted: (value) async {
                 if (value.trim().isNotEmpty) {
-                  listProvider.createInventory(value.trim(), service);
-                  Navigator.pop(dialogContext);
+                  await _createInventory(
+                    dialogContext,
+                    context,
+                    value.trim(),
+                    listProvider,
+                    service,
+                    controller,
+                  );
                 }
               },
             ),
@@ -68,11 +76,17 @@ class CreateInventoryDialog {
                 const SizedBox(width: 12),
                 Expanded(
                   child: FilledButton(
-                    onPressed: () {
+                    onPressed: () async {
                       final name = controller.text.trim();
                       if (name.isNotEmpty) {
-                        listProvider.createInventory(name, service);
-                        Navigator.pop(dialogContext);
+                        await _createInventory(
+                          dialogContext,
+                          context,
+                          name,
+                          listProvider,
+                          service,
+                          controller,
+                        );
                       }
                     },
                     style: FilledButton.styleFrom(
@@ -93,6 +107,38 @@ class CreateInventoryDialog {
         ),
       ),
     );
+  }
+
+  // Fixed: Added proper async error handling
+  static Future<void> _createInventory(
+    BuildContext dialogContext,
+    BuildContext screenContext,
+    String name,
+    InventoryListProvider listProvider,
+    InventoryService service,
+    TextEditingController controller,
+  ) async {
+    try {
+      await listProvider.createInventory(name, service);
+      if (dialogContext.mounted) {
+        Navigator.pop(dialogContext);
+      }
+    } catch (e) {
+      // Show error in the dialog context if still mounted
+      if (dialogContext.mounted) {
+        ScaffoldMessenger.of(dialogContext).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+            margin: const EdgeInsets.all(20),
+          ),
+        );
+      }
+      // Re-enable the text field
+      controller.clear();
+    }
   }
 
   static Widget _buildDragHandle(BuildContext context) {

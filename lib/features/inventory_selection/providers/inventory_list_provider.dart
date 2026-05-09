@@ -51,8 +51,6 @@ class InventoryListProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     
-    await Future.delayed(const Duration(milliseconds: 300));
-    
     _loadInventories();
     _isLoading = false;
     notifyListeners();
@@ -66,7 +64,10 @@ class InventoryListProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final id = DateTime.now().millisecondsSinceEpoch.toString();
+      // Fixed: Use unique ID to prevent collisions
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final id = '${now}_${name.hashCode.abs()}';
+      
       await _inventoriesListBox.put(id, {
         'name': name.trim(),
         'created': DateTime.now().toIso8601String(),
@@ -94,42 +95,33 @@ class InventoryListProvider extends ChangeNotifier {
     try {
       final data = _inventoriesListBox.get(id);
       if (data is Map) {
-        data['name'] = newName.trim();
-        await _inventoriesListBox.put(id, data);
+        // Fixed: Create new map instead of mutating Hive's internal reference
+        final updatedData = Map<String, dynamic>.from(data);
+        updatedData['name'] = newName.trim();
+        await _inventoriesListBox.put(id, updatedData);
         _loadInventories();
         notifyListeners();
       }
     } catch (e) {
       debugPrint('Error renaming inventory: $e');
+      _error = 'Failed to rename inventory: $e';
+      notifyListeners();
     }
   }
 
   Future<void> deleteInventory(String id, InventoryService service) async {
-    // Don't set loading here - let the dialog handle the loading UI
     _error = null;
 
     try {
-      // Delete from Hive
       await _inventoriesListBox.delete(id);
-      
-      // Delete associated data
       await service.deleteInventoryData(id);
-      
-      // Reload inventories
       _loadInventories();
       
-      // Handle selected inventory
       if (_selectedInventoryId == id) {
         _selectedInventoryId = _inventories.isNotEmpty ? _inventories.first.id : null;
       }
       
-      // Force notify listeners to update UI
-      notifyListeners();
-      
-      // Add a small delay to ensure UI updates
-      await Future.delayed(const Duration(milliseconds: 100));
-      
-      // Notify again to be safe
+      // Fixed: Single notify, no artificial delay
       notifyListeners();
     } catch (e) {
       debugPrint('Error deleting inventory: $e');

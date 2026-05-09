@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import '../models/inventory_item.dart';
 import '../models/inventory_settings.dart';
 import '../services/inventory_service.dart';
@@ -13,7 +12,7 @@ class InventoryProvider extends ChangeNotifier {
 
   String? get currentInventoryId => _listProvider.selectedInventoryId;
   String? get currentInventoryName => _listProvider.getSelectedInventoryName();
-  
+
   List<String> get labels => _service.labels;
   bool get hasLabels => _service.hasLabels;
 
@@ -56,21 +55,12 @@ class InventoryProvider extends ChangeNotifier {
   // Item operations
   List<InventoryItem> getItems(String label) => _service.getItemsByLabel(label);
 
-  /// Save a new item to Hive (adds to box)
+  /// FIX (bug): delegate entirely to the service which already manages box
+  /// access. The previous implementation duplicated Hive.openBox logic here,
+  /// risking type conflicts and bypassing the service's internal state.
   Future<void> saveItem(InventoryItem item) async {
     if (_listProvider.selectedInventoryId == null) return;
-    
-    // Ensure the item has the current inventory context
-    final boxName = 'items_${_listProvider.selectedInventoryId}';
-    Box<InventoryItem> box;
-    
-    if (Hive.isBoxOpen(boxName)) {
-      box = Hive.box<InventoryItem>(boxName);
-    } else {
-      box = await Hive.openBox<InventoryItem>(boxName);
-    }
-    
-    await box.add(item);
+    await _service.saveItem(item);
     notifyListeners();
   }
 

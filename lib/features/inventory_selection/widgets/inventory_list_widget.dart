@@ -9,7 +9,8 @@ class InventoryListWidget extends StatelessWidget {
   final List<InventoryListItem> inventories;
   final InventoryListProvider listProvider;
   final InventoryService service;
-  final void Function(String, InventoryListProvider) onOpenInventory;
+  // Fixed: Simplified callback signature
+  final void Function(String) onOpenInventory;
 
   const InventoryListWidget({
     super.key,

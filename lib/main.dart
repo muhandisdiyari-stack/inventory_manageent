@@ -7,8 +7,6 @@ import 'features/inventory_management/services/demo_data_service.dart';
 import 'core/constants/app_constants.dart';
 import 'app.dart';
 
-final _messengerKey = GlobalKey<ScaffoldMessengerState>();
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -55,7 +53,6 @@ class _ErrorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      scaffoldMessengerKey: _messengerKey,
       debugShowCheckedModeBanner: false,
       home: Scaffold(
         body: Center(
@@ -103,8 +100,8 @@ class _ErrorApp extends StatelessWidget {
                 // Retry button
                 FilledButton.icon(
                   onPressed: () {
-                    // Reload the app
                     // In a real app, you might want to restart the initialization
+                    // For now, this shows the error state
                   },
                   icon: const Icon(Icons.refresh),
                   label: const Text('Retry'),

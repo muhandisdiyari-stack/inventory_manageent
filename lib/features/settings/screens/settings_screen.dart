@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../inventory_management/providers/inventory_provider.dart';
 import '../../inventory_management/models/inventory_settings.dart';
-import '../../../core/constants/app_constants.dart';
+import '../../../core/providers/theme_provider.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -17,7 +16,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late List<String> _customFields;
   final _customFieldController = TextEditingController();
   bool _hasChanges = false;
-  bool _isDarkMode = false;
 
   @override
   void initState() {
@@ -42,10 +40,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       )).toList();
       _customFields = [];
     }
-    
-    // Load dark mode setting
-    final appSettings = Hive.box('app_settings');
-    _isDarkMode = appSettings.get(AppConstants.darkModeKey, defaultValue: false) as bool;
   }
 
   @override
@@ -65,16 +59,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
+  // Fixed: Use ThemeProvider for live theme switching
   void _toggleDarkMode(bool value) {
-    setState(() => _isDarkMode = value);
-    final appSettings = Hive.box('app_settings');
-    appSettings.put(AppConstants.darkModeKey, value);
-    // This won't take effect until app restarts without a theme provider
-    // For immediate effect, you'd need a ThemeProvider
+    context.read<ThemeProvider>().setThemeMode(
+      value ? ThemeMode.dark : ThemeMode.light,
+    );
+    
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Dark mode preference saved. Restart app to apply.'),
+          content: Text('Switched to ${value ? 'dark' : 'light'} theme'),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
           margin: const EdgeInsets.all(20),
@@ -88,6 +82,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<InventoryProvider>();
     final inventoryName = provider.currentInventoryName ?? 'Inventory';
+    // Watch ThemeProvider for reactive updates
+    final themeProvider = context.watch<ThemeProvider>();
+    final isDarkMode = themeProvider.isDarkMode;
 
     return Scaffold(
       appBar: AppBar(
@@ -123,7 +120,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           _buildInfoCard(inventoryName),
           const SizedBox(height: 16),
-          _buildAppearanceCard(),
+          _buildAppearanceCard(isDarkMode),
           const SizedBox(height: 16),
           _buildFieldConfigCard(),
           const SizedBox(height: 16),
@@ -157,7 +154,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildAppearanceCard() {
+  Widget _buildAppearanceCard(bool isDarkMode) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -177,11 +174,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 16),
             SwitchListTile(
               title: const Text('Dark Mode'),
-              subtitle: const Text('Toggle dark theme (requires restart)'),
-              value: _isDarkMode,
+              subtitle: const Text('Toggle dark theme instantly'),
+              value: isDarkMode,
               onChanged: _toggleDarkMode,
               secondary: Icon(
-                _isDarkMode ? Icons.dark_mode : Icons.light_mode,
+                isDarkMode ? Icons.dark_mode : Icons.light_mode,
                 color: Theme.of(context).colorScheme.primary,
               ),
             ),

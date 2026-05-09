@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
@@ -8,9 +9,26 @@ class DesktopCameraScannerSheet {
     BuildContext context, {
     required Function(String) onBarcodeScanned,
   }) async {
+    // FIX (warning): the camera + ML Kit combination used here only works on
+    // Android and iOS. The class was misleadingly named "Desktop" but used
+    // nv21 / bgra8888 image formats that are mobile-only. Guard explicitly so
+    // callers on Windows / macOS / Linux / web never reach this code.
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Camera scanning is not supported on this platform. '
+                'Use USB scanner or scan from image instead.'),
+          ),
+        );
+      }
+      return;
+    }
+
     try {
       final cameras = await availableCameras();
-      
+
       if (cameras.isEmpty) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -19,7 +37,7 @@ class DesktopCameraScannerSheet {
         }
         return;
       }
-      
+
       if (context.mounted) {
         showDialog(
           context: context,
@@ -53,18 +71,20 @@ class _DesktopCameraScannerDialog extends StatefulWidget {
   });
 
   @override
-  State<_DesktopCameraScannerDialog> createState() => _DesktopCameraScannerDialogState();
+  State<_DesktopCameraScannerDialog> createState() =>
+      _DesktopCameraScannerDialogState();
 }
 
-class _DesktopCameraScannerDialogState extends State<_DesktopCameraScannerDialog> {
+class _DesktopCameraScannerDialogState
+    extends State<_DesktopCameraScannerDialog> {
   CameraController? _controller;
   CameraDescription? _selectedCamera;
   bool _isInitialized = false;
   bool _isScanning = true;
   String? _lastScanned;
-  final BarcodeScanner _barcodeScanner = BarcodeScanner(formats: [
-    BarcodeFormat.all,
-  ]);
+  final BarcodeScanner _barcodeScanner = BarcodeScanner(
+    formats: [BarcodeFormat.all],
+  );
   DateTime _lastScanTime = DateTime.now();
 
   @override
@@ -79,33 +99,33 @@ class _DesktopCameraScannerDialogState extends State<_DesktopCameraScannerDialog
 
   Future<void> _initializeCamera() async {
     if (_selectedCamera == null) return;
-    
+
     _controller = CameraController(
       _selectedCamera!,
       ResolutionPreset.medium,
       enableAudio: false,
-      imageFormatGroup: Platform.isAndroid 
-          ? ImageFormatGroup.nv21 
+      imageFormatGroup: Platform.isAndroid
+          ? ImageFormatGroup.nv21
           : ImageFormatGroup.bgra8888,
     );
-    
+
     await _controller!.initialize();
-    
-    if (mounted) {
-      setState(() => _isInitialized = true);
-      _startBarcodeScanning();
-    }
+
+    // Guard after await.
+    if (!mounted) return;
+
+    setState(() => _isInitialized = true);
+    _startBarcodeScanning();
   }
 
   void _startBarcodeScanning() {
     _controller?.startImageStream((image) {
       if (!_isScanning) return;
-      
-      // Throttle scanning to every 300ms
+
       final now = DateTime.now();
       if (now.difference(_lastScanTime).inMilliseconds < 300) return;
       _lastScanTime = now;
-      
+
       _scanBarcode(image);
     });
   }
@@ -114,11 +134,14 @@ class _DesktopCameraScannerDialogState extends State<_DesktopCameraScannerDialog
     try {
       final inputImage = _convertCameraImage(image);
       if (inputImage == null) return;
-      
+
       final barcodes = await _barcodeScanner.processImage(inputImage);
-      
-      for (var barcode in barcodes) {
-        if (barcode.rawValue != null && 
+
+      // Guard after await.
+      if (!mounted) return;
+
+      for (final barcode in barcodes) {
+        if (barcode.rawValue != null &&
             barcode.rawValue != _lastScanned &&
             _isScanning) {
           _lastScanned = barcode.rawValue;
@@ -127,20 +150,18 @@ class _DesktopCameraScannerDialogState extends State<_DesktopCameraScannerDialog
           return;
         }
       }
-    } catch (e) {
-      // Silently ignore scanning errors
+    } catch (_) {
+      // Silently ignore per-frame scanning errors.
     }
   }
 
   InputImage? _convertCameraImage(CameraImage image) {
     final rotation = _getImageRotation();
-    
     final format = Platform.isAndroid
         ? InputImageFormat.nv21
         : InputImageFormat.bgra8888;
-    
     final plane = image.planes.first;
-    
+
     return InputImage.fromBytes(
       bytes: plane.bytes,
       metadata: InputImageMetadata(
@@ -155,11 +176,14 @@ class _DesktopCameraScannerDialogState extends State<_DesktopCameraScannerDialog
   InputImageRotation _getImageRotation() {
     final rotation = _selectedCamera?.sensorOrientation ?? 0;
     switch (rotation) {
-      case 0: return InputImageRotation.rotation0deg;
-      case 90: return InputImageRotation.rotation90deg;
-      case 180: return InputImageRotation.rotation180deg;
-      case 270: return InputImageRotation.rotation270deg;
-      default: return InputImageRotation.rotation0deg;
+      case 90:
+        return InputImageRotation.rotation90deg;
+      case 180:
+        return InputImageRotation.rotation180deg;
+      case 270:
+        return InputImageRotation.rotation270deg;
+      default:
+        return InputImageRotation.rotation0deg;
     }
   }
 
@@ -179,29 +203,32 @@ class _DesktopCameraScannerDialogState extends State<_DesktopCameraScannerDialog
         height: 480,
         child: Column(
           children: [
-            // Header
             Container(
               padding: const EdgeInsets.all(12),
               color: Colors.grey[900],
               child: Row(
                 children: [
-                  const Icon(Icons.qr_code_scanner, color: Colors.white, size: 20),
+                  const Icon(Icons.qr_code_scanner,
+                      color: Colors.white, size: 20),
                   const SizedBox(width: 8),
                   const Text(
                     'Scan Barcode',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w600),
                   ),
                   const Spacer(),
                   if (_lastScanned != null)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: Colors.green.withValues(alpha: 0.3),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
                         _lastScanned!,
-                        style: const TextStyle(color: Colors.green, fontSize: 12),
+                        style:
+                            const TextStyle(color: Colors.green, fontSize: 12),
                       ),
                     ),
                   IconButton(
@@ -211,8 +238,6 @@ class _DesktopCameraScannerDialogState extends State<_DesktopCameraScannerDialog
                 ],
               ),
             ),
-            
-            // Camera view
             Expanded(
               child: _isInitialized
                   ? Stack(
@@ -224,7 +249,8 @@ class _DesktopCameraScannerDialogState extends State<_DesktopCameraScannerDialog
                             height: 200,
                             decoration: BoxDecoration(
                               border: Border.all(
-                                color: _isScanning ? Colors.green : Colors.white,
+                                color:
+                                    _isScanning ? Colors.green : Colors.white,
                                 width: 2,
                               ),
                               borderRadius: BorderRadius.circular(8),
@@ -247,8 +273,6 @@ class _DesktopCameraScannerDialogState extends State<_DesktopCameraScannerDialog
                       ),
                     ),
             ),
-            
-            // Bottom controls
             Container(
               padding: const EdgeInsets.all(12),
               color: Colors.grey[900],

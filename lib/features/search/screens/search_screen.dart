@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../inventory_management/providers/inventory_provider.dart';
@@ -16,14 +17,20 @@ class _SearchScreenState extends State<SearchScreen> {
   final _searchController = TextEditingController();
   List<Map<String, dynamic>> _results = [];
   bool _isSearching = false;
+  // Fixed: Use cancelable Timer for debounce
+  Timer? _debounce;
 
   @override
   void dispose() {
     _searchController.dispose();
+    _debounce?.cancel();
     super.dispose();
   }
 
   void _performSearch(String query) {
+    // Cancel previous debounce timer
+    _debounce?.cancel();
+    
     if (query.trim().isEmpty) {
       setState(() {
         _results = [];
@@ -34,7 +41,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
     setState(() => _isSearching = true);
     
-    Future.delayed(const Duration(milliseconds: 100), () {
+    // Fixed: Proper debounce with cancelable timer
+    _debounce = Timer(const Duration(milliseconds: 300), () {
       if (!mounted) return;
       final provider = context.read<InventoryProvider>();
       final results = provider.searchAllInventories(query);
@@ -578,6 +586,7 @@ class _SimpleEditSheetState extends State<_SimpleEditSheet> {
               validator: (v) => (v == null || v.trim().isEmpty) ? 'Name is required' : null,
             ),
             const SizedBox(height: 12),
+            // Fixed: Added quantity validation
             TextFormField(
               controller: _quantityController,
               keyboardType: TextInputType.number,
@@ -586,6 +595,19 @@ class _SimpleEditSheetState extends State<_SimpleEditSheet> {
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                 filled: true,
               ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Quantity is required';
+                }
+                final parsed = int.tryParse(value.trim());
+                if (parsed == null) {
+                  return 'Must be a valid number';
+                }
+                if (parsed < 0 || parsed > InventoryItem.maxQuantity) {
+                  return 'Must be 0-${InventoryItem.maxQuantity}';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 12),
             TextFormField(

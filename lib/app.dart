@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'core/theme/app_theme.dart';
-import 'core/constants/app_constants.dart';
 import 'features/inventory_selection/providers/inventory_list_provider.dart';
 import 'features/inventory_management/services/inventory_service.dart' as service;
 import 'features/inventory_management/providers/inventory_provider.dart';
 import 'features/inventory_selection/screens/inventory_selection_screen.dart';
+import 'core/providers/theme_provider.dart';
 
 class InventoryProApp extends StatelessWidget {
   final service.InventoryService inventoryService;
@@ -15,13 +14,10 @@ class InventoryProApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ── Read persisted dark-mode preference ───────────────────────
-    final appSettings = Hive.box('app_settings');
-    final isDarkMode =
-        appSettings.get(AppConstants.darkModeKey, defaultValue: false) as bool;
-
     return MultiProvider(
       providers: [
+        // Add ThemeProvider for live theme switching
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => InventoryListProvider()),
         Provider<service.InventoryService>.value(value: inventoryService),
         ChangeNotifierProxyProvider<InventoryListProvider, InventoryProvider>(
@@ -49,13 +45,18 @@ class InventoryProApp extends StatelessWidget {
           },
         ),
       ],
-      child: MaterialApp(
-        title: 'Inventory Pro',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
-        home: const InventorySelectionScreen(),
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, child) {
+          return MaterialApp(
+            title: 'Inventory Pro',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            // Fixed: Use reactive ThemeProvider for live theme switching
+            themeMode: themeProvider.themeMode,
+            home: const InventorySelectionScreen(),
+          );
+        },
       ),
     );
   }

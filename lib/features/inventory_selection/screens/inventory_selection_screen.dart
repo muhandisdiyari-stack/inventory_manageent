@@ -31,6 +31,7 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
     await context.read<InventoryListProvider>().refreshInventories();
   }
 
+  // Fixed: Removed unnecessary dynamic provider parameter
   void _openInventory(String id) {
     if (!mounted) return;
     
@@ -81,9 +82,8 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
                   inventories: inventories,
                   listProvider: listProvider,
                   service: service,
-                  onOpenInventory: (String id, dynamic provider) {
-                    _openInventory(id);
-                  },
+                  // Fixed: Updated callback signature to remove dynamic
+                  onOpenInventory: _openInventory,
                 ),
         ),
       ),

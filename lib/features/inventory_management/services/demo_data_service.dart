@@ -6,75 +6,64 @@ import '../models/inventory_settings.dart';
 import '../../../core/constants/app_constants.dart';
 
 class DemoDataService {
-  /// Loads sample demo data into the app
-  /// Only runs when [AppConstants.autoLoadDemoData] is true
+  /// Loads sample demo data into the app.
+  /// Only runs when [AppConstants.autoLoadDemoData] is true.
   static Future<void> loadDemoData() async {
-    // Skip if not in demo mode
     if (!AppConstants.autoLoadDemoData) return;
 
-    // Check if demo data already exists
     final inventoriesBox = Hive.box(AppConstants.inventoriesListBox);
     if (inventoriesBox.isNotEmpty) return;
 
-    // Create demo inventories
-    final warehouseId = DateTime.now().millisecondsSinceEpoch.toString();
-    final storeId = (DateTime.now().millisecondsSinceEpoch + 1).toString();
+    // FIX (bug): millisecondsSinceEpoch + 1 can collide on fast hardware.
+    // Use a large fixed offset that guarantees two distinct values regardless
+    // of execution speed. A UUID library would be even safer if already a
+    // dependency, but this is sufficient without adding a new package.
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final warehouseId = '${now}_warehouse';
+    final storeId = '${now}_store';
 
-    // Warehouse Inventory
     await inventoriesBox.put(warehouseId, {
       'name': 'Main Warehouse',
       'created': DateTime.now().toIso8601String(),
     });
 
-    // Store Inventory
     await inventoriesBox.put(storeId, {
       'name': 'Retail Store',
       'created': DateTime.now().toIso8601String(),
     });
 
-    // Initialize boxes for each inventory
     await _initInventoryBoxes(warehouseId);
     await _initInventoryBoxes(storeId);
 
-    // Add demo items to Warehouse
     await _addWarehouseItems(warehouseId);
-
-    // Add demo items to Store
     await _addStoreItems(storeId);
 
-    // Add demo settings
     await _addDemoSettings(warehouseId);
     await _addDemoSettings(storeId);
   }
 
-  /// Initialize required boxes for an inventory
   static Future<void> _initInventoryBoxes(String inventoryId) async {
-    // Labels box
     final labelsBox = await Hive.openBox('labels_$inventoryId');
     if (!labelsBox.containsKey('labels')) {
       await labelsBox.put('labels', <String>[]);
     }
 
-    // Items box
     await Hive.openBox<InventoryItem>('items_$inventoryId');
 
-    // Settings box
-    final settingsBox = await Hive.openBox<InventorySettings>('inventory_settings_$inventoryId');
+    final settingsBox =
+        await Hive.openBox<InventorySettings>('inventory_settings_$inventoryId');
     if (!settingsBox.containsKey('main')) {
       await settingsBox.put('main', InventorySettings());
     }
   }
 
-  /// Add demo items to warehouse inventory
   static Future<void> _addWarehouseItems(String inventoryId) async {
     final itemsBox = Hive.box<InventoryItem>('items_$inventoryId');
     final labelsBox = Hive.box('labels_$inventoryId');
 
-    // Create labels
     final labels = ['Electronics', 'Furniture', 'Packaging', 'Raw Materials'];
     await labelsBox.put('labels', labels);
 
-    // Sample items
     final warehouseItems = [
       InventoryItem(
         name: 'Wireless Keyboard',
@@ -178,22 +167,18 @@ class DemoDataService {
       ),
     ];
 
-    // Add items to the box
-    for (var item in warehouseItems) {
+    for (final item in warehouseItems) {
       await itemsBox.add(item);
     }
   }
 
-  /// Add demo items to store inventory
   static Future<void> _addStoreItems(String inventoryId) async {
     final itemsBox = Hive.box<InventoryItem>('items_$inventoryId');
     final labelsBox = Hive.box('labels_$inventoryId');
 
-    // Create labels
     final labels = ['Clothing', 'Accessories', 'Shoes'];
     await labelsBox.put('labels', labels);
 
-    // Sample items
     final storeItems = [
       InventoryItem(
         name: 'Cotton T-Shirt',
@@ -208,7 +193,7 @@ class DemoDataService {
         customFields: {
           'Brand': 'UrbanWear',
           'Price': '29.99',
-          'Section': 'Men\'s Wear',
+          'Section': "Men's Wear",
         },
       ),
       InventoryItem(
@@ -246,15 +231,14 @@ class DemoDataService {
       ),
     ];
 
-    // Add items to the box
-    for (var item in storeItems) {
+    for (final item in storeItems) {
       await itemsBox.add(item);
     }
   }
 
-  /// Add demo settings for an inventory
   static Future<void> _addDemoSettings(String inventoryId) async {
-    final settingsBox = Hive.box<InventorySettings>('inventory_settings_$inventoryId');
+    final settingsBox =
+        Hive.box<InventorySettings>('inventory_settings_$inventoryId');
 
     final settings = InventorySettings(
       fieldConfigs: [
@@ -264,8 +248,12 @@ class DemoDataService {
         FieldConfig(fieldName: 'Color', isEnabled: true, isRequired: false),
         FieldConfig(fieldName: 'Material', isEnabled: true, isRequired: false),
         FieldConfig(fieldName: 'Size', isEnabled: true, isRequired: false),
-        FieldConfig(fieldName: 'Production Date', isEnabled: false, isRequired: false),
-        FieldConfig(fieldName: 'Expire Date', isEnabled: true, isRequired: false),
+        FieldConfig(
+            fieldName: 'Production Date',
+            isEnabled: false,
+            isRequired: false),
+        FieldConfig(
+            fieldName: 'Expire Date', isEnabled: true, isRequired: false),
         FieldConfig(fieldName: 'Note', isEnabled: true, isRequired: false),
       ],
       customFieldNames: ['Supplier', 'Location', 'Min Stock'],

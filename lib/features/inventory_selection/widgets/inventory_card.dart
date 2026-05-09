@@ -10,7 +10,8 @@ class InventoryCard extends StatelessWidget {
   final InventoryListItem inventory;
   final InventoryListProvider listProvider;
   final InventoryService service;
-  final void Function(String, InventoryListProvider) onOpenInventory;
+  // Fixed: Simplified callback signature
+  final void Function(String) onOpenInventory;
 
   const InventoryCard({
     super.key,
@@ -36,7 +37,7 @@ class InventoryCard extends StatelessWidget {
           ),
         ),
         child: InkWell(
-          onTap: () => onOpenInventory(inventory.id, listProvider),
+          onTap: () => onOpenInventory(inventory.id),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -58,15 +59,18 @@ class InventoryCard extends StatelessWidget {
     );
   }
 
+  // Fixed: Use theme-safe colors instead of hardcoded values
   Color _getIconColor(ColorScheme colorScheme) {
-    final iconColors = [
+    final themeColors = [
       colorScheme.primary,
       colorScheme.secondary,
       colorScheme.tertiary,
-      Colors.indigo,
-      Colors.teal,
+      colorScheme.error,
+      colorScheme.primaryContainer,
     ];
-    return iconColors[inventory.id.hashCode.abs() % iconColors.length];
+    // Use name hash for more consistent color assignment
+    final index = inventory.name.hashCode.abs() % themeColors.length;
+    return themeColors[index];
   }
 
   Widget _buildIconContainer(Color iconColor) {

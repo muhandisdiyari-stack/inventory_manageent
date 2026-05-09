@@ -10,6 +10,9 @@ class DeleteInventoryDialog {
     InventoryListProvider listProvider,
     InventoryService service,
   ) {
+    // Fixed: Capture messenger before async operation
+    final messenger = ScaffoldMessenger.of(context);
+    
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -49,26 +52,23 @@ class DeleteInventoryDialog {
               try {
                 await listProvider.deleteInventory(id, service);
                 
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('"$name" deleted'),
-                      backgroundColor: Colors.green,
-                      behavior: SnackBarBehavior.floating,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                }
+                // Fixed: Use captured messenger, no mounted check needed
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text('"$name" deleted'),
+                    backgroundColor: Colors.green,
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
               } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to delete: $e'),
-                      backgroundColor: Colors.red,
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                }
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text('Failed to delete: $e'),
+                    backgroundColor: Colors.red,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
               }
             },
             style: FilledButton.styleFrom(

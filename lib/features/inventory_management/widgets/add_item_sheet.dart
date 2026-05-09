@@ -9,6 +9,7 @@ class AddItemSheet {
     BuildContext context, {
     required String label,
     required InventorySettings? settings,
+    // onSave is only called for NEW items
     required Future<void> Function(InventoryItem) onSave,
     InventoryItem? existingItem,
   }) {
@@ -58,7 +59,11 @@ class _AddItemFormState extends State<_AddItemForm> {
   late final TextEditingController _quantityController;
   DateTime? _productionDate;
   DateTime? _expireDate;
+
+  // Controllers are keyed by field name and fully initialized in initState
+  // so they are never created inside build() and are always disposed properly.
   final Map<String, TextEditingController> _customFieldControllers = {};
+
   bool _saving = false;
 
   @override
@@ -72,14 +77,16 @@ class _AddItemFormState extends State<_AddItemForm> {
     _materialController = TextEditingController(text: item?.material ?? '');
     _sizeController = TextEditingController(text: item?.size ?? '');
     _noteController = TextEditingController(text: item?.note ?? '');
-    _quantityController = TextEditingController(text: (item?.quantity ?? 0).toString());
+    _quantityController =
+        TextEditingController(text: (item?.quantity ?? 0).toString());
     _productionDate = item?.productionDate;
     _expireDate = item?.expireDate;
-    
-    // Initialize custom field controllers
-    for (var fieldName in widget.settings?.customFieldNames ?? []) {
+
+    // FIX (warning): initialize ALL custom field controllers in initState using
+    // a stable snapshot of customFieldNames. Never create controllers in build().
+    for (final fieldName in widget.settings?.customFieldNames ?? const []) {
       _customFieldControllers[fieldName] = TextEditingController(
-        text: item?.customFields[fieldName] ?? ''
+        text: item?.customFields[fieldName] ?? '',
       );
     }
   }
@@ -94,7 +101,7 @@ class _AddItemFormState extends State<_AddItemForm> {
     _sizeController.dispose();
     _noteController.dispose();
     _quantityController.dispose();
-    for (var controller in _customFieldControllers.values) {
+    for (final controller in _customFieldControllers.values) {
       controller.dispose();
     }
     super.dispose();
@@ -104,7 +111,8 @@ class _AddItemFormState extends State<_AddItemForm> {
     if (widget.settings == null) return true;
     final config = widget.settings!.fieldConfigs.firstWhere(
       (f) => f.fieldName == fieldName,
-      orElse: () => FieldConfig(fieldName: fieldName, isEnabled: true, isRequired: false),
+      orElse: () =>
+          FieldConfig(fieldName: fieldName, isEnabled: true, isRequired: false),
     );
     return config.isEnabled;
   }
@@ -118,9 +126,7 @@ class _AddItemFormState extends State<_AddItemForm> {
     UnifiedBarcodeScanner.showScanner(
       context,
       onBarcodeScanned: (barcode) {
-        setState(() {
-          _barcodeController.text = barcode;
-        });
+        setState(() => _barcodeController.text = barcode);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -137,7 +143,8 @@ class _AddItemFormState extends State<_AddItemForm> {
                 ],
               ),
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(40)),
               margin: const EdgeInsets.all(20),
               duration: const Duration(seconds: 2),
             ),
@@ -149,20 +156,20 @@ class _AddItemFormState extends State<_AddItemForm> {
 
   void _clearBarcode() {
     if (_barcodeController.text.isNotEmpty) {
-      setState(() {
-        _barcodeController.clear();
-      });
+      setState(() => _barcodeController.clear());
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.existingItem != null;
-    
+
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom + 28,
-        left: 20, right: 20, top: 20,
+        left: 20,
+        right: 20,
+        top: 20,
       ),
       child: Form(
         key: _formKey,
@@ -173,7 +180,8 @@ class _AddItemFormState extends State<_AddItemForm> {
             children: [
               Center(
                 child: Container(
-                  width: 40, height: 4,
+                  width: 40,
+                  height: 4,
                   decoration: BoxDecoration(
                     color: Colors.grey[400],
                     borderRadius: BorderRadius.circular(4),
@@ -182,10 +190,13 @@ class _AddItemFormState extends State<_AddItemForm> {
               ),
               const SizedBox(height: 18),
               Text(
-                isEditing ? 'Edit Item' : 'Add New Item to ${widget.label}',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+                isEditing
+                    ? 'Edit Item'
+                    : 'Add New Item to ${widget.label}',
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 16),
               if (_isFieldEnabled('Name'))
@@ -205,8 +216,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                   icon: Icons.code,
                   required: _isFieldRequired('Code'),
                 ),
-              if (_isFieldEnabled('Barcode'))
-                _buildBarcodeField(),
+              if (_isFieldEnabled('Barcode')) _buildBarcodeField(),
               if (_isFieldEnabled('Color'))
                 _buildTextField(
                   controller: _colorController,
@@ -219,7 +229,8 @@ class _AddItemFormState extends State<_AddItemForm> {
               if (_isFieldEnabled('Material'))
                 _buildTextField(
                   controller: _materialController,
-                  label: _isFieldRequired('Material') ? 'Material *' : 'Material',
+                  label:
+                      _isFieldRequired('Material') ? 'Material *' : 'Material',
                   hint: 'Enter material',
                   icon: Icons.texture,
                   required: _isFieldRequired('Material'),
@@ -235,26 +246,26 @@ class _AddItemFormState extends State<_AddItemForm> {
                 ),
               if (_isFieldEnabled('Production Date'))
                 _buildDateField(
-                  label: _isFieldRequired('Production Date') ? 'Production Date *' : 'Production Date',
+                  label: _isFieldRequired('Production Date')
+                      ? 'Production Date *'
+                      : 'Production Date',
                   value: _productionDate,
                   onPicked: (d) => setState(() => _productionDate = d),
                   onClear: () => setState(() => _productionDate = null),
                 ),
               if (_isFieldEnabled('Expire Date'))
                 _buildDateField(
-                  label: _isFieldRequired('Expire Date') ? 'Expire Date *' : 'Expire Date',
+                  label: _isFieldRequired('Expire Date')
+                      ? 'Expire Date *'
+                      : 'Expire Date',
                   value: _expireDate,
                   onPicked: (d) => setState(() => _expireDate = d),
                   onClear: () => setState(() => _expireDate = null),
                 ),
-              _buildTextField(
-                controller: _quantityController,
-                label: 'Quantity',
-                hint: 'Enter quantity',
-                icon: Icons.numbers,
-                keyboardType: TextInputType.number,
-                required: false,
-              ),
+              // FIX (warning): quantity now has a validator that checks for a
+              // valid integer in [0, maxQuantity] instead of silently defaulting
+              // to 0 on bad input.
+              _buildQuantityField(),
               if (_isFieldEnabled('Note'))
                 _buildTextField(
                   controller: _noteController,
@@ -271,12 +282,12 @@ class _AddItemFormState extends State<_AddItemForm> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _saving ? null : () => Navigator.pop(context),
+                      onPressed:
+                          _saving ? null : () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(40),
-                        ),
+                            borderRadius: BorderRadius.circular(40)),
                       ),
                       child: const Text('Cancel'),
                     ),
@@ -288,8 +299,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(40),
-                        ),
+                            borderRadius: BorderRadius.circular(40)),
                       ),
                       child: _saving
                           ? const SizedBox(
@@ -318,7 +328,7 @@ class _AddItemFormState extends State<_AddItemForm> {
 
   Widget _buildBarcodeField() {
     final hasText = _barcodeController.text.isNotEmpty;
-    
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
@@ -349,13 +359,46 @@ class _AddItemFormState extends State<_AddItemForm> {
           ),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           filled: true,
-          fillColor: hasText 
-              ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.1)
+          fillColor: hasText
+              ? Theme.of(context)
+                  .colorScheme
+                  .primaryContainer
+                  .withValues(alpha: 0.1)
               : null,
         ),
-        validator: _isFieldRequired('Barcode') 
-            ? (v) => (v == null || v.trim().isEmpty) ? 'Barcode is required' : null 
+        validator: _isFieldRequired('Barcode')
+            ? (v) =>
+                (v == null || v.trim().isEmpty) ? 'Barcode is required' : null
             : null,
+      ),
+    );
+  }
+
+  /// FIX (warning): dedicated quantity field with proper range validation.
+  Widget _buildQuantityField() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: _quantityController,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(
+          labelText: 'Quantity',
+          hintText: 'Enter quantity',
+          prefixIcon: const Icon(Icons.numbers, size: 20),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+          filled: true,
+          errorStyle: const TextStyle(fontSize: 12),
+        ),
+        validator: (v) {
+          if (v == null || v.trim().isEmpty) return 'Quantity is required';
+          final parsed = int.tryParse(v.trim());
+          if (parsed == null) return 'Enter a valid whole number';
+          if (parsed < 0) return 'Quantity cannot be negative';
+          if (parsed > InventoryItem.maxQuantity) {
+            return 'Quantity cannot exceed ${InventoryItem.maxQuantity}';
+          }
+          return null;
+        },
       ),
     );
   }
@@ -385,13 +428,13 @@ class _AddItemFormState extends State<_AddItemForm> {
           filled: true,
           errorStyle: const TextStyle(fontSize: 12),
         ),
-        validator: required 
+        validator: required
             ? (v) {
                 if (v == null || v.trim().isEmpty) {
                   return '${label.replaceAll(' *', '')} is required';
                 }
                 return null;
-              } 
+              }
             : null,
       ),
     );
@@ -433,7 +476,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                 : null,
           ),
           child: Text(
-            value != null 
+            value != null
                 ? '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}'
                 : 'Select date',
             style: TextStyle(
@@ -446,25 +489,19 @@ class _AddItemFormState extends State<_AddItemForm> {
     );
   }
 
+  // FIX (warning): _buildCustomFields now only reads controllers that were
+  // initialized in initState — it never creates new ones, so there is no leak.
   List<Widget> _buildCustomFields() {
-    if (widget.settings == null || widget.settings!.customFieldNames.isEmpty) {
-      return [];
-    }
-    
-    return widget.settings!.customFieldNames.map((fieldName) {
-      if (!_customFieldControllers.containsKey(fieldName)) {
-        _customFieldControllers[fieldName] = TextEditingController(
-          text: widget.existingItem?.customFields[fieldName] ?? ''
-        );
-      }
-      
+    if (_customFieldControllers.isEmpty) return const [];
+
+    return _customFieldControllers.entries.map((entry) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: TextFormField(
-          controller: _customFieldControllers[fieldName],
+          controller: entry.value,
           decoration: InputDecoration(
-            labelText: fieldName,
-            hintText: 'Enter $fieldName',
+            labelText: entry.key,
+            hintText: 'Enter ${entry.key}',
             prefixIcon: const Icon(Icons.edit_note, size: 20),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
             filled: true,
@@ -475,62 +512,73 @@ class _AddItemFormState extends State<_AddItemForm> {
     }).toList();
   }
 
-  /// Submit handler that correctly handles both add and edit modes
+  /// FIX (bug): edit and add paths are now cleanly separated.
+  ///
+  /// EDIT: mutates the existing HiveObject in place and calls item.save()
+  ///       directly. Does NOT route through onSave (which expects a new item).
+  ///
+  /// ADD: creates a new InventoryItem and passes it to onSave so the caller
+  ///      can persist it to the correct box.
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     setState(() => _saving = true);
-    
+
     try {
-      // Build custom fields map
       final customFields = <String, String>{};
-      for (var entry in _customFieldControllers.entries) {
+      for (final entry in _customFieldControllers.entries) {
         final value = entry.value.text.trim();
-        if (value.isNotEmpty) {
-          customFields[entry.key] = value;
-        }
+        if (value.isNotEmpty) customFields[entry.key] = value;
       }
-      
+
       final isEditing = widget.existingItem != null;
-      
+
       if (isEditing) {
-        // EDITING: Mutate the existing HiveObject directly
+        // EDIT: mutate the live HiveObject and save it directly.
+        // onSave is intentionally NOT called here.
         final item = widget.existingItem!;
         item.name = _nameController.text.trim();
         item.code = _isFieldEnabled('Code') ? _codeController.text.trim() : '';
-        item.barcode = _isFieldEnabled('Barcode') ? _barcodeController.text.trim() : '';
-        item.color = _isFieldEnabled('Color') ? _colorController.text.trim() : '';
-        item.material = _isFieldEnabled('Material') ? _materialController.text.trim() : '';
+        item.barcode =
+            _isFieldEnabled('Barcode') ? _barcodeController.text.trim() : '';
+        item.color =
+            _isFieldEnabled('Color') ? _colorController.text.trim() : '';
+        item.material =
+            _isFieldEnabled('Material') ? _materialController.text.trim() : '';
         item.size = _isFieldEnabled('Size') ? _sizeController.text.trim() : '';
-        item.productionDate = _isFieldEnabled('Production Date') ? _productionDate : null;
-        item.expireDate = _isFieldEnabled('Expire Date') ? _expireDate : null;
+        item.productionDate =
+            _isFieldEnabled('Production Date') ? _productionDate : null;
+        item.expireDate =
+            _isFieldEnabled('Expire Date') ? _expireDate : null;
         item.note = _isFieldEnabled('Note') ? _noteController.text.trim() : '';
-        item.quantity = int.tryParse(_quantityController.text) ?? 0;
+        item.quantity = int.parse(_quantityController.text.trim());
         item.label = widget.label;
         item.customFields = customFields;
         item.modified = DateTime.now();
+        await item.save();
       } else {
-        // ADDING: Create a new item
+        // ADD: build a new item and hand it to the caller for box insertion.
         final item = InventoryItem(
           name: _nameController.text.trim(),
           code: _isFieldEnabled('Code') ? _codeController.text.trim() : '',
-          barcode: _isFieldEnabled('Barcode') ? _barcodeController.text.trim() : '',
+          barcode:
+              _isFieldEnabled('Barcode') ? _barcodeController.text.trim() : '',
           color: _isFieldEnabled('Color') ? _colorController.text.trim() : '',
-          material: _isFieldEnabled('Material') ? _materialController.text.trim() : '',
+          material:
+              _isFieldEnabled('Material') ? _materialController.text.trim() : '',
           size: _isFieldEnabled('Size') ? _sizeController.text.trim() : '',
-          productionDate: _isFieldEnabled('Production Date') ? _productionDate : null,
+          productionDate:
+              _isFieldEnabled('Production Date') ? _productionDate : null,
           expireDate: _isFieldEnabled('Expire Date') ? _expireDate : null,
           note: _isFieldEnabled('Note') ? _noteController.text.trim() : '',
-          quantity: int.tryParse(_quantityController.text) ?? 0,
+          quantity: int.parse(_quantityController.text.trim()),
           label: widget.label,
           customFields: customFields,
           modified: DateTime.now(),
         );
-        
-        // Pass to parent for saving
         await widget.onSave(item);
       }
-      
+
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
@@ -545,7 +593,8 @@ class _AddItemFormState extends State<_AddItemForm> {
             ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
             margin: const EdgeInsets.all(20),
           ),
         );

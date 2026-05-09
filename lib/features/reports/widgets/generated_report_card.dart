@@ -21,8 +21,10 @@ class GeneratedReportCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    // Fixed: Use theme-adaptive colors instead of hardcoded green
     return Card(
-      color: Colors.green.shade50,
+      color: colorScheme.secondaryContainer,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -31,22 +33,38 @@ class GeneratedReportCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                Icon(
+                  Icons.check_circle,
+                  color: colorScheme.onSecondaryContainer,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'Report Generated',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
-                      color: Colors.green.shade800,
+                      color: colorScheme.onSecondaryContainer,
                     ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            Text('File: ${fileName ?? "report.csv"}', style: const TextStyle(fontSize: 12)),
-            Text('Items: $totalItems', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            Text(
+              'File: ${fileName ?? "report.csv"}',
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSecondaryContainer.withValues(alpha: 0.7),
+              ),
+            ),
+            Text(
+              'Items: $totalItems',
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSecondaryContainer.withValues(alpha: 0.5),
+              ),
+            ),
             const SizedBox(height: 12),
             Row(
               children: [

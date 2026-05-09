@@ -6,8 +6,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../inventory_management/models/inventory_item.dart';
 import '../../inventory_management/models/inventory_settings.dart';
-import '../../../core/utils/date_utils.dart';
-import '../../../core/utils/file_export.dart'; // This imports downloadFileWeb function
+import '../../../core/utils/file_export.dart';
+import '../features/report_utils.dart';
 
 class CsvService {
   /// Returns headers based on settings AND user-selected fields.
@@ -39,25 +39,6 @@ class CsvService {
     }
 
     return headers;
-  }
-
-  /// Standardised field-value resolver (mirrors the one in ReportsScreen).
-  static dynamic getFieldValue(InventoryItem item, String fieldName, String inventoryName) {
-    switch (fieldName) {
-      case 'Name': return item.name;
-      case 'Code': return item.code;
-      case 'Barcode': return item.barcode;
-      case 'Color': return item.color;
-      case 'Material': return item.material;
-      case 'Size': return item.size;
-      case 'Production Date': return item.productionDate != null ? formatDateOnly(item.productionDate) : '';
-      case 'Expire Date': return item.expireDate != null ? formatDateOnly(item.expireDate) : '';
-      case 'Note': return item.note;
-      case 'Quantity': return item.quantity.toString();
-      case 'Label': return item.label;
-      case 'Inventory': return inventoryName;
-      default: return item.customFields[fieldName] ?? '';
-    }
   }
 
   String generateCsv(
@@ -92,7 +73,8 @@ class CsvService {
     for (var item in items) {
       final row = <dynamic>[];
       for (var header in headers) {
-        row.add(getFieldValue(item, header, inventoryName));
+        // Fixed: Use ReportUtils as single source of truth
+        row.add(ReportUtils.getFieldValue(item, header, inventoryName));
       }
       rows.add(row);
     }
