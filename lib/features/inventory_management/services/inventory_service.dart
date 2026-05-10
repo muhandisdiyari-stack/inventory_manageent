@@ -5,6 +5,41 @@ import '../models/inventory_settings.dart';
 import '../../../core/services/activity_log_service.dart';
 import '../../../core/models/activity_log_entry.dart';
 
+class LabelInfo {
+  final String name;
+  final DateTime createdAt;
+  final DateTime modifiedAt;
+
+  LabelInfo({
+    required this.name,
+    required this.createdAt,
+    DateTime? modifiedAt,
+  }) : modifiedAt = modifiedAt ?? createdAt;
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'createdAt': createdAt.toIso8601String(),
+    'modifiedAt': modifiedAt.toIso8601String(),
+  };
+
+  factory LabelInfo.fromJson(Map<String, dynamic> json) => LabelInfo(
+    name: json['name'] as String,
+    createdAt: DateTime.parse(json['createdAt'] as String),
+    modifiedAt: json['modifiedAt'] != null 
+        ? DateTime.parse(json['modifiedAt'] as String) 
+        : null,
+  );
+}
+
+enum LabelSortType {
+  nameAsc,
+  nameDesc,
+  dateCreatedAsc,
+  dateCreatedDesc,
+  dateModifiedAsc,
+  dateModifiedDesc,
+}
+
 class InventoryService {
   final Map<String, Box<InventoryItem>> _itemsBoxes = {};
   final Map<String, Box> _labelsBoxes = {};
@@ -24,6 +59,9 @@ class InventoryService {
     }
     if (!labelsBox.containsKey('labels')) {
       await labelsBox.put('labels', <String>[]);
+    }
+    if (!labelsBox.containsKey('labelInfos')) {
+      await labelsBox.put('labelInfos', <String, Map<String, dynamic>>{});
     }
     _labelsBoxes[inventoryId] = labelsBox;
 
@@ -74,10 +112,8 @@ class InventoryService {
     try {
       await closeAndDeleteBox('items_$id');
       _itemsBoxes.remove(id);
-
       await closeAndDeleteBox('labels_$id');
       _labelsBoxes.remove(id);
-
       await closeAndDeleteBox('inventory_settings_$id');
       _settingsBoxes.remove(id);
 
@@ -93,16 +129,64 @@ class InventoryService {
 
   // ── Label Management ──────────────────────────────────────────
 
-  List<String> get labels {
+  Map<String, LabelInfo> get labelInfos {
     if (_currentInventoryId == null || !_labelsBoxes.containsKey(_currentInventoryId!)) {
-      return [];
+      return {};
     }
-    final labelsData = _labelsBoxes[_currentInventoryId!]!.get('labels');
-    return labelsData is List ? labelsData.cast<String>() : [];
+    final infosData = _labelsBoxes[_currentInventoryId!]!.get('labelInfos');
+    if (infosData is Map) {
+      return infosData.map((key, value) {
+        if (value is Map) {
+          return MapEntry(key.toString(), LabelInfo.fromJson(Map<String, dynamic>.from(value)));
+        }
+        return MapEntry(key.toString(), LabelInfo(name: key.toString(), createdAt: DateTime.now()));
+      });
+    }
+    return {};
+  }
+
+  List<String> get labels {
+    return getSortedLabels();
   }
 
   bool get hasLabels => labels.isNotEmpty;
   bool hasLabel(String label) => labels.contains(label);
+
+  /// Get labels sorted by the specified sort type
+  List<String> getSortedLabels({LabelSortType sortType = LabelSortType.nameAsc}) {
+    final infos = labelInfos;
+    if (infos.isEmpty) return [];
+
+    final sortedEntries = infos.entries.toList();
+    
+    switch (sortType) {
+      case LabelSortType.nameAsc:
+        sortedEntries.sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+        break;
+      case LabelSortType.nameDesc:
+        sortedEntries.sort((a, b) => b.key.toLowerCase().compareTo(a.key.toLowerCase()));
+        break;
+      case LabelSortType.dateCreatedAsc:
+        sortedEntries.sort((a, b) => a.value.createdAt.compareTo(b.value.createdAt));
+        break;
+      case LabelSortType.dateCreatedDesc:
+        sortedEntries.sort((a, b) => b.value.createdAt.compareTo(a.value.createdAt));
+        break;
+      case LabelSortType.dateModifiedAsc:
+        sortedEntries.sort((a, b) => a.value.modifiedAt.compareTo(b.value.modifiedAt));
+        break;
+      case LabelSortType.dateModifiedDesc:
+        sortedEntries.sort((a, b) => b.value.modifiedAt.compareTo(a.value.modifiedAt));
+        break;
+    }
+    
+    return sortedEntries.map((e) => e.key).toList();
+  }
+
+  /// Get the LabelInfo for a specific label
+  LabelInfo? getLabelInfo(String labelName) {
+    return labelInfos[labelName];
+  }
 
   Future<void> createLabel(String label) async {
     if (_currentInventoryId == null) return;
@@ -116,10 +200,18 @@ class InventoryService {
       currentLabels.add(label);
       await _labelsBoxes[_currentInventoryId!]!.put('labels', currentLabels);
       
+      // Store label info with dates
+      final now = DateTime.now();
+      final infos = Map<String, dynamic>.from(
+        _labelsBoxes[_currentInventoryId!]!.get('labelInfos', defaultValue: <String, Map<String, dynamic>>{}) as Map
+      );
+      infos[label] = LabelInfo(name: label, createdAt: now, modifiedAt: now).toJson();
+      await _labelsBoxes[_currentInventoryId!]!.put('labelInfos', infos);
+      
       // Log activity
       final logEntry = ActivityLogEntry(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        timestamp: DateTime.now(),
+        id: now.microsecondsSinceEpoch.toString(),
+        timestamp: now,
         action: 'created',
         entityType: 'label',
         entityName: label,
@@ -143,6 +235,22 @@ class InventoryService {
     if (index != -1) {
       currentLabels[index] = newLabel;
       await _labelsBoxes[_currentInventoryId!]!.put('labels', currentLabels);
+
+      // Update label info
+      final infos = Map<String, dynamic>.from(
+        _labelsBoxes[_currentInventoryId!]!.get('labelInfos', defaultValue: <String, Map<String, dynamic>>{}) as Map
+      );
+      final oldInfo = infos[oldLabel];
+      if (oldInfo is Map) {
+        final labelInfo = LabelInfo.fromJson(Map<String, dynamic>.from(oldInfo));
+        infos.remove(oldLabel);
+        infos[newLabel] = LabelInfo(
+          name: newLabel,
+          createdAt: labelInfo.createdAt,
+          modifiedAt: DateTime.now(),
+        ).toJson();
+        await _labelsBoxes[_currentInventoryId!]!.put('labelInfos', infos);
+      }
 
       final items = getItemsByLabel(oldLabel);
       for (var item in items) {
@@ -178,6 +286,13 @@ class InventoryService {
     final currentLabels = List<String>.from(labels);
     currentLabels.remove(label);
     await _labelsBoxes[_currentInventoryId!]!.put('labels', currentLabels);
+
+    // Remove label info
+    final infos = Map<String, dynamic>.from(
+      _labelsBoxes[_currentInventoryId!]!.get('labelInfos', defaultValue: <String, Map<String, dynamic>>{}) as Map
+    );
+    infos.remove(label);
+    await _labelsBoxes[_currentInventoryId!]!.put('labelInfos', infos);
 
     final items = getItemsByLabel(label);
     for (var item in items) {
@@ -219,6 +334,42 @@ class InventoryService {
     } else {
       await _itemsBoxes[_currentInventoryId!]!.add(item);
     }
+  }
+
+  /// Import items from a list, skipping exact duplicates
+  Future<int> importItems(String label, List<InventoryItem> newItems) async {
+    if (_currentInventoryId == null) return 0;
+
+    if (!_itemsBoxes.containsKey(_currentInventoryId!)) {
+      await initializeForInventory(_currentInventoryId!);
+    }
+
+    final box = _itemsBoxes[_currentInventoryId!]!;
+    final existingItems = box.values.where((i) => i.label == label).toList();
+    int importedCount = 0;
+
+    for (var newItem in newItems) {
+      newItem.label = label;
+      
+      // Check for exact duplicates
+      bool isDuplicate = existingItems.any((existing) =>
+        existing.name == newItem.name &&
+        existing.code == newItem.code &&
+        existing.barcode == newItem.barcode &&
+        existing.quantity == newItem.quantity &&
+        existing.size == newItem.size &&
+        existing.color == newItem.color &&
+        existing.material == newItem.material &&
+        existing.note == newItem.note
+      );
+
+      if (!isDuplicate) {
+        await box.add(newItem);
+        importedCount++;
+      }
+    }
+
+    return importedCount;
   }
 
   Future<void> saveItems(String label, List<InventoryItem> newItems) async {
@@ -396,14 +547,12 @@ class InventoryService {
       await initializeForInventory(_currentInventoryId!);
     }
     
-    // Get old settings for comparison
     final oldSettings = _settingsBoxes[_currentInventoryId!]!.get('main');
     
     await _settingsBoxes[_currentInventoryId!]!.put('main', settings);
     
-    // Log settings change
     final changes = <String, FieldChange>{};
-    if (oldSettings != null) {
+        if (oldSettings != null) {
       final oldFields = oldSettings.fieldConfigs
           .where((f) => f.isEnabled)
           .map((f) => '${f.fieldName}(${f.isRequired ? "required" : "optional"})')

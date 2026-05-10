@@ -184,6 +184,25 @@ class _ItemCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Date information
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('📅 Created: ${item.formattedCreatedAt}',
+                          style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      const SizedBox(height: 2),
+                      Text('✏️ Modified: ${item.formattedModifiedAt}',
+                          style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    ],
+                  ),
+                ),
                 if (item.color.isNotEmpty) _detailRow('Color', item.color),
                 if (item.material.isNotEmpty) _detailRow('Material', item.material),
                 if (item.productionDate != null)

@@ -30,13 +30,14 @@ class InventoryItemAdapter extends TypeAdapter<InventoryItem> {
       quantity: fields[10] as int,
       customFields: (fields[11] as Map?)?.cast<String, String>(),
       label: fields[12] as String,
+      createdAt: fields[13] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, InventoryItem obj) {
     writer
-      ..writeByte(13)
+      ..writeByte(14)
       ..writeByte(0)
       ..write(obj.name)
       ..writeByte(1)
@@ -62,7 +63,9 @@ class InventoryItemAdapter extends TypeAdapter<InventoryItem> {
       ..writeByte(11)
       ..write(obj.customFields)
       ..writeByte(12)
-      ..write(obj.label);
+      ..write(obj.label)
+      ..writeByte(13)
+      ..write(obj.createdAt);
   }
 
   @override

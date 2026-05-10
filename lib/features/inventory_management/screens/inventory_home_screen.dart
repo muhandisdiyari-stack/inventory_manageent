@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/inventory_item.dart';
 import '../providers/inventory_provider.dart';
+import '../services/inventory_service.dart';
 import '../widgets/add_item_sheet.dart';
 import '../widgets/label_list_widget.dart';
 import '../widgets/items_list_widget.dart';
@@ -9,6 +10,8 @@ import '../../search/screens/search_screen.dart';
 import '../../reports/screens/reports_screen.dart';
 import '../../settings/screens/settings_screen.dart';
 import '../../activity_log/screens/activity_log_screen.dart';
+import '../../import/screens/import_labels_screen.dart';
+import '../../import/screens/import_items_screen.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/activity_log_service.dart';
 import '../../../core/models/activity_log_entry.dart';
@@ -25,6 +28,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
   final _labelSearchController = TextEditingController();
   final _itemSearchController = TextEditingController();
   bool _showItemsView = false;
+  LabelSortType _labelSortType = LabelSortType.nameAsc;
 
   @override
   void initState() {
@@ -72,6 +76,10 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       _showItemsView = true;
       _itemSearchController.clear();
     });
+  }
+
+  void _onSortChanged(LabelSortType sortType) {
+    setState(() => _labelSortType = sortType);
   }
 
   void _showCreateLabelDialog() {
@@ -177,6 +185,49 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     );
   }
 
+  void _importLabels() {
+    final provider = context.read<InventoryProvider>();
+    if (provider.currentInventoryId == null) {
+      _showSnack('No inventory selected');
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ImportLabelsScreen(
+          inventoryId: provider.currentInventoryId!,
+          inventoryName: provider.currentInventoryName ?? 'Inventory',
+        ),
+      ),
+    ).then((_) {
+      if (mounted) {
+        context.read<InventoryProvider>().initializeCurrentInventory();
+        setState(() {});
+      }
+    });
+  }
+
+  void _importItems() {
+    final provider = context.read<InventoryProvider>();
+    if (provider.currentInventoryId == null || _currentLabel == null) {
+      _showSnack('Select a label first');
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ImportItemsScreen(
+          inventoryId: provider.currentInventoryId!,
+          inventoryName: provider.currentInventoryName ?? 'Inventory',
+          label: _currentLabel!,
+          settings: provider.currentSettings,
+        ),
+      ),
+    ).then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
   void _showAddItemDialog({InventoryItem? existingItem}) {
     if (_currentLabel == null) {
       _showSnack('Select a label first');
@@ -223,7 +274,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
 
       if (!mounted) return;
 
-      // Log quantity change
       if (oldQuantity != item.quantity) {
         final provider = context.read<InventoryProvider>();
         final logEntry = ActivityLogEntry(
@@ -282,7 +332,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
         
         await item.delete();
 
-        // Log activity
         final logEntry = ActivityLogEntry(
           id: DateTime.now().microsecondsSinceEpoch.toString(),
           timestamp: DateTime.now(),
@@ -328,6 +377,10 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     final width = MediaQuery.of(context).size.width;
     final isMobile = width < AppConstants.mobileBreakpoint;
 
+    // Get sorted labels
+    final service = context.read<InventoryService>();
+    final sortedLabels = service.getSortedLabels(sortType: _labelSortType);
+
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -358,6 +411,17 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Import Labels',
+            icon: const Icon(Icons.upload_file),
+            onPressed: _importLabels,
+          ),
+          if (_currentLabel != null)
+            IconButton(
+              tooltip: 'Import Items',
+              icon: const Icon(Icons.drive_folder_upload),
+              onPressed: _importItems,
+            ),
           IconButton(
             tooltip: 'Activity Log',
             icon: const Icon(Icons.history),
@@ -398,13 +462,13 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
         backgroundColor: Theme.of(context).colorScheme.surface,
         displacement: 60,
         child: isMobile
-            ? _buildMobileLayout(provider)
-            : _buildDesktopLayout(provider, width),
+            ? _buildMobileLayout(provider, sortedLabels, service)
+            : _buildDesktopLayout(provider, width, sortedLabels, service),
       ),
     );
   }
 
-  Widget _buildDesktopLayout(InventoryProvider provider, double width) {
+  Widget _buildDesktopLayout(InventoryProvider provider, double width, List<String> sortedLabels, InventoryService service) {
     final sidebarWidth = width * 0.30;
     return Row(
       children: [
@@ -435,12 +499,15 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
                   ),
                   Expanded(
                     child: LabelListWidget(
-                      labels: provider.labels,
+                      labels: sortedLabels,
                       currentLabel: _currentLabel,
                       searchController: _labelSearchController,
                       onSelectLabel: _selectLabel,
                       onRenameLabel: _showRenameDialog,
                       onDeleteLabel: _deleteLabel,
+                      sortType: _labelSortType,
+                      onSortChanged: _onSortChanged,
+                      inventoryService: service,
                     ),
                   ),
                 ],
@@ -491,7 +558,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     );
   }
 
-  Widget _buildMobileLayout(InventoryProvider provider) {
+  Widget _buildMobileLayout(InventoryProvider provider, List<String> sortedLabels, InventoryService service) {
     if (_showItemsView && _currentLabel != null) {
       return Stack(
         children: [
@@ -543,12 +610,15 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
             ),
             Expanded(
               child: LabelListWidget(
-                labels: provider.labels,
+                labels: sortedLabels,
                 currentLabel: _currentLabel,
                 searchController: _labelSearchController,
                 onSelectLabel: _selectLabel,
                 onRenameLabel: _showRenameDialog,
                 onDeleteLabel: _deleteLabel,
+                sortType: _labelSortType,
+                onSortChanged: _onSortChanged,
+                inventoryService: service,
               ),
             ),
           ],

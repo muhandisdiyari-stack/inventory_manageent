@@ -133,6 +133,18 @@ class InventoryItem extends HiveObject {
       
   String get displayName => name.isNotEmpty ? name : (size.isNotEmpty ? size : 'Unnamed');
   
+  /// Format creation date for display
+  String get formattedCreatedAt {
+    return '${createdAt.year}-${createdAt.month.toString().padLeft(2, '0')}-${createdAt.day.toString().padLeft(2, '0')} '
+        '${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}';
+  }
+  
+  /// Format modification date for display
+  String get formattedModifiedAt {
+    return '${modified.year}-${modified.month.toString().padLeft(2, '0')}-${modified.day.toString().padLeft(2, '0')} '
+        '${modified.hour.toString().padLeft(2, '0')}:${modified.minute.toString().padLeft(2, '0')}';
+  }
+  
   bool matchesQuery(String query) {
     final q = query.toLowerCase();
     return name.toLowerCase().contains(q) ||
