@@ -42,6 +42,9 @@ class InventoryItem extends HiveObject {
   
   @HiveField(12)
   String label;
+  
+  @HiveField(13)
+  DateTime createdAt;
 
   InventoryItem({
     this.name = '',
@@ -57,12 +60,11 @@ class InventoryItem extends HiveObject {
     this.quantity = 0,
     Map<String, String>? customFields,
     this.label = '',
+    DateTime? createdAt,
   })  : modified = modified ?? DateTime.now(),
-        customFields = customFields ?? {};
+        customFields = customFields ?? {},
+        createdAt = createdAt ?? DateTime.now();
 
-  /// Updates all fields from another InventoryItem without changing the Hive key.
-  /// Use this when you need to apply changes from a form while preserving the
-  /// object's identity in Hive.
   void updateFrom(InventoryItem other) {
     name = other.name;
     code = other.code;
@@ -79,11 +81,6 @@ class InventoryItem extends HiveObject {
     modified = DateTime.now();
   }
 
-  /// Creates a copy with optional field overrides.
-  ///
-  /// **Important**: The returned copy does NOT carry over the Hive key.
-  /// Saving the copy will create a **new** Hive entry. For updates use
-  /// direct mutation + [save] or [updateFrom].
   InventoryItem copyWith({
     String? name,
     String? code,
@@ -98,6 +95,7 @@ class InventoryItem extends HiveObject {
     int? quantity,
     Map<String, String>? customFields,
     String? label,
+    DateTime? createdAt,
   }) {
     return InventoryItem(
       name: name ?? this.name,
@@ -113,12 +111,12 @@ class InventoryItem extends HiveObject {
       quantity: quantity ?? this.quantity,
       customFields: customFields ?? Map<String, String>.from(this.customFields),
       label: label ?? this.label,
+      createdAt: createdAt ?? this.createdAt,
     );
   }
 
   static const int maxQuantity = 999999;
   
-  /// Checks expiry using UTC timestamps to avoid timezone-related drift.
   bool get isExpired {
     if (expireDate == null) return false;
     final now = DateTime.now().toUtc();
@@ -126,7 +124,6 @@ class InventoryItem extends HiveObject {
     return expiry.isBefore(now);
   }
   
-  /// Checks if the item will expire within 30 days using UTC timestamps.
   bool get isExpiringSoon {
     if (expireDate == null) return false;
     final now = DateTime.now().toUtc();
@@ -136,7 +133,6 @@ class InventoryItem extends HiveObject {
       
   String get displayName => name.isNotEmpty ? name : (size.isNotEmpty ? size : 'Unnamed');
   
-  /// Case-insensitive search across all searchable text fields.
   bool matchesQuery(String query) {
     final q = query.toLowerCase();
     return name.toLowerCase().contains(q) ||

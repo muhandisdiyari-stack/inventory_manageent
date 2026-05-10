@@ -5,6 +5,7 @@ import 'features/inventory_management/models/inventory_settings.dart';
 import 'features/inventory_management/services/inventory_service.dart';
 import 'features/inventory_management/services/demo_data_service.dart';
 import 'core/constants/app_constants.dart';
+import 'core/services/activity_log_service.dart';
 import 'app.dart';
 
 void main() async {
@@ -22,6 +23,10 @@ void main() async {
     // Open required Hive boxes
     await Hive.openBox(AppConstants.appSettingsBox);
     await Hive.openBox(AppConstants.inventoriesListBox);
+    await Hive.openBox(AppConstants.activityLogsBox);
+
+    // Initialize activity log service
+    await ActivityLogService().initialize();
 
     // Load demo data if demo mode is enabled
     if (AppConstants.autoLoadDemoData) {

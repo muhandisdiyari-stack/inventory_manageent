@@ -8,7 +8,10 @@ import '../widgets/items_list_widget.dart';
 import '../../search/screens/search_screen.dart';
 import '../../reports/screens/reports_screen.dart';
 import '../../settings/screens/settings_screen.dart';
+import '../../activity_log/screens/activity_log_screen.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/activity_log_service.dart';
+import '../../../core/models/activity_log_entry.dart';
 
 class InventoryHomeScreen extends StatefulWidget {
   const InventoryHomeScreen({super.key});
@@ -58,8 +61,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
 
     setState(() {
       if (_currentLabel != null && !provider.hasLabel(_currentLabel!)) {
-        _currentLabel =
-            provider.hasLabels ? provider.labels.first : null;
+        _currentLabel = provider.hasLabels ? provider.labels.first : null;
       }
     });
   }
@@ -161,8 +163,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
 
               setState(() {
                 if (_currentLabel == label) {
-                  _currentLabel =
-                      provider.hasLabels ? provider.labels.first : null;
+                  _currentLabel = provider.hasLabels ? provider.labels.first : null;
                 }
               });
               _labelSearchController.clear();
@@ -176,11 +177,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     );
   }
 
-  /// Shows the add/edit item dialog.
-  ///
-  /// For both new items AND edits, validation is now enforced through
-  /// AddItemSheet's FormState, which checks all required fields before
-  /// allowing save.
   void _showAddItemDialog({InventoryItem? existingItem}) {
     if (_currentLabel == null) {
       _showSnack('Select a label first');
@@ -194,6 +190,8 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       label: _currentLabel!,
       settings: provider.currentSettings,
       existingItem: existingItem,
+      inventoryName: provider.currentInventoryName,
+      inventoryId: provider.currentInventoryId,
       onSave: (item) async {
         if (provider.currentInventoryId == null) {
           _showSnack('No inventory selected — please select one first');
@@ -205,7 +203,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       },
     );
 
-    // For edits, refresh the list after the sheet closes
     if (existingItem != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() {});
@@ -219,12 +216,36 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
 
   Future<void> _adjustQuantity(InventoryItem item, int delta) async {
     try {
-      item.quantity =
-          (item.quantity + delta).clamp(0, InventoryItem.maxQuantity);
+      final oldQuantity = item.quantity;
+      item.quantity = (item.quantity + delta).clamp(0, InventoryItem.maxQuantity);
       item.modified = DateTime.now();
       await item.save();
 
       if (!mounted) return;
+
+      // Log quantity change
+      if (oldQuantity != item.quantity) {
+        final provider = context.read<InventoryProvider>();
+        final logEntry = ActivityLogEntry(
+          id: DateTime.now().microsecondsSinceEpoch.toString(),
+          timestamp: DateTime.now(),
+          action: 'modified',
+          entityType: 'item',
+          entityName: item.displayName,
+          inventoryId: provider.currentInventoryId,
+          inventoryName: provider.currentInventoryName,
+          labelName: item.label,
+          details: 'Quantity adjusted',
+          changes: {
+            'quantity': FieldChange(
+              oldValue: oldQuantity.toString(),
+              newValue: item.quantity.toString(),
+            ),
+          },
+        );
+        await ActivityLogService().addLog(logEntry);
+      }
+
       setState(() {});
     } catch (e) {
       if (!mounted) return;
@@ -239,8 +260,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Remove Item'),
-        content:
-            Text('Remove "$itemName" from ${_currentLabel ?? "label"}?'),
+        content: Text('Remove "$itemName" from ${_currentLabel ?? "label"}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -248,8 +268,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove',
-                style: TextStyle(color: Colors.red)),
+            child: const Text('Remove', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -259,7 +278,23 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
 
     if (confirmed == true) {
       try {
+        final provider = context.read<InventoryProvider>();
+        
         await item.delete();
+
+        // Log activity
+        final logEntry = ActivityLogEntry(
+          id: DateTime.now().microsecondsSinceEpoch.toString(),
+          timestamp: DateTime.now(),
+          action: 'deleted',
+          entityType: 'item',
+          entityName: itemName,
+          inventoryId: provider.currentInventoryId,
+          inventoryName: provider.currentInventoryName,
+          labelName: item.label,
+          details: 'Item deleted: "$itemName"',
+        );
+        await ActivityLogService().addLog(logEntry);
 
         if (!mounted) return;
 
@@ -272,8 +307,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     }
   }
 
-  void _showSnack(String message,
-      {Duration duration = AppConstants.snackbarDuration}) {
+  void _showSnack(String message, {Duration duration = AppConstants.snackbarDuration}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
@@ -282,8 +316,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
           content: Text(message),
           duration: duration,
           behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
           margin: const EdgeInsets.all(20),
         ),
       );
@@ -315,19 +348,24 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
               _showItemsView && _currentLabel != null
                   ? _currentLabel!
                   : provider.currentInventoryName ?? 'Inventory',
-              style: const TextStyle(
-                  fontWeight: FontWeight.w800, fontSize: 16),
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
             ),
             if (_showItemsView && _currentLabel != null)
               Text(
                 provider.currentInventoryName ?? '',
-                style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.primary),
+                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.primary),
               ),
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Activity Log',
+            icon: const Icon(Icons.history),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ActivityLogScreen()),
+            ),
+          ),
           IconButton(
             tooltip: 'Search',
             icon: const Icon(Icons.search),
@@ -386,16 +424,12 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
                         suffixIcon: _labelSearchController.text.isNotEmpty
                             ? IconButton(
                                 icon: const Icon(Icons.clear, size: 16),
-                                onPressed: () =>
-                                    _labelSearchController.clear(),
+                                onPressed: () => _labelSearchController.clear(),
                               )
                             : null,
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(40)),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
                         filled: true,
-                        fillColor: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest,
+                        fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                       ),
                     ),
                   ),
@@ -501,12 +535,9 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
                           onPressed: () => _labelSearchController.clear(),
                         )
                       : null,
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(40)),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
                   filled: true,
-                  fillColor: Theme.of(context)
-                      .colorScheme
-                      .surfaceContainerHighest,
+                  fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                 ),
               ),
             ),
@@ -548,14 +579,12 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
               color: Colors.grey[200],
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Icon(Icons.folder_open,
-                size: 28, color: Colors.grey),
+            child: const Icon(Icons.folder_open, size: 28, color: Colors.grey),
           ),
           const SizedBox(height: 16),
           const Text(
             'No label selected',
-            style:
-                TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
           Text(
@@ -566,10 +595,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
           Text(
             'Pull down to refresh',
             style: TextStyle(
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withValues(alpha: 0.4),
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
               fontSize: 12,
             ),
           ),
@@ -640,10 +666,7 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
           const SizedBox(height: 18),
           Text(
             widget.title,
-            style: Theme.of(context)
-                .textTheme
-                .headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 16),
           TextField(
@@ -652,8 +675,7 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
             textCapitalization: TextCapitalization.words,
             decoration: InputDecoration(
               hintText: widget.hint,
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14)),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
               filled: true,
             ),
             onSubmitted: (_) => _saving ? null : _submit(),
@@ -663,13 +685,10 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed:
-                      _saving ? null : () => Navigator.pop(context),
+                  onPressed: _saving ? null : () => Navigator.pop(context),
                   style: OutlinedButton.styleFrom(
-                    padding:
-                        const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(40)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
                   ),
                   child: const Text('Cancel'),
                 ),
@@ -679,21 +698,17 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
                 child: FilledButton(
                   onPressed: _saving ? null : _submit,
                   style: FilledButton.styleFrom(
-                    padding:
-                        const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(40)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
                   ),
                   child: _saving
                       ? const SizedBox(
                           height: 18,
                           width: 18,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2),
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Text(widget.submitLabel,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700)),
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
                 ),
               ),
             ],

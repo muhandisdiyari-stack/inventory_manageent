@@ -28,6 +28,7 @@ class AppConstants {
   // Hive Box Names
   static const String appSettingsBox = 'app_settings';
   static const String inventoriesListBox = 'inventories_list';
+  static const String activityLogsBox = 'activity_logs';
 
   // CSV Export
   static const int batchSize = 100;

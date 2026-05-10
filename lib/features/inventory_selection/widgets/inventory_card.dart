@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../../core/utils/inventory_date_formatter.dart';
+import '../../../core/utils/inventory_date_formatter.dart';
 import '../models/inventory_list_item.dart';
 import '../providers/inventory_list_provider.dart';
 import '../../inventory_management/services/inventory_service.dart';
@@ -10,7 +10,6 @@ class InventoryCard extends StatelessWidget {
   final InventoryListItem inventory;
   final InventoryListProvider listProvider;
   final InventoryService service;
-  // Fixed: Simplified callback signature
   final void Function(String) onOpenInventory;
 
   const InventoryCard({
@@ -59,7 +58,6 @@ class InventoryCard extends StatelessWidget {
     );
   }
 
-  // Fixed: Use theme-safe colors instead of hardcoded values
   Color _getIconColor(ColorScheme colorScheme) {
     final themeColors = [
       colorScheme.primary,
@@ -68,7 +66,6 @@ class InventoryCard extends StatelessWidget {
       colorScheme.error,
       colorScheme.primaryContainer,
     ];
-    // Use name hash for more consistent color assignment
     final index = inventory.name.hashCode.abs() % themeColors.length;
     return themeColors[index];
   }
@@ -108,6 +105,13 @@ class InventoryCard extends StatelessWidget {
             'Created ${InventoryDateFormatter.format(inventory.createdAt)}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: colorScheme.onSurface.withValues(alpha: 0.5),
+                ),
+          ),
+          Text(
+            'Modified ${InventoryDateFormatter.format(inventory.modifiedAt)}',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurface.withValues(alpha: 0.4),
+                  fontSize: 11,
                 ),
           ),
         ],

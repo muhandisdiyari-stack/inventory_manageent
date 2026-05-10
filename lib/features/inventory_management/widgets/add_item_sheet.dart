@@ -3,15 +3,18 @@ import 'package:flutter/material.dart';
 import '../models/inventory_item.dart';
 import '../models/inventory_settings.dart';
 import 'unified_barcode_scanner.dart';
+import '../../../core/services/activity_log_service.dart';
+import '../../../core/models/activity_log_entry.dart';
 
 class AddItemSheet {
   static void show(
     BuildContext context, {
     required String label,
     required InventorySettings? settings,
-    // onSave is only called for NEW items
     required Future<void> Function(InventoryItem) onSave,
     InventoryItem? existingItem,
+    String? inventoryName,
+    String? inventoryId,
   }) {
     showModalBottomSheet(
       context: context,
@@ -25,6 +28,8 @@ class AddItemSheet {
         settings: settings,
         onSave: onSave,
         existingItem: existingItem,
+        inventoryName: inventoryName,
+        inventoryId: inventoryId,
       ),
     );
   }
@@ -35,12 +40,16 @@ class _AddItemForm extends StatefulWidget {
   final InventorySettings? settings;
   final Future<void> Function(InventoryItem) onSave;
   final InventoryItem? existingItem;
+  final String? inventoryName;
+  final String? inventoryId;
 
   const _AddItemForm({
     required this.label,
     required this.settings,
     required this.onSave,
     this.existingItem,
+    this.inventoryName,
+    this.inventoryId,
   });
 
   @override
@@ -60,8 +69,6 @@ class _AddItemFormState extends State<_AddItemForm> {
   DateTime? _productionDate;
   DateTime? _expireDate;
 
-  // Controllers are keyed by field name and fully initialized in initState
-  // so they are never created inside build() and are always disposed properly.
   final Map<String, TextEditingController> _customFieldControllers = {};
 
   bool _saving = false;
@@ -82,7 +89,6 @@ class _AddItemFormState extends State<_AddItemForm> {
     _productionDate = item?.productionDate;
     _expireDate = item?.expireDate;
 
-    // Initialize ALL custom field controllers in initState
     for (final fieldName in widget.settings?.customFieldNames ?? const []) {
       _customFieldControllers[fieldName] = TextEditingController(
         text: item?.customFields[fieldName] ?? '',
@@ -93,9 +99,7 @@ class _AddItemFormState extends State<_AddItemForm> {
   @override
   void didUpdateWidget(covariant _AddItemForm oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Sync custom field controllers when settings change
     final newFields = widget.settings?.customFieldNames ?? const [];
-    // Add controllers for new fields
     for (final fieldName in newFields) {
       if (!_customFieldControllers.containsKey(fieldName)) {
         _customFieldControllers[fieldName] = TextEditingController(
@@ -103,7 +107,6 @@ class _AddItemFormState extends State<_AddItemForm> {
         );
       }
     }
-    // Remove controllers for removed fields
     _customFieldControllers.keys
         .where((key) => !newFields.contains(key))
         .toList()
@@ -111,7 +114,6 @@ class _AddItemFormState extends State<_AddItemForm> {
       _customFieldControllers[key]?.dispose();
       _customFieldControllers.remove(key);
     });
-    // Rebuild to reflect changes
     setState(() {});
   }
 
@@ -393,7 +395,6 @@ class _AddItemFormState extends State<_AddItemForm> {
     );
   }
 
-  /// Quantity field with proper range validation.
   Widget _buildQuantityField() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -552,13 +553,6 @@ class _AddItemFormState extends State<_AddItemForm> {
     }).toList();
   }
 
-  /// EDIT and ADD paths both validate required fields.
-  ///
-  /// EDIT: mutates the existing HiveObject in place and calls item.save()
-  ///       directly. Does NOT route through onSave (which expects a new item).
-  ///
-  /// ADD: creates a new InventoryItem and passes it to onSave so the caller
-  ///      can persist it to the correct box.
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -574,48 +568,112 @@ class _AddItemFormState extends State<_AddItemForm> {
       final isEditing = widget.existingItem != null;
 
       if (isEditing) {
-        // EDIT: mutate the live HiveObject and save it directly.
-        final item = widget.existingItem!;
-        item.name = _nameController.text.trim();
-        item.code = _isFieldEnabled('Code') ? _codeController.text.trim() : '';
-        item.barcode =
-            _isFieldEnabled('Barcode') ? _barcodeController.text.trim() : '';
-        item.color =
-            _isFieldEnabled('Color') ? _colorController.text.trim() : '';
-        item.material =
-            _isFieldEnabled('Material') ? _materialController.text.trim() : '';
-        item.size = _isFieldEnabled('Size') ? _sizeController.text.trim() : '';
-        item.productionDate =
-            _isFieldEnabled('Production Date') ? _productionDate : null;
-        item.expireDate =
-            _isFieldEnabled('Expire Date') ? _expireDate : null;
-        item.note = _isFieldEnabled('Note') ? _noteController.text.trim() : '';
-        item.quantity = int.parse(_quantityController.text.trim());
-        item.label = widget.label;
-        item.customFields = customFields;
-        item.modified = DateTime.now();
-        await item.save();
+        // Capture old values before mutation
+        final oldItem = widget.existingItem!;
+        final oldValues = <String, String>{
+          'name': oldItem.name,
+          'code': oldItem.code,
+          'barcode': oldItem.barcode,
+          'color': oldItem.color,
+          'material': oldItem.material,
+          'size': oldItem.size,
+          'productionDate': oldItem.productionDate?.toIso8601String() ?? '',
+          'expireDate': oldItem.expireDate?.toIso8601String() ?? '',
+          'note': oldItem.note,
+          'quantity': oldItem.quantity.toString(),
+          'label': oldItem.label,
+        };
+        for (final entry in oldItem.customFields.entries) {
+          oldValues[entry.key] = entry.value;
+        }
+
+        // Mutate the live HiveObject
+        oldItem.name = _nameController.text.trim();
+        oldItem.code = _isFieldEnabled('Code') ? _codeController.text.trim() : '';
+        oldItem.barcode = _isFieldEnabled('Barcode') ? _barcodeController.text.trim() : '';
+        oldItem.color = _isFieldEnabled('Color') ? _colorController.text.trim() : '';
+        oldItem.material = _isFieldEnabled('Material') ? _materialController.text.trim() : '';
+        oldItem.size = _isFieldEnabled('Size') ? _sizeController.text.trim() : '';
+        oldItem.productionDate = _isFieldEnabled('Production Date') ? _productionDate : null;
+        oldItem.expireDate = _isFieldEnabled('Expire Date') ? _expireDate : null;
+        oldItem.note = _isFieldEnabled('Note') ? _noteController.text.trim() : '';
+        oldItem.quantity = int.parse(_quantityController.text.trim());
+        oldItem.label = widget.label;
+        oldItem.customFields = customFields;
+        oldItem.modified = DateTime.now();
+        await oldItem.save();
+
+        // Build changes map
+        final changes = <String, FieldChange>{};
+        void compareField(String key, String newValue) {
+          if (oldValues[key] != newValue) {
+            changes[key] = FieldChange(oldValue: oldValues[key] ?? '', newValue: newValue);
+          }
+        }
+        compareField('name', oldItem.name);
+        compareField('code', oldItem.code);
+        compareField('barcode', oldItem.barcode);
+        compareField('color', oldItem.color);
+        compareField('material', oldItem.material);
+        compareField('size', oldItem.size);
+        compareField('productionDate', oldItem.productionDate?.toIso8601String() ?? '');
+        compareField('expireDate', oldItem.expireDate?.toIso8601String() ?? '');
+        compareField('note', oldItem.note);
+        compareField('quantity', oldItem.quantity.toString());
+        compareField('label', oldItem.label);
+        for (final entry in customFields.entries) {
+          compareField(entry.key, entry.value);
+        }
+
+        // Log activity
+        if (changes.isNotEmpty) {
+          final logEntry = ActivityLogEntry(
+            id: DateTime.now().microsecondsSinceEpoch.toString(),
+            timestamp: DateTime.now(),
+            action: 'modified',
+            entityType: 'item',
+            entityName: oldItem.displayName,
+            inventoryId: widget.inventoryId,
+            inventoryName: widget.inventoryName,
+            labelName: widget.label,
+            details: 'Item modified: "${oldItem.displayName}"',
+            changes: changes,
+          );
+          await ActivityLogService().addLog(logEntry);
+        }
       } else {
-        // ADD: build a new item and hand it to the caller for box insertion.
+        // ADD: build a new item
         final item = InventoryItem(
           name: _nameController.text.trim(),
           code: _isFieldEnabled('Code') ? _codeController.text.trim() : '',
-          barcode:
-              _isFieldEnabled('Barcode') ? _barcodeController.text.trim() : '',
+          barcode: _isFieldEnabled('Barcode') ? _barcodeController.text.trim() : '',
           color: _isFieldEnabled('Color') ? _colorController.text.trim() : '',
-          material:
-              _isFieldEnabled('Material') ? _materialController.text.trim() : '',
+          material: _isFieldEnabled('Material') ? _materialController.text.trim() : '',
           size: _isFieldEnabled('Size') ? _sizeController.text.trim() : '',
-          productionDate:
-              _isFieldEnabled('Production Date') ? _productionDate : null,
+          productionDate: _isFieldEnabled('Production Date') ? _productionDate : null,
           expireDate: _isFieldEnabled('Expire Date') ? _expireDate : null,
           note: _isFieldEnabled('Note') ? _noteController.text.trim() : '',
           quantity: int.parse(_quantityController.text.trim()),
           label: widget.label,
           customFields: customFields,
           modified: DateTime.now(),
+          createdAt: DateTime.now(),
         );
         await widget.onSave(item);
+
+        // Log activity
+        final logEntry = ActivityLogEntry(
+          id: item.createdAt.microsecondsSinceEpoch.toString(),
+          timestamp: item.createdAt,
+          action: 'created',
+          entityType: 'item',
+          entityName: item.displayName,
+          inventoryId: widget.inventoryId,
+          inventoryName: widget.inventoryName,
+          labelName: widget.label,
+          details: 'Item created: "${item.displayName}" with quantity ${item.quantity}',
+        );
+        await ActivityLogService().addLog(logEntry);
       }
 
       if (mounted) Navigator.pop(context);
@@ -632,8 +690,7 @@ class _AddItemFormState extends State<_AddItemForm> {
             ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
             margin: const EdgeInsets.all(20),
           ),
         );

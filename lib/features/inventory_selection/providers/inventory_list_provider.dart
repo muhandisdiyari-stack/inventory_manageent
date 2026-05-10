@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/inventory_list_item.dart';
 import '../../inventory_management/services/inventory_service.dart';
+import '../../../core/services/activity_log_service.dart';
+import '../../../core/models/activity_log_entry.dart';
 
 class InventoryListProvider extends ChangeNotifier {
   final Box _inventoriesListBox;
@@ -64,13 +66,14 @@ class InventoryListProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Fixed: Use unique ID to prevent collisions
       final now = DateTime.now().millisecondsSinceEpoch;
       final id = '${now}_${name.hashCode.abs()}';
       
+      final timestamp = DateTime.now();
       await _inventoriesListBox.put(id, {
         'name': name.trim(),
-        'created': DateTime.now().toIso8601String(),
+        'created': timestamp.toIso8601String(),
+        'modified': timestamp.toIso8601String(),
       });
       
       await service.initializeForInventory(id);
@@ -79,6 +82,19 @@ class InventoryListProvider extends ChangeNotifier {
       _loadInventories();
       _isLoading = false;
       notifyListeners();
+      
+      // Log activity
+      final logEntry = ActivityLogEntry(
+        id: timestamp.microsecondsSinceEpoch.toString(),
+        timestamp: timestamp,
+        action: 'created',
+        entityType: 'inventory',
+        entityName: name.trim(),
+        inventoryId: id,
+        inventoryName: name.trim(),
+        details: 'Inventory created: "${name.trim()}"',
+      );
+      await ActivityLogService().addLog(logEntry);
       
       return id;
     } catch (e) {
@@ -95,12 +111,29 @@ class InventoryListProvider extends ChangeNotifier {
     try {
       final data = _inventoriesListBox.get(id);
       if (data is Map) {
-        // Fixed: Create new map instead of mutating Hive's internal reference
+        final oldName = data['name'] as String? ?? '';
         final updatedData = Map<String, dynamic>.from(data);
         updatedData['name'] = newName.trim();
+        updatedData['modified'] = DateTime.now().toIso8601String();
         await _inventoriesListBox.put(id, updatedData);
         _loadInventories();
         notifyListeners();
+        
+        // Log activity
+        final logEntry = ActivityLogEntry(
+          id: DateTime.now().microsecondsSinceEpoch.toString(),
+          timestamp: DateTime.now(),
+          action: 'modified',
+          entityType: 'inventory',
+          entityName: newName.trim(),
+          inventoryId: id,
+          inventoryName: newName.trim(),
+          details: 'Inventory renamed',
+          changes: {
+            'name': FieldChange(oldValue: oldName, newValue: newName.trim()),
+          },
+        );
+        await ActivityLogService().addLog(logEntry);
       }
     } catch (e) {
       debugPrint('Error renaming inventory: $e');
@@ -113,15 +146,31 @@ class InventoryListProvider extends ChangeNotifier {
     _error = null;
 
     try {
+      final data = _inventoriesListBox.get(id);
+      final inventoryName = data is Map ? (data['name'] as String? ?? '') : '';
+      
       await _inventoriesListBox.delete(id);
       await service.deleteInventoryData(id);
+      
+      // Log activity BEFORE clearing logs for this inventory
+      final logEntry = ActivityLogEntry(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        timestamp: DateTime.now(),
+        action: 'deleted',
+        entityType: 'inventory',
+        entityName: inventoryName,
+        inventoryId: id,
+        inventoryName: inventoryName,
+        details: 'Inventory deleted: "$inventoryName"',
+      );
+      await ActivityLogService().addLog(logEntry);
+      
       _loadInventories();
       
       if (_selectedInventoryId == id) {
         _selectedInventoryId = _inventories.isNotEmpty ? _inventories.first.id : null;
       }
       
-      // Fixed: Single notify, no artificial delay
       notifyListeners();
     } catch (e) {
       debugPrint('Error deleting inventory: $e');

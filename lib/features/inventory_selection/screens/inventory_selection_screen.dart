@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/inventory_list_provider.dart';
 import '../../inventory_management/services/inventory_service.dart';
 import '../../inventory_management/screens/inventory_home_screen.dart';
+import '../../activity_log/screens/activity_log_screen.dart';
 import '../widgets/empty_state_widget.dart';
 import '../widgets/inventory_list_widget.dart';
 import '../widgets/create_inventory_dialog.dart';
@@ -11,8 +12,7 @@ class InventorySelectionScreen extends StatefulWidget {
   const InventorySelectionScreen({super.key});
 
   @override
-  State<InventorySelectionScreen> createState() =>
-      _InventorySelectionScreenState();
+  State<InventorySelectionScreen> createState() => _InventorySelectionScreenState();
 }
 
 class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
@@ -31,13 +31,12 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
     await context.read<InventoryListProvider>().refreshInventories();
   }
 
-  // Fixed: Removed unnecessary dynamic provider parameter
   void _openInventory(String id) {
     if (!mounted) return;
-    
+
     final listProvider = context.read<InventoryListProvider>();
     listProvider.selectInventory(id);
-    
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -50,8 +49,15 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
     if (!mounted) return;
     final listProvider = context.read<InventoryListProvider>();
     final service = context.read<InventoryService>();
-    
+
     CreateInventoryDialog.show(context, listProvider, service);
+  }
+
+  void _openActivityLog() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ActivityLogScreen()),
+    );
   }
 
   @override
@@ -61,6 +67,16 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
     final inventories = listProvider.inventories;
 
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('Inventory Pro'),
+        actions: [
+          IconButton(
+            tooltip: 'Activity Log',
+            icon: const Icon(Icons.history),
+            onPressed: _openActivityLog,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showCreateDialog,
         icon: const Icon(Icons.add_rounded),
@@ -82,7 +98,6 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
                   inventories: inventories,
                   listProvider: listProvider,
                   service: service,
-                  // Fixed: Updated callback signature to remove dynamic
                   onOpenInventory: _openInventory,
                 ),
         ),

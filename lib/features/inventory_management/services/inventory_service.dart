@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/inventory_item.dart';
 import '../models/inventory_settings.dart';
+import '../../../core/services/activity_log_service.dart';
+import '../../../core/models/activity_log_entry.dart';
 
 class InventoryService {
   final Map<String, Box<InventoryItem>> _itemsBoxes = {};
@@ -13,7 +15,6 @@ class InventoryService {
   String? get currentInventoryId => _currentInventoryId;
 
   Future<void> initializeForInventory(String inventoryId) async {
-    // ── Labels box ──────────────────────────────────────────────
     final String labelsBoxName = 'labels_$inventoryId';
     Box labelsBox;
     if (Hive.isBoxOpen(labelsBoxName)) {
@@ -26,7 +27,6 @@ class InventoryService {
     }
     _labelsBoxes[inventoryId] = labelsBox;
 
-    // ── Items box ───────────────────────────────────────────────
     final String itemsBoxName = 'items_$inventoryId';
     Box<InventoryItem> itemsBox;
     if (Hive.isBoxOpen(itemsBoxName)) {
@@ -36,7 +36,6 @@ class InventoryService {
     }
     _itemsBoxes[inventoryId] = itemsBox;
 
-    // ── Settings box ────────────────────────────────────────────
     final String settingsBoxName = 'inventory_settings_$inventoryId';
     Box<InventorySettings> settingsBox;
     if (Hive.isBoxOpen(settingsBoxName)) {
@@ -56,16 +55,14 @@ class InventoryService {
     _currentInventoryId = id;
   }
 
-  /// Delete all data associated with an inventory
   Future<void> deleteInventoryData(String id) async {
     debugPrint('=== Deleting inventory data for: $id ===');
     
-    // Helper function to close and delete a box
     Future<void> closeAndDeleteBox(String boxName) async {
       try {
         if (Hive.isBoxOpen(boxName)) {
           final box = Hive.box(boxName);
-          await box.compact(); // Compact before deleting
+          await box.compact();
           await box.deleteFromDisk();
           debugPrint('Deleted box: $boxName');
         }
@@ -75,19 +72,15 @@ class InventoryService {
     }
 
     try {
-      // Delete items box
       await closeAndDeleteBox('items_$id');
       _itemsBoxes.remove(id);
 
-      // Delete labels box
       await closeAndDeleteBox('labels_$id');
       _labelsBoxes.remove(id);
 
-      // Delete settings box
       await closeAndDeleteBox('inventory_settings_$id');
       _settingsBoxes.remove(id);
 
-      // Clear current inventory if it was the deleted one
       if (_currentInventoryId == id) {
         _currentInventoryId = null;
       }
@@ -95,7 +88,6 @@ class InventoryService {
       debugPrint('=== Inventory data deleted successfully: $id ===');
     } catch (e) {
       debugPrint('=== Error deleting inventory data: $e ===');
-      // Don't rethrow - allow deletion to continue even if data cleanup fails
     }
   }
 
@@ -123,6 +115,19 @@ class InventoryService {
     if (!currentLabels.contains(label)) {
       currentLabels.add(label);
       await _labelsBoxes[_currentInventoryId!]!.put('labels', currentLabels);
+      
+      // Log activity
+      final logEntry = ActivityLogEntry(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        timestamp: DateTime.now(),
+        action: 'created',
+        entityType: 'label',
+        entityName: label,
+        inventoryId: _currentInventoryId,
+        inventoryName: getInventoryName(_currentInventoryId!),
+        details: 'Label created: "$label"',
+      );
+      await ActivityLogService().addLog(logEntry);
     }
   }
 
@@ -144,6 +149,22 @@ class InventoryService {
         item.label = newLabel;
         await item.save();
       }
+      
+      // Log activity
+      final logEntry = ActivityLogEntry(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        timestamp: DateTime.now(),
+        action: 'modified',
+        entityType: 'label',
+        entityName: newLabel,
+        inventoryId: _currentInventoryId,
+        inventoryName: getInventoryName(_currentInventoryId!),
+        details: 'Label renamed',
+        changes: {
+          'name': FieldChange(oldValue: oldLabel, newValue: newLabel),
+        },
+      );
+      await ActivityLogService().addLog(logEntry);
     }
   }
 
@@ -162,6 +183,19 @@ class InventoryService {
     for (var item in items) {
       await item.delete();
     }
+    
+    // Log activity
+    final logEntry = ActivityLogEntry(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      timestamp: DateTime.now(),
+      action: 'deleted',
+      entityType: 'label',
+      entityName: label,
+      inventoryId: _currentInventoryId,
+      inventoryName: getInventoryName(_currentInventoryId!),
+      details: 'Label deleted: "$label" with ${items.length} items',
+    );
+    await ActivityLogService().addLog(logEntry);
   }
 
   // ── Item Management ───────────────────────────────────────────
@@ -361,6 +395,45 @@ class InventoryService {
     if (!_settingsBoxes.containsKey(_currentInventoryId!)) {
       await initializeForInventory(_currentInventoryId!);
     }
+    
+    // Get old settings for comparison
+    final oldSettings = _settingsBoxes[_currentInventoryId!]!.get('main');
+    
     await _settingsBoxes[_currentInventoryId!]!.put('main', settings);
+    
+    // Log settings change
+    final changes = <String, FieldChange>{};
+    if (oldSettings != null) {
+      final oldFields = oldSettings.fieldConfigs
+          .where((f) => f.isEnabled)
+          .map((f) => '${f.fieldName}(${f.isRequired ? "required" : "optional"})')
+          .join(', ');
+      final newFields = settings.fieldConfigs
+          .where((f) => f.isEnabled)
+          .map((f) => '${f.fieldName}(${f.isRequired ? "required" : "optional"})')
+          .join(', ');
+      if (oldFields != newFields) {
+        changes['fieldConfigs'] = FieldChange(oldValue: oldFields, newValue: newFields);
+      }
+      
+      final oldCustom = oldSettings.customFieldNames.join(', ');
+      final newCustom = settings.customFieldNames.join(', ');
+      if (oldCustom != newCustom) {
+        changes['customFields'] = FieldChange(oldValue: oldCustom, newValue: newCustom);
+      }
+    }
+    
+    final logEntry = ActivityLogEntry(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      timestamp: DateTime.now(),
+      action: 'modified',
+      entityType: 'settings',
+      entityName: 'Settings',
+      inventoryId: _currentInventoryId,
+      inventoryName: getInventoryName(_currentInventoryId!),
+      details: 'Settings updated',
+      changes: changes.isNotEmpty ? changes : null,
+    );
+    await ActivityLogService().addLog(logEntry);
   }
 }
