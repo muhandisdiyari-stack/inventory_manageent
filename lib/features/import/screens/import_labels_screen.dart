@@ -28,6 +28,12 @@ class _ImportLabelsScreenState extends State<ImportLabelsScreen> {
   int? _selectedNameColumn;
   final InventoryService _inventoryService = InventoryService();
 
+  @override
+  void initState() {
+    super.initState();
+    _selectedNameColumn = 0; // Default to first column
+  }
+
   Future<void> _pickFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -194,7 +200,7 @@ class _ImportLabelsScreenState extends State<ImportLabelsScreen> {
                               style: TextStyle(fontWeight: FontWeight.w600)),
                           const SizedBox(height: 8),
                           DropdownButtonFormField<int>(
-                            initialValue: _selectedNameColumn,
+                            value: _selectedNameColumn,
                             decoration: InputDecoration(
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                               filled: true,
