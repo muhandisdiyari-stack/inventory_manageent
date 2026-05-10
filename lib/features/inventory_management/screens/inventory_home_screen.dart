@@ -50,13 +50,10 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     super.dispose();
   }
 
-  // FIX (warning): every await is now followed by an immediate mounted check
-  // before any state mutation or context access.
   Future<void> _refreshInventory() async {
     final provider = context.read<InventoryProvider>();
     await provider.initializeCurrentInventory();
 
-    // Guard after await — widget may have been disposed during the async gap.
     if (!mounted) return;
 
     setState(() {
@@ -97,7 +94,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
           }
           await provider.createLabel(name);
 
-          // Guard after await.
           if (!mounted) return false;
 
           setState(() => _currentLabel = name);
@@ -132,7 +128,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
           }
           await provider.renameLabel(oldLabel, newName);
 
-          // Guard after await.
           if (!mounted) return false;
 
           setState(() {
@@ -162,7 +157,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
               final provider = context.read<InventoryProvider>();
               await provider.deleteLabel(label);
 
-              // Guard after await — dialog context may be stale.
               if (!mounted) return;
 
               setState(() {
@@ -182,6 +176,11 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     );
   }
 
+  /// Shows the add/edit item dialog.
+  ///
+  /// For both new items AND edits, validation is now enforced through
+  /// AddItemSheet's FormState, which checks all required fields before
+  /// allowing save.
   void _showAddItemDialog({InventoryItem? existingItem}) {
     if (_currentLabel == null) {
       _showSnack('Select a label first');
@@ -196,30 +195,18 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       settings: provider.currentSettings,
       existingItem: existingItem,
       onSave: (item) async {
-        // Only reached for NEW items (add path).
-        // Guard against a null inventory — surface the failure visibly instead
-        // of silently dropping the save (which is what the provider does on
-        // early-return when selectedInventoryId is null).
         if (provider.currentInventoryId == null) {
           _showSnack('No inventory selected — please select one first');
           return;
         }
         await provider.saveItem(item);
-        // Guard after await before setState.
         if (!mounted) return;
         setState(() {});
       },
     );
 
-    // FIX (bug): for edits, the sheet saves the item itself (item.save()) and
-    // pops. We must rebuild here so the list reflects the mutation.
-    // We listen for the sheet closing and trigger a setState so the UI is fresh.
-    // This is done by attaching a .then() to the Future returned by
-    // showModalBottomSheet inside AddItemSheet.show(). Since AddItemSheet.show()
-    // doesn't return the future, we use a post-frame callback instead — safe
-    // because the sheet is modal and the screen stays mounted behind it.
+    // For edits, refresh the list after the sheet closes
     if (existingItem != null) {
-      // After the edit sheet closes (any frame after pop), refresh the list.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() {});
       });
@@ -237,7 +224,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       item.modified = DateTime.now();
       await item.save();
 
-      // Guard after await.
       if (!mounted) return;
       setState(() {});
     } catch (e) {
@@ -269,14 +255,12 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       ),
     );
 
-    // Guard after await.
     if (!mounted) return;
 
     if (confirmed == true) {
       try {
         await item.delete();
 
-        // Guard after second await.
         if (!mounted) return;
 
         setState(() {});
@@ -623,7 +607,6 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
     setState(() => _saving = true);
     try {
       final ok = await widget.onSubmit(name);
-      // Guard after await.
       if (!mounted) return;
       if (ok) Navigator.pop(context);
     } finally {

@@ -82,13 +82,37 @@ class _AddItemFormState extends State<_AddItemForm> {
     _productionDate = item?.productionDate;
     _expireDate = item?.expireDate;
 
-    // FIX (warning): initialize ALL custom field controllers in initState using
-    // a stable snapshot of customFieldNames. Never create controllers in build().
+    // Initialize ALL custom field controllers in initState
     for (final fieldName in widget.settings?.customFieldNames ?? const []) {
       _customFieldControllers[fieldName] = TextEditingController(
         text: item?.customFields[fieldName] ?? '',
       );
     }
+  }
+
+  @override
+  void didUpdateWidget(covariant _AddItemForm oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sync custom field controllers when settings change
+    final newFields = widget.settings?.customFieldNames ?? const [];
+    // Add controllers for new fields
+    for (final fieldName in newFields) {
+      if (!_customFieldControllers.containsKey(fieldName)) {
+        _customFieldControllers[fieldName] = TextEditingController(
+          text: widget.existingItem?.customFields[fieldName] ?? '',
+        );
+      }
+    }
+    // Remove controllers for removed fields
+    _customFieldControllers.keys
+        .where((key) => !newFields.contains(key))
+        .toList()
+        .forEach((key) {
+      _customFieldControllers[key]?.dispose();
+      _customFieldControllers.remove(key);
+    });
+    // Rebuild to reflect changes
+    setState(() {});
   }
 
   @override
@@ -202,16 +226,16 @@ class _AddItemFormState extends State<_AddItemForm> {
               if (_isFieldEnabled('Name'))
                 _buildTextField(
                   controller: _nameController,
-                  label: 'Name *',
+                  label: 'Name',
                   hint: 'Enter item name',
                   icon: Icons.label,
-                  required: true,
+                  required: _isFieldRequired('Name'),
                   textCapitalization: TextCapitalization.words,
                 ),
               if (_isFieldEnabled('Code'))
                 _buildTextField(
                   controller: _codeController,
-                  label: _isFieldRequired('Code') ? 'Code *' : 'Code',
+                  label: 'Code',
                   hint: 'Enter item code',
                   icon: Icons.code,
                   required: _isFieldRequired('Code'),
@@ -220,7 +244,7 @@ class _AddItemFormState extends State<_AddItemForm> {
               if (_isFieldEnabled('Color'))
                 _buildTextField(
                   controller: _colorController,
-                  label: _isFieldRequired('Color') ? 'Color *' : 'Color',
+                  label: 'Color',
                   hint: 'Enter color',
                   icon: Icons.color_lens,
                   required: _isFieldRequired('Color'),
@@ -229,8 +253,7 @@ class _AddItemFormState extends State<_AddItemForm> {
               if (_isFieldEnabled('Material'))
                 _buildTextField(
                   controller: _materialController,
-                  label:
-                      _isFieldRequired('Material') ? 'Material *' : 'Material',
+                  label: 'Material',
                   hint: 'Enter material',
                   icon: Icons.texture,
                   required: _isFieldRequired('Material'),
@@ -239,37 +262,32 @@ class _AddItemFormState extends State<_AddItemForm> {
               if (_isFieldEnabled('Size'))
                 _buildTextField(
                   controller: _sizeController,
-                  label: _isFieldRequired('Size') ? 'Size *' : 'Size',
+                  label: 'Size',
                   hint: 'Enter size (e.g., S, M, L, XL)',
                   icon: Icons.straighten,
                   required: _isFieldRequired('Size'),
                 ),
               if (_isFieldEnabled('Production Date'))
                 _buildDateField(
-                  label: _isFieldRequired('Production Date')
-                      ? 'Production Date *'
-                      : 'Production Date',
+                  label: 'Production Date',
+                  required: _isFieldRequired('Production Date'),
                   value: _productionDate,
                   onPicked: (d) => setState(() => _productionDate = d),
                   onClear: () => setState(() => _productionDate = null),
                 ),
               if (_isFieldEnabled('Expire Date'))
                 _buildDateField(
-                  label: _isFieldRequired('Expire Date')
-                      ? 'Expire Date *'
-                      : 'Expire Date',
+                  label: 'Expire Date',
+                  required: _isFieldRequired('Expire Date'),
                   value: _expireDate,
                   onPicked: (d) => setState(() => _expireDate = d),
                   onClear: () => setState(() => _expireDate = null),
                 ),
-              // FIX (warning): quantity now has a validator that checks for a
-              // valid integer in [0, maxQuantity] instead of silently defaulting
-              // to 0 on bad input.
               _buildQuantityField(),
               if (_isFieldEnabled('Note'))
                 _buildTextField(
                   controller: _noteController,
-                  label: _isFieldRequired('Note') ? 'Note *' : 'Note',
+                  label: 'Note',
                   hint: 'Enter notes or description',
                   icon: Icons.note,
                   maxLines: 3,
@@ -328,13 +346,14 @@ class _AddItemFormState extends State<_AddItemForm> {
 
   Widget _buildBarcodeField() {
     final hasText = _barcodeController.text.isNotEmpty;
+    final required = _isFieldRequired('Barcode');
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
         controller: _barcodeController,
         decoration: InputDecoration(
-          labelText: _isFieldRequired('Barcode') ? 'Barcode *' : 'Barcode',
+          labelText: required ? 'Barcode *' : 'Barcode',
           hintText: 'Enter barcode manually',
           prefixIcon: const Icon(Icons.qr_code, size: 20),
           suffixIcon: Row(
@@ -366,7 +385,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                   .withValues(alpha: 0.1)
               : null,
         ),
-        validator: _isFieldRequired('Barcode')
+        validator: required
             ? (v) =>
                 (v == null || v.trim().isEmpty) ? 'Barcode is required' : null
             : null,
@@ -374,7 +393,7 @@ class _AddItemFormState extends State<_AddItemForm> {
     );
   }
 
-  /// FIX (warning): dedicated quantity field with proper range validation.
+  /// Quantity field with proper range validation.
   Widget _buildQuantityField() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -382,7 +401,7 @@ class _AddItemFormState extends State<_AddItemForm> {
         controller: _quantityController,
         keyboardType: TextInputType.number,
         decoration: InputDecoration(
-          labelText: 'Quantity',
+          labelText: 'Quantity *',
           hintText: 'Enter quantity',
           prefixIcon: const Icon(Icons.numbers, size: 20),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
@@ -413,6 +432,8 @@ class _AddItemFormState extends State<_AddItemForm> {
     TextInputType? keyboardType,
     TextCapitalization textCapitalization = TextCapitalization.none,
   }) {
+    final displayLabel = required ? '$label *' : label;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
@@ -421,7 +442,7 @@ class _AddItemFormState extends State<_AddItemForm> {
         keyboardType: keyboardType,
         textCapitalization: textCapitalization,
         decoration: InputDecoration(
-          labelText: label,
+          labelText: displayLabel,
           hintText: hint,
           prefixIcon: Icon(icon, size: 20),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
@@ -431,7 +452,7 @@ class _AddItemFormState extends State<_AddItemForm> {
         validator: required
             ? (v) {
                 if (v == null || v.trim().isEmpty) {
-                  return '${label.replaceAll(' *', '')} is required';
+                  return '$label is required';
                 }
                 return null;
               }
@@ -442,55 +463,74 @@ class _AddItemFormState extends State<_AddItemForm> {
 
   Widget _buildDateField({
     required String label,
+    required bool required,
     required DateTime? value,
     required Function(DateTime) onPicked,
     required VoidCallback onClear,
   }) {
+    final displayLabel = required ? '$label *' : label;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: () async {
-          final picked = await showDatePicker(
-            context: context,
-            initialDate: value ?? DateTime.now(),
-            firstDate: DateTime(2000),
-            lastDate: DateTime(2100),
-            helpText: 'Select $label',
-            cancelText: 'Cancel',
-            confirmText: 'OK',
-          );
-          if (picked != null) onPicked(picked);
-        },
-        child: InputDecorator(
-          decoration: InputDecoration(
-            labelText: label,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-            filled: true,
-            prefixIcon: const Icon(Icons.calendar_today, size: 18),
-            suffixIcon: value != null
-                ? IconButton(
-                    icon: const Icon(Icons.clear, size: 18),
-                    tooltip: 'Clear date',
-                    onPressed: onClear,
-                  )
-                : null,
-          ),
-          child: Text(
-            value != null
-                ? '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}'
-                : 'Select date',
-            style: TextStyle(
-              color: value != null ? null : Colors.grey,
-              fontSize: 16,
+      child: FormField<DateTime?>(
+        initialValue: value,
+        validator: required
+            ? (v) => v == null ? '$label is required' : null
+            : null,
+        builder: (formFieldState) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            InkWell(
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: value ?? DateTime.now(),
+                  firstDate: DateTime(2000),
+                  lastDate: DateTime(2100),
+                  helpText: 'Select $label',
+                  cancelText: 'Cancel',
+                  confirmText: 'OK',
+                );
+                if (picked != null) {
+                  onPicked(picked);
+                  formFieldState.didChange(picked);
+                }
+              },
+              child: InputDecorator(
+                decoration: InputDecoration(
+                  labelText: displayLabel,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  filled: true,
+                  prefixIcon: const Icon(Icons.calendar_today, size: 18),
+                  suffixIcon: value != null
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          tooltip: 'Clear date',
+                          onPressed: () {
+                            onClear();
+                            formFieldState.didChange(null);
+                          },
+                        )
+                      : null,
+                  errorText: formFieldState.errorText,
+                ),
+                child: Text(
+                  value != null
+                      ? '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}'
+                      : 'Select date',
+                  style: TextStyle(
+                    color: value != null ? null : Colors.grey,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
   }
 
-  // FIX (warning): _buildCustomFields now only reads controllers that were
-  // initialized in initState — it never creates new ones, so there is no leak.
   List<Widget> _buildCustomFields() {
     if (_customFieldControllers.isEmpty) return const [];
 
@@ -512,7 +552,7 @@ class _AddItemFormState extends State<_AddItemForm> {
     }).toList();
   }
 
-  /// FIX (bug): edit and add paths are now cleanly separated.
+  /// EDIT and ADD paths both validate required fields.
   ///
   /// EDIT: mutates the existing HiveObject in place and calls item.save()
   ///       directly. Does NOT route through onSave (which expects a new item).
@@ -535,7 +575,6 @@ class _AddItemFormState extends State<_AddItemForm> {
 
       if (isEditing) {
         // EDIT: mutate the live HiveObject and save it directly.
-        // onSave is intentionally NOT called here.
         final item = widget.existingItem!;
         item.name = _nameController.text.trim();
         item.code = _isFieldEnabled('Code') ? _codeController.text.trim() : '';

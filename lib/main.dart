@@ -12,17 +12,14 @@ void main() async {
 
   try {
     // Initialize Hive for Flutter
-    // This works for all platforms including web (IndexedDB)
     await Hive.initFlutter();
 
     // Register Hive adapters
-    // These must be registered before opening any boxes
     Hive.registerAdapter(InventoryItemAdapter());
     Hive.registerAdapter(FieldConfigAdapter());
     Hive.registerAdapter(InventorySettingsAdapter());
 
     // Open required Hive boxes
-    // These boxes persist data locally on the device
     await Hive.openBox(AppConstants.appSettingsBox);
     await Hive.openBox(AppConstants.inventoriesListBox);
 
@@ -31,17 +28,25 @@ void main() async {
       await DemoDataService.loadDemoData();
     }
   } catch (e) {
-    // If Hive initialization fails, show an error screen
     runApp(_ErrorApp(error: e.toString()));
     return;
   }
 
   // Create the inventory service
-  // This service manages all business logic and data operations
   final inventoryService = InventoryService();
 
+  // Check if onboarding has been completed
+  final appSettings = Hive.box(AppConstants.appSettingsBox);
+  final onboardingCompleted =
+      appSettings.get(AppConstants.onboardingCompletedKey, defaultValue: false) as bool;
+
   // Run the app
-  runApp(InventoryProApp(inventoryService: inventoryService));
+  runApp(
+    InventoryProApp(
+      inventoryService: inventoryService,
+      showOnboarding: !onboardingCompleted,
+    ),
+  );
 }
 
 /// Error screen displayed when app initialization fails
@@ -61,7 +66,6 @@ class _ErrorApp extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Error icon
                 Container(
                   width: 80,
                   height: 80,
@@ -76,44 +80,20 @@ class _ErrorApp extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
-
-                // Error title
                 Text(
                   'Initialization Error',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.red.shade700,
-                  ),
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red.shade700,
+                      ),
                 ),
                 const SizedBox(height: 12),
-
-                // Error message
                 Text(
                   error,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.grey.shade700,
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Retry button
-                FilledButton.icon(
-                  onPressed: () {
-                    // In a real app, you might want to restart the initialization
-                    // For now, this shows the error state
-                  },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
+                        color: Colors.grey.shade700,
+                      ),
                 ),
               ],
             ),

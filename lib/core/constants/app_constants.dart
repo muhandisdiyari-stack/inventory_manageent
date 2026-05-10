@@ -1,12 +1,20 @@
 // File: lib/core/constants/app_constants.dart
 
 class AppConstants {
+  // App Info
+  static const String appVersion = '2.1.0';
+  static const String appName = 'Inventory Pro';
+
   // Theme
   static const darkModeKey = 'dark_mode';
+
+  // Onboarding
+  static const String onboardingCompletedKey = 'onboarding_completed';
 
   // UI Timing
   static const Duration snackbarDuration = Duration(seconds: 3);
   static const Duration undoDuration = Duration(seconds: 5);
+  static const Duration splashDuration = Duration(milliseconds: 2500);
 
   // Responsive Breakpoints
   static const double mobileBreakpoint = 600;
