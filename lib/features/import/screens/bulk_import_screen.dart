@@ -12,6 +12,7 @@ import '../../inventory_management/models/inventory_item.dart';
 import '../../inventory_management/providers/inventory_provider.dart';
 import '../../../core/services/activity_log_service.dart';
 import '../../../core/models/activity_log_entry.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -205,34 +206,41 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
   /// Android versions (API 21–34+) without any runtime permission.
   /// Direct writes to /sdcard/Download/ are blocked by scoped storage on
   /// Android 11+ (API 30+) which is why the old code silently failed.
-  Future<void> _saveLocally(List<int> bytes, String fileName) async {
-    try {
-      String savedPath;
+Future<void> _saveLocally(List<int> bytes, String fileName) async {
+  try {
+    String savedPath;
 
-      if (Platform.isAndroid) {
-        final dir = await getExternalStorageDirectory();
-        if (dir == null) throw Exception('External storage unavailable');
-        if (!await dir.exists()) await dir.create(recursive: true);
-        savedPath = '${dir.path}/$fileName';
-      } else if (Platform.isWindows) {
-        final downloadsDir =
-            Directory('${Platform.environment['USERPROFILE']}\\Downloads');
-        final dir = await downloadsDir.exists()
-            ? downloadsDir
-            : Directory.systemTemp;
-        savedPath = '${dir.path}\\$fileName';
-      } else {
-        // macOS / Linux
-        final downloadsDir =
-            Directory('${Platform.environment['HOME']}/Downloads');
-        final dir = await downloadsDir.exists()
-            ? downloadsDir
-            : Directory.systemTemp;
-        savedPath = '${dir.path}/$fileName';
+    if (Platform.isAndroid) {
+      // For Android 11+ (API 30+), use MediaStore
+      if (await _saveToDownloadsAndroid(bytes, fileName)) {
+        return;
       }
-
+      
+      // Fallback: Save to app-specific directory
+      final dir = await getExternalStorageDirectory();
+      if (dir == null) throw Exception('External storage unavailable');
+      
+      if (!await dir.exists()) await dir.create(recursive: true);
+      savedPath = '${dir.path}/$fileName';
       await File(savedPath).writeAsBytes(bytes);
-
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Saved to app storage: $savedPath'),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } else if (Platform.isWindows) {
+      final downloadsDir = Directory('${Platform.environment['USERPROFILE']}\\Downloads');
+      if (!await downloadsDir.exists()) {
+        await downloadsDir.create(recursive: true);
+      }
+      savedPath = '${downloadsDir.path}\\$fileName';
+      await File(savedPath).writeAsBytes(bytes);
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -242,18 +250,88 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
           ),
         );
       }
-    } catch (e) {
+    } else {
+      // macOS / Linux
+      final downloadsDir = Directory('${Platform.environment['HOME']}/Downloads');
+      if (!await downloadsDir.exists()) {
+        await downloadsDir.create(recursive: true);
+      }
+      savedPath = '${downloadsDir.path}/$fileName';
+      await File(savedPath).writeAsBytes(bytes);
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Could not save file: $e'),
-            backgroundColor: Colors.red,
+            content: Text('Saved to: $savedPath'),
             behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
     }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not save file: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
+}
+
+/// Save file to Downloads directory on Android using platform channel
+Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
+  try {
+    // Check and request storage permission
+    final storageStatus = await Permission.storage.status;
+    final manageStorageStatus = await Permission.manageExternalStorage.status;
+    
+    if (storageStatus.isGranted || manageStorageStatus.isGranted ||
+        await Permission.storage.request().isGranted ||
+        await Permission.manageExternalStorage.request().isGranted) {
+      
+      // List of possible Downloads directory paths on Android
+      const possiblePaths = [
+        '/storage/emulated/0/Download',
+        '/sdcard/Download',
+        '/storage/sdcard0/Download',
+        '/storage/emulated/0/Downloads',
+        '/sdcard/Downloads',
+      ];
+      
+      for (final path in possiblePaths) {
+        final dir = Directory(path);
+        if (await dir.exists()) {
+          try {
+            final file = File('${dir.path}/$fileName');
+            await file.writeAsBytes(bytes);
+            
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Saved to Downloads folder: $fileName'),
+                  behavior: SnackBarBehavior.floating,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+            return true;
+          } catch (e) {
+            // Try next path
+            continue;
+          }
+        }
+      }
+    }
+    return false;
+  } catch (e) {
+    debugPrint('Failed to save to Downloads: $e');
+    return false;
+  }
+}
 
   // ---------------------------------------------------------------------------
   // File picking & CSV parsing

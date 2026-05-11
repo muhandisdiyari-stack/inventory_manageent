@@ -1,66 +1,30 @@
-<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-
-    <!-- ═══════════════════════════════════════════════════════════════════
-         NETWORK
-    ════════════════════════════════════════════════════════════════════ -->
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.example.inventory_management">
+    
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-
-    <!-- ═══════════════════════════════════════════════════════════════════
-         CAMERA  (barcode scanning)
-    ════════════════════════════════════════════════════════════════════ -->
+    
+    <!-- Camera permission for barcode scanning -->
     <uses-permission android:name="android.permission.CAMERA"/>
-
-    <!-- ═══════════════════════════════════════════════════════════════════
-         STORAGE
-         ─────────────────────────────────────────────────────────────────
-         API 21-28  Legacy mode: READ + WRITE let you access /sdcard freely.
-         API 29     requestLegacyExternalStorage="true" keeps legacy mode.
-         API 30+    Scoped storage is enforced by the OS regardless of flags.
-                    Direct writes to /sdcard/Download/ are BLOCKED.
-                    Use getExternalStorageDirectory() (app-scoped, no perm
-                    needed) or MediaStore for shared Downloads folder.
-
-         READ_EXTERNAL_STORAGE  — needed below API 33 for FilePicker to read
-                                  user-selected files.
-         WRITE_EXTERNAL_STORAGE — only has effect on API ≤ 29; ignored above.
-         READ_MEDIA_*           — API 33+ granular replacements for READ_EXTERNAL.
-                                  file_picker may need READ_MEDIA_IMAGES on
-                                  some OEM builds even for document picking.
-    ════════════════════════════════════════════════════════════════════ -->
-    <uses-permission
-        android:name="android.permission.READ_EXTERNAL_STORAGE"
+    
+    <!-- Storage permissions for CSV file operations -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32"/>
-
-    <uses-permission
-        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29"/>
-
-    <!--
-        Granular media permissions (Android 13 / API 33+).
-        Only READ_MEDIA_IMAGES is listed here because this app does not
-        read user video or audio files. Add the others if that changes.
-    -->
-    <uses-permission
-        android:name="android.permission.READ_MEDIA_IMAGES"
-        tools:ignore="SelectableBetweenSdkVersions"/>
-
-    <!-- ═══════════════════════════════════════════════════════════════════
-         APPLICATION
-    ════════════════════════════════════════════════════════════════════ -->
+    
+    <!-- For Android 11+ (API 30+), use MANAGE_EXTERNAL_STORAGE -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage"/>
+    
     <application
         android:label="Inventory Management"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        <!--
-            requestLegacyExternalStorage: grants unrestricted /sdcard access
-            on API 29 only. Ignored on API 30+ — scoped storage is mandatory.
-            Keep it for devices still on Android 10.
-        -->
-        android:requestLegacyExternalStorage="true">
-
+        android:requestLegacyExternalStorage="true"
+        android:preserveLegacyExternalStorage="true">
+        
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -70,79 +34,26 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-
+            
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme"/>
-
+            
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-
-        <!--
-            FileProvider
-            ────────────
-            Required on API 24+ to share or open saved files from within the
-            app (e.g. after saving a CSV, opening it in another app).
-            Without this, FileProvider.getUriForFile() throws
-            FileUriExposedException.
-
-            The authority string must match what you pass to
-            FileProvider.getUriForFile() in Kotlin/Java code, or what any
-            plugin (e.g. open_file, share_plus) uses internally.
-            Using ${applicationId} keeps it unique per build variant
-            (debug vs release).
-
-            The paths are declared in res/xml/file_provider_paths.xml.
-            Your existing file_provider_paths.xml already covers all the
-            path types you need — no changes required there.
-        -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_provider_paths"/>
-        </provider>
-
+        
         <meta-data
             android:name="flutterEmbedding"
             android:value="2"/>
     </application>
-
-    <!-- ═══════════════════════════════════════════════════════════════════
-         QUERIES
-         Declares which external app intents this app may resolve on
-         API 30+ (package visibility enforcement).
-    ════════════════════════════════════════════════════════════════════ -->
+    
     <queries>
-        <!-- OCR / text-processing apps (existing) -->
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
-
-        <!-- Apps that can open CSV files (e.g. after saving a template) -->
-        <intent>
-            <action android:name="android.intent.action.VIEW"/>
-            <data android:mimeType="text/csv"/>
-        </intent>
-
-        <!-- Apps that can open plain-text files (activity log export) -->
-        <intent>
-            <action android:name="android.intent.action.VIEW"/>
-            <data android:mimeType="text/plain"/>
-        </intent>
-
-        <!-- Share sheet: apps that accept file sharing -->
-        <intent>
-            <action android:name="android.intent.action.SEND"/>
-            <data android:mimeType="*/*"/>
-        </intent>
     </queries>
-
 </manifest>
