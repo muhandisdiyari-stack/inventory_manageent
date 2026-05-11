@@ -12,6 +12,48 @@ import '../../inventory_management/providers/inventory_provider.dart';
 import '../../../core/services/activity_log_service.dart';
 import '../../../core/models/activity_log_entry.dart';
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/// Fields whose names map directly to InventoryItem properties.
+/// Kept as a single source of truth so _setItemField and header-matching
+/// never diverge due to typos.
+abstract class _FieldNames {
+  static const name = 'Name';
+  static const code = 'Code';
+  static const barcode = 'Barcode';
+  static const color = 'Color';
+  static const material = 'Material';
+  static const size = 'Size';
+  static const quantity = 'Quantity';
+  static const productionDate = 'Production Date';
+  static const expireDate = 'Expire Date';
+  static const note = 'Note';
+}
+
+// ---------------------------------------------------------------------------
+// Data class
+// ---------------------------------------------------------------------------
+
+class LabelImportStats {
+  final int itemsImported;
+  final int duplicatesSkipped;
+  final int rowsSkipped;
+  final int totalRows;
+
+  const LabelImportStats({
+    required this.itemsImported,
+    required this.duplicatesSkipped,
+    required this.rowsSkipped,
+    required this.totalRows,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
+
 class BulkImportScreen extends StatefulWidget {
   final String inventoryId;
   final String inventoryName;
@@ -30,43 +72,155 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
   List<List<dynamic>>? _rows;
   String? _fileName;
   bool _isLoading = false;
-
-  int _labelColumnIndex = 0;
   Map<String, int> _fieldMapping = {};
 
   double _progress = 0;
   String _progressText = '';
   final List<String> _progressLog = [];
 
-  Map<String, LabelImportStats>? _results;
+  // Cap the log so it doesn't grow unbounded on large imports.
+  static const _maxLogEntries = 200;
+
   bool _showResults = false;
+  int _totalLabels = 0;
+  int _totalImported = 0;
+  int _totalDuplicates = 0;
+  int _totalErrors = 0;
+  Map<String, LabelImportStats>? _resultsByLabel;
+
+  // Cancellation flag – checked at each loop iteration.
+  bool _cancelled = false;
 
   final InventoryService _inventoryService = InventoryService();
 
+  // ---------------------------------------------------------------------------
+  // Provider helpers – called lazily so context is always valid
+  // ---------------------------------------------------------------------------
+
   List<String> _getEnabledFields() {
+    // Safe to call during build because we use context.read for a one-shot read;
+    // the provider is watched at the build level via _buildWelcomeView etc.
     final provider = context.read<InventoryProvider>();
     final settings = provider.currentSettings;
-
-    if (settings == null) {
-      return ['Name', 'Code', 'Barcode', 'Size', 'Quantity', 'Note'];
-    }
-
     final fields = <String>[];
-    for (var config in settings.activeFields) {
-      if (config.fieldName != 'Label') {
+
+    if (settings != null) {
+      for (var config in settings.activeFields) {
         fields.add(config.fieldName);
       }
+      fields.addAll(settings.customFieldNames);
+    } else {
+      fields.addAll([
+        _FieldNames.name,
+        _FieldNames.code,
+        _FieldNames.barcode,
+        _FieldNames.size,
+        _FieldNames.quantity,
+        _FieldNames.note,
+      ]);
     }
-    fields.addAll(settings.customFieldNames);
+
+    if (!fields.contains(_FieldNames.name)) fields.insert(0, _FieldNames.name);
+    if (!fields.contains(_FieldNames.quantity)) fields.add(_FieldNames.quantity);
     return fields;
   }
 
   bool _isFieldRequired(String fieldName) {
     final provider = context.read<InventoryProvider>();
     final settings = provider.currentSettings;
-    if (settings == null) return fieldName == 'Name' || fieldName == 'Quantity';
+    if (settings == null) {
+      return fieldName == _FieldNames.name || fieldName == _FieldNames.quantity;
+    }
     return settings.isFieldRequired(fieldName);
   }
+
+  // ---------------------------------------------------------------------------
+  // Template download
+  // ---------------------------------------------------------------------------
+
+  void _downloadTemplate() {
+    final enabledFields = _getEnabledFields();
+
+    String getSample(String field, int rowIndex) {
+      const names = [
+        'Wireless Mouse', 'USB Cable', 'Office Chair',
+        'Standing Desk', 'Cotton T-Shirt', 'Denim Jeans',
+      ];
+      const colors = ['Black', 'White', 'Gray', 'White', 'Blue', 'Blue'];
+      const materials = ['Plastic', 'PVC', 'Mesh', 'Wood', 'Cotton', 'Denim'];
+      const sizes = ['Standard', '1m', 'Large', '120x60cm', 'M', '32'];
+
+      switch (field) {
+        case _FieldNames.name:       return names[rowIndex];
+        case _FieldNames.code:       return 'CODE-${rowIndex + 1}00';
+        case _FieldNames.barcode:    return '890123456789$rowIndex';
+        case _FieldNames.color:      return colors[rowIndex];
+        case _FieldNames.material:   return materials[rowIndex];
+        case _FieldNames.size:       return sizes[rowIndex];
+        case _FieldNames.quantity:   return '${(rowIndex + 1) * 10}';
+        case _FieldNames.productionDate: return '2024-0${rowIndex + 1}-15';
+        case _FieldNames.expireDate:     return '2026-0${rowIndex + 1}-15';
+        case _FieldNames.note:       return 'Sample note ${rowIndex + 1}';
+        default:                     return 'Value ${rowIndex + 1}';
+      }
+    }
+
+    // Use ListToCsvConverter so values with commas/quotes are properly escaped.
+    final allRows = <List<dynamic>>[enabledFields];
+    for (int i = 0; i < 6; i++) {
+      allRows.add(enabledFields.map((f) => getSample(f, i)).toList());
+    }
+    final csv = const ListToCsvConverter().convert(allRows);
+    final bytes = utf8.encode(csv);
+    const fileName = 'import_template.csv';
+
+    if (kIsWeb) {
+      downloadFileWeb(bytes, fileName, 'text/csv');
+    } else {
+      _saveLocally(bytes, fileName);
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Template ready! Columns: ${enabledFields.join(", ")}'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveLocally(List<int> bytes, String fileName) async {
+    try {
+      Directory directory;
+      if (Platform.isWindows) {
+        directory = Directory('${Platform.environment['USERPROFILE']}\\Downloads');
+      } else if (Platform.isLinux || Platform.isMacOS) {
+        directory = Directory('${Platform.environment['HOME']}/Downloads');
+      } else {
+        directory = Directory.systemTemp;
+      }
+      if (!await directory.exists()) directory = Directory.systemTemp;
+      final path = '${directory.path}/$fileName';
+      await File(path).writeAsBytes(bytes);
+    } catch (e) {
+      // Surface the error instead of silently swallowing it.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not save file: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // File picking & parsing
+  // ---------------------------------------------------------------------------
 
   Future<void> _pickFile() async {
     try {
@@ -81,8 +235,8 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
       setState(() {
         _isLoading = true;
         _fileName = result.files.single.name;
-        _results = null;
         _showResults = false;
+        _resultsByLabel = null;
       });
 
       String contents;
@@ -96,81 +250,74 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
         contents = await File(path).readAsString();
       }
 
-      final csvRows = const CsvToListConverter().convert(contents);
+      // Strip UTF-8 BOM (added by Excel on Windows) then normalise line endings.
+      contents = contents
+          .replaceAll('\uFEFF', '')
+          .replaceAll('\r\n', '\n')
+          .replaceAll('\r', '\n')
+          .trim();
 
-      if (csvRows.isEmpty) throw Exception('The CSV file is empty');
+      // Use the csv package for parsing so quoted fields are handled correctly.
+      final allRows = const CsvToListConverter(eol: '\n').convert(contents);
 
-      final headers = csvRows[0].map((h) => h.toString().trim()).toList();
-      final dataRows = csvRows
-          .sublist(1)
-          .where((row) =>
-              row.isNotEmpty &&
-              row.any((cell) => cell.toString().trim().isNotEmpty))
-          .toList();
-
-      if (dataRows.isEmpty) throw Exception('No data rows found');
-
-      int labelCol = 0;
-      for (int i = 0; i < headers.length; i++) {
-        if (headers[i].toLowerCase() == 'label' ||
-            headers[i].toLowerCase() == 'category' ||
-            headers[i].toLowerCase() == 'group') {
-          labelCol = i;
-          break;
-        }
+      final stringRows = <List<String>>[];
+      for (var row in allRows) {
+        final strRow = row.map((c) => c.toString().trim()).toList();
+        if (strRow.isEmpty) continue;
+        if (strRow.every((c) => c.isEmpty)) continue;
+        if (strRow[0].startsWith('#')) continue;
+        stringRows.add(strRow);
       }
 
+      if (stringRows.isEmpty) {
+        throw Exception('No valid data found in CSV file.');
+      }
+      if (stringRows.length < 2) {
+        throw Exception(
+          'CSV only has a header row. Please add data rows.\n'
+          'Header: ${stringRows[0].join(", ")}',
+        );
+      }
+
+      final headers = stringRows[0];
+      final dataRows = stringRows.sublist(1);
       final enabledFields = _getEnabledFields();
       final mapping = <String, int>{};
+
+      // Normalise both sides the same way for comparison.
+      String normalise(String s) => s.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+
       for (int i = 0; i < headers.length; i++) {
-        if (i == labelCol) continue;
+        final h = normalise(headers[i]);
         for (var field in enabledFields) {
-          if (headers[i].toLowerCase() == field.toLowerCase()) {
+          if (h == normalise(field)) {
             mapping[field] = i;
             break;
           }
         }
       }
 
-      if (!mapping.containsKey('Name') && enabledFields.contains('Name')) {
-        for (int i = 0; i < headers.length; i++) {
-          if (i != labelCol) {
-            mapping['Name'] = i;
-            break;
-          }
-        }
-      }
-
-      final labels = <String, int>{};
-      for (var row in dataRows) {
-        if (row.length > labelCol) {
-          final label = row[labelCol].toString().trim();
-          if (label.isNotEmpty) {
-            labels[label] = (labels[label] ?? 0) + 1;
-          }
-        }
+      if (!mapping.containsKey(_FieldNames.name) && headers.isNotEmpty) {
+        mapping[_FieldNames.name] = 0;
       }
 
       setState(() {
         _rows = dataRows;
-        _labelColumnIndex = labelCol;
         _fieldMapping = mapping;
         _isLoading = false;
       });
 
       if (mounted) {
-        final unmappedFields =
-            enabledFields.where((f) => !mapping.containsKey(f)).toList();
-        final message = unmappedFields.isEmpty
-            ? 'Found ${labels.length} labels, ${dataRows.length} items. All fields mapped!'
-            : 'Found ${labels.length} labels. Unmapped fields: ${unmappedFields.join(", ")}';
-
+        final unmapped = enabledFields.where((f) => !mapping.containsKey(f)).toList();
+        final msg = unmapped.isEmpty
+            ? 'Ready! ${dataRows.length} items found.'
+            : '${dataRows.length} items. Unmapped: ${unmapped.join(", ")}';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(message),
-            backgroundColor: unmappedFields.isEmpty ? Colors.green : Colors.orange,
+            content: Text(msg),
+            backgroundColor: unmapped.isEmpty ? Colors.green : Colors.orange,
             behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 4),
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -179,195 +326,212 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text('$e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
     }
   }
 
-  Future<void> _startBulkImport() async {
-    if (_rows == null) return;
+  // ---------------------------------------------------------------------------
+  // Import
+  // ---------------------------------------------------------------------------
 
-    if (!_fieldMapping.containsKey('Name')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Name field must be mapped before importing'),
-          backgroundColor: Colors.red,
-        ),
-      );
+  Future<void> _startImport() async {
+    if (_rows == null || !_fieldMapping.containsKey(_FieldNames.name)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Name column is required for import'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       return;
     }
+
+    _cancelled = false;
 
     setState(() {
       _isLoading = true;
       _progress = 0;
-      _progressText = 'Preparing import...';
-      _progressLog.clear();
+      _progressText = 'Preparing...';
+      _progressLog.clear(); // inside setState so rebuild reflects cleared log
       _showResults = false;
     });
 
     try {
       await _inventoryService.initializeForInventory(widget.inventoryId);
       final enabledFields = _getEnabledFields();
+      final itemFields =
+          enabledFields.where((f) => f != _FieldNames.name).toList();
+      final nameCol = _fieldMapping[_FieldNames.name]!;
 
-      _updateProgress(0.05, 'Grouping items by label...');
-      final itemsByLabel = <String, List<List<dynamic>>>{};
-      int rowsWithoutLabel = 0;
-      int rowsWithoutName = 0;
-
+      // Group rows by item name.
+      _updateProgress(0.1, 'Grouping items...');
+      final byName = <String, List<List<dynamic>>>{};
       for (var row in _rows!) {
-        if (row.length > _labelColumnIndex) {
-          final label = row[_labelColumnIndex].toString().trim();
-          if (label.isNotEmpty) {
-            final nameCol = _fieldMapping['Name'];
-            if (nameCol != null && row.length > nameCol) {
-              final name = row[nameCol].toString().trim();
-              if (name.isNotEmpty) {
-                itemsByLabel.putIfAbsent(label, () => []).add(row);
-              } else {
-                rowsWithoutName++;
-              }
-            } else {
-              rowsWithoutName++;
-            }
-          } else {
-            rowsWithoutLabel++;
+        if (row.length > nameCol) {
+          final name = row[nameCol].toString().trim();
+          if (name.isNotEmpty) {
+            byName.putIfAbsent(name, () => []).add(row);
           }
-        } else {
-          rowsWithoutLabel++;
         }
       }
+      _addLog('${byName.length} unique items from ${_rows!.length} rows');
 
-      _addLog('${itemsByLabel.length} labels, ${_rows!.length} total rows');
-      if (rowsWithoutLabel > 0) {
-        _addLog('$rowsWithoutLabel rows skipped (no label)');
-      }
-      if (rowsWithoutName > 0) {
-        _addLog('$rowsWithoutName rows skipped (no name)');
-      }
-      _addLog('Enabled fields: ${enabledFields.join(", ")}');
-      _addLog('Mapped fields: ${_fieldMapping.keys.join(", ")}');
-
-      _updateProgress(0.1, 'Creating labels...');
+      // Create labels for each unique name.
+      _updateProgress(0.2, 'Creating labels...');
       final existingLabels = _inventoryService.labels.toSet();
       int labelsCreated = 0;
 
-      for (var label in itemsByLabel.keys) {
-        if (!existingLabels.contains(label)) {
-          await _inventoryService.createLabel(label);
-          existingLabels.add(label);
+      for (var name in byName.keys) {
+        if (_cancelled) break;
+        if (!existingLabels.contains(name)) {
+          await _inventoryService.createLabel(name);
+          existingLabels.add(name);
           labelsCreated++;
-          _addLog('  Created label: "$label"');
-
+          // Use a UUID/unique ID strategy to avoid microsecond collisions.
           await ActivityLogService().addLog(ActivityLogEntry(
-            id: DateTime.now().microsecondsSinceEpoch.toString(),
+            id: '${DateTime.now().microsecondsSinceEpoch}_$labelsCreated',
             timestamp: DateTime.now(),
             action: 'created',
             entityType: 'label',
-            entityName: label,
+            entityName: name,
             inventoryId: widget.inventoryId,
             inventoryName: widget.inventoryName,
-            details: 'Label created during bulk import',
+            details: 'Label auto-created from CSV import',
           ));
         }
       }
-      _addLog('Labels: $labelsCreated created, ${itemsByLabel.length - labelsCreated} existing');
+      _addLog(
+          'Labels: $labelsCreated new, ${byName.length - labelsCreated} existing');
 
+      // Import items for each label.
       final results = <String, LabelImportStats>{};
-      int processedLabels = 0;
-      final totalLabels = itemsByLabel.length;
+      int processed = 0;
       int totalImported = 0;
+      int totalDuplicates = 0;
+      int totalErrors = 0;
+      final total = byName.length;
 
-      for (var entry in itemsByLabel.entries) {
-        final label = entry.key;
+      for (var entry in byName.entries) {
+        if (_cancelled) break;
+
+        processed++;
+        final name = entry.key;
         final rows = entry.value;
 
-        final progress = 0.1 + (0.85 * (processedLabels / totalLabels));
-        _updateProgress(progress, 'Importing "$label" (${processedLabels + 1}/$totalLabels)...');
+        // Update progress: 20% reserved for setup, 75% for item import.
+        _updateProgress(
+          0.2 + 0.75 * (processed / total),
+          '$name ($processed/$total)',
+        );
 
         final items = <InventoryItem>[];
-        int rowsWithErrors = 0;
+        int errors = 0;
+        int itemNumber = 0;
 
         for (var row in rows) {
           try {
-            final item = InventoryItem(label: label);
-
-            for (var field in enabledFields) {
+            itemNumber++;
+            final item = InventoryItem(
+              label: name,
+              name: itemNumber == 1 ? name : '$name #$itemNumber',
+              createdAt: DateTime.now(),
+            );
+            for (var field in itemFields) {
               final colIndex = _fieldMapping[field];
               if (colIndex != null && row.length > colIndex) {
                 final value = row[colIndex].toString().trim();
-                if (value.isNotEmpty) {
-                  _setItemField(item, field, value);
-                }
+                if (value.isNotEmpty) _setItemField(item, field, value);
               }
             }
-
-            if (item.name.isNotEmpty) {
-              items.add(item);
-            } else {
-              rowsWithErrors++;
-            }
+            items.add(item);
           } catch (_) {
-            rowsWithErrors++;
+            errors++;
           }
         }
 
-        final importedCount = await _inventoryService.importItems(label, items);
-        final duplicates = items.length - importedCount;
+        final imported = await _inventoryService.importItems(name, items);
+        // Fix: duplicates = original rows minus imported minus parse errors.
+        final duplicates = rows.length - imported - errors;
 
-        results[label] = LabelImportStats(
-          itemsImported: importedCount,
-          duplicatesSkipped: duplicates,
-          rowsSkipped: rowsWithErrors,
+        results[name] = LabelImportStats(
+          itemsImported: imported,
+          duplicatesSkipped: duplicates < 0 ? 0 : duplicates,
+          rowsSkipped: errors,
           totalRows: rows.length,
         );
 
-        totalImported += importedCount;
-        _addLog('  "$label": $importedCount items ($duplicates duplicates, $rowsWithErrors errors)');
-        processedLabels++;
+        totalImported += imported;
+        totalDuplicates += (duplicates < 0 ? 0 : duplicates);
+        totalErrors += errors;
 
-        await Future.delayed(const Duration(milliseconds: 50));
+        // Yield to the event loop without an arbitrary fixed delay.
+        await Future.microtask(() {});
       }
 
-      _updateProgress(0.95, 'Finalizing...');
+      if (_cancelled) {
+        _updateProgress(_progress, 'Cancelled.');
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // Single activity log entry for the whole import.
       await ActivityLogService().addLog(ActivityLogEntry(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        id: '${DateTime.now().microsecondsSinceEpoch}_bulk',
         timestamp: DateTime.now(),
         action: 'created',
         entityType: 'item',
-        entityName: 'Bulk Import',
+        entityName: 'CSV Import',
         inventoryId: widget.inventoryId,
         inventoryName: widget.inventoryName,
-        details: 'Bulk import: ${itemsByLabel.length} labels, $totalImported items imported',
+        details: 'Bulk import: $total labels, $totalImported items',
       ));
 
-      _updateProgress(1.0, 'Complete!');
-      _addLog('Import completed! $totalImported items across ${itemsByLabel.length} labels');
+      _updateProgress(1, 'Complete!');
+      _addLog('Done! $totalImported items imported across $total labels.');
 
+      if (!mounted) return;
       setState(() {
-        _results = results;
+        _totalLabels = total;
+        _totalImported = totalImported;
+        _totalDuplicates = totalDuplicates;
+        _totalErrors = totalErrors;
+        _resultsByLabel = results;
         _showResults = true;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
-      _addLog('Error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Import failed: $e'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Import failed: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
+  @override
+  void dispose() {
+    _cancelled = true; // stop the loop if the widget is disposed mid-import
+    super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Progress helpers
+  // ---------------------------------------------------------------------------
+
   void _updateProgress(double progress, String text) {
+    if (!mounted) return;
     setState(() {
       _progress = progress;
       _progressText = text;
@@ -375,104 +539,70 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
   }
 
   void _addLog(String message) {
+    if (!mounted) return;
     setState(() {
       _progressLog.add(message);
+      // Cap log length to avoid unbounded memory growth.
+      if (_progressLog.length > _maxLogEntries) {
+        _progressLog.removeAt(0);
+      }
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Field setter – uses constants to avoid magic-string mismatches
+  // ---------------------------------------------------------------------------
+
   void _setItemField(InventoryItem item, String field, String value) {
-    switch (field.toLowerCase()) {
-      case 'name': item.name = value;
-      case 'code': item.code = value;
-      case 'barcode': item.barcode = value;
-      case 'color': item.color = value;
-      case 'material': item.material = value;
-      case 'size': item.size = value;
-      case 'production date': item.productionDate = DateTime.tryParse(value);
-      case 'expire date': item.expireDate = DateTime.tryParse(value);
-      case 'note': item.note = value;
-      case 'quantity': item.quantity = int.tryParse(value) ?? 0;
+    switch (field) {
+      case _FieldNames.name:
+        break; // handled separately
+      case _FieldNames.code:
+        item.code = value;
+        break;
+      case _FieldNames.barcode:
+        item.barcode = value;
+        break;
+      case _FieldNames.color:
+        item.color = value;
+        break;
+      case _FieldNames.material:
+        item.material = value;
+        break;
+      case _FieldNames.size:
+        item.size = value;
+        break;
+      case _FieldNames.productionDate:
+        item.productionDate = DateTime.tryParse(value);
+        break;
+      case _FieldNames.expireDate:
+        item.expireDate = DateTime.tryParse(value);
+        break;
+      case _FieldNames.note:
+        item.note = value;
+        break;
+      case _FieldNames.quantity:
+        item.quantity = int.tryParse(value) ?? 0;
+        break;
       default:
         if (value.isNotEmpty) item.customFields[field] = value;
+        break;
     }
   }
 
-  void _downloadTemplate() {
-    final enabledFields = _getEnabledFields();
-
-    final buffer = StringBuffer();
-    buffer.write('Label,${enabledFields.join(",")}\n');
-
-    final sampleLabels = ['Electronics', 'Furniture', 'Clothing'];
-    for (var label in sampleLabels) {
-      final row = <String>[label];
-      for (var field in enabledFields) {
-        row.add(_getSampleValue(field));
-      }
-      buffer.write('${row.join(",")}\n');
-    }
-
-    final row = <String>[sampleLabels.first];
-    for (var field in enabledFields) {
-      row.add(_getSampleValue(field, variant: true));
-    }
-    buffer.write('${row.join(",")}\n');
-
-    final bytes = utf8.encode(buffer.toString());
-    if (kIsWeb) {
-      downloadFileWeb(bytes, 'bulk_import_template.csv', 'text/csv');
-    } else {
-      _saveTemplateLocally(bytes);
-    }
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Template downloaded with your configured fields!'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  String _getSampleValue(String field, {bool variant = false}) {
-    switch (field.toLowerCase()) {
-      case 'name': return variant ? 'USB Cable' : 'Wireless Mouse';
-      case 'code': return variant ? 'CABLE-001' : 'MOUSE-001';
-      case 'barcode': return variant ? '8901234567891' : '8901234567890';
-      case 'color': return variant ? 'Black' : 'White';
-      case 'material': return variant ? 'PVC' : 'Plastic';
-      case 'size': return variant ? '1m' : 'Standard';
-      case 'quantity': return variant ? '100' : '50';
-      case 'production date': return '2024-01-15';
-      case 'expire date': return '2026-01-15';
-      case 'note': return variant ? 'Fast charging' : 'Ergonomic design';
-      default: return variant ? 'Value B' : 'Value A';
-    }
-  }
-
-  Future<void> _saveTemplateLocally(List<int> bytes) async {
-    try {
-      Directory directory;
-      if (Platform.isWindows) {
-        directory = Directory('${Platform.environment['USERPROFILE']}\\Documents');
-      } else if (Platform.isLinux || Platform.isMacOS) {
-        directory = Directory('${Platform.environment['HOME']}/Documents');
-      } else {
-        directory = Directory.systemTemp;
-      }
-      final path = '${directory.path}/bulk_import_template.csv';
-      await File(path).writeAsBytes(bytes);
-    } catch (_) {
-      // Silently fail - template saving is optional
-    }
-  }
+  // ---------------------------------------------------------------------------
+  // Build
+  // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
+    // Watch the provider here so the field list stays fresh.
+    context.watch<InventoryProvider>();
+    final fields = _getEnabledFields();
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bulk Import (Labels + Items)'),
+        title: const Text('Bulk Import'),
         actions: [
           if (_showResults)
             TextButton.icon(
@@ -487,156 +617,191 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
           : _showResults
               ? _buildResultsView()
               : _rows == null
-                  ? _buildWelcomeView()
-                  : _buildPreviewView(),
+                  ? _buildWelcomeView(fields)
+                  : _buildPreviewView(fields),
     );
   }
 
-  Widget _buildWelcomeView() {
-    final enabledFields = _getEnabledFields();
+  // ---------------------------------------------------------------------------
+  // Welcome view
+  // ---------------------------------------------------------------------------
 
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Icon(Icons.cloud_upload, size: 48, color: Theme.of(context).colorScheme.primary),
+  Widget _buildWelcomeView(List<String> fields) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          const SizedBox(height: 20),
+          Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              color: Theme.of(context)
+                  .colorScheme
+                  .primaryContainer
+                  .withOpacity(0.3),
+              borderRadius: BorderRadius.circular(24),
             ),
-            const SizedBox(height: 24),
-            Text('Bulk Import',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            Text(
-              'Import all labels and items from one CSV file.\nOnly fields enabled in Settings will be imported.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey[600], fontSize: 14),
+            child: Icon(Icons.cloud_upload,
+                size: 48, color: Theme.of(context).colorScheme.primary),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Bulk Import',
+            style: Theme.of(context)
+                .textTheme
+                .headlineSmall
+                ?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Import items from a CSV file.\n'
+            'Each item Name becomes its own label automatically.\n'
+            'Download the template, fill in your data, and re-import.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                color: Colors.grey[600], fontSize: 14, height: 1.5),
+          ),
+          const SizedBox(height: 24),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(12),
             ),
-            const SizedBox(height: 16),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Enabled fields (${enabledFields.length}):',
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    children: enabledFields.map((field) {
-                      final required = _isFieldRequired(field);
-                      return Chip(
-                        label: Text(required ? '$field *' : field, style: const TextStyle(fontSize: 11)),
-                        backgroundColor: required ? Colors.red.shade50 : Colors.green.shade50,
-                        padding: EdgeInsets.zero,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        visualDensity: VisualDensity.compact,
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                OutlinedButton.icon(
-                  onPressed: _downloadTemplate,
-                  icon: const Icon(Icons.download, size: 16),
-                  label: const Text('Template'),
+                Text(
+                  'CSV Columns (${fields.length}):',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 13),
                 ),
-                const SizedBox(width: 12),
-                FilledButton.icon(
-                  onPressed: _pickFile,
-                  icon: const Icon(Icons.file_open),
-                  label: const Text('Choose CSV File'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: fields
+                      .map((f) => Chip(
+                            label: Text(f,
+                                style: const TextStyle(fontSize: 11)),
+                            padding: EdgeInsets.zero,
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                            visualDensity: VisualDensity.compact,
+                            backgroundColor: _isFieldRequired(f)
+                                ? Colors.red.shade50
+                                : null,
+                          ))
+                      .toList(),
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _downloadTemplate,
+                  icon: const Icon(Icons.download, size: 18),
+                  label: const Text('Template'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _pickFile,
+                  icon: const Icon(Icons.file_open, size: 18),
+                  label: const Text('Choose CSV'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildPreviewView() {
-    final enabledFields = _getEnabledFields();
-    final unmappedFields = enabledFields.where((f) => !_fieldMapping.containsKey(f)).toList();
-    final unmappedRequired = unmappedFields.where((f) => _isFieldRequired(f)).toList();
+  // ---------------------------------------------------------------------------
+  // Preview view
+  // ---------------------------------------------------------------------------
 
-    final labels = <String, int>{};
-    for (var row in _rows!) {
-      if (row.length > _labelColumnIndex) {
-        final label = row[_labelColumnIndex].toString().trim();
-        if (label.isNotEmpty) {
-          labels[label] = (labels[label] ?? 0) + 1;
+  Widget _buildPreviewView(List<String> fields) {
+    final unmapped =
+        fields.where((f) => !_fieldMapping.containsKey(f)).toList();
+    final unmappedRequired =
+        unmapped.where((f) => _isFieldRequired(f)).toList();
+
+    final names = <String, int>{};
+    final nameCol = _fieldMapping[_FieldNames.name];
+    if (nameCol != null) {
+      for (var row in _rows!) {
+        if (row.length > nameCol) {
+          final name = row[nameCol].toString().trim();
+          if (name.isNotEmpty) names[name] = (names[name] ?? 0) + 1;
         }
       }
     }
 
+    final showingCount = names.length > 50 ? 50 : names.length;
+
     return Column(
       children: [
+        // Summary card
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           margin: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.2),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-            ),
+            color: Theme.of(context)
+                .colorScheme
+                .primaryContainer
+                .withOpacity(0.15),
+            borderRadius: BorderRadius.circular(14),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(_fileName ?? '', style: const TextStyle(fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 4),
-                        Text('${labels.length} labels \u2022 ${_rows!.length} items',
-                            style: TextStyle(color: Colors.grey[600])),
-                      ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_fileName ?? '',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 13)),
+                    Text(
+                      '${names.length} unique names from ${_rows!.length} rows',
+                      style:
+                          TextStyle(color: Colors.grey[600], fontSize: 12),
                     ),
-                  ),
-                  FilledButton(
-                    onPressed: unmappedRequired.isEmpty ? _startBulkImport : null,
-                    child: const Text('Import All'),
-                  ),
-                ],
+                    if (unmapped.isNotEmpty)
+                      Text(
+                        'Unmapped: ${unmapped.join(", ")}',
+                        style: TextStyle(
+                            color: Colors.orange[700], fontSize: 11),
+                      ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-              Text('Mapped fields: ${_fieldMapping.keys.join(", ")}',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-              if (unmappedFields.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text('Unmapped: ${unmappedFields.join(", ")}',
-                    style: TextStyle(fontSize: 11, color: Colors.orange[700], fontWeight: FontWeight.w500)),
-              ],
+              FilledButton(
+                onPressed:
+                    unmappedRequired.isEmpty ? _startImport : null,
+                child: const Text('Import All'),
+              ),
             ],
           ),
         ),
+
         if (unmappedRequired.isNotEmpty)
           Container(
             padding: const EdgeInsets.all(10),
@@ -644,50 +809,56 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
             decoration: BoxDecoration(
               color: Colors.red.shade50,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.red.shade200),
             ),
-            child: Row(
-              children: [
-                Icon(Icons.warning_amber, size: 18, color: Colors.red[700]),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Required fields not mapped: ${unmappedRequired.join(", ")}',
-                    style: TextStyle(fontSize: 12, color: Colors.red[700]),
-                  ),
-                ),
-              ],
+            child: Text(
+              'Required fields not mapped: ${unmappedRequired.join(", ")}',
+              style: TextStyle(fontSize: 12, color: Colors.red[700]),
             ),
           ),
+
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           child: Row(
             children: [
-              const Icon(Icons.label, size: 16),
-              const SizedBox(width: 8),
-              Text('Labels found:', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey[700])),
+              Text(
+                'Labels to be created (from Name column):',
+                style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[700],
+                    fontSize: 13),
+              ),
+              const Spacer(),
+              if (names.length > 50)
+                Text(
+                  'Showing $showingCount of ${names.length}',
+                  style:
+                      TextStyle(fontSize: 11, color: Colors.orange[700]),
+                ),
             ],
           ),
         ),
+
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: labels.length,
-            itemBuilder: (context, index) {
-              final label = labels.keys.elementAt(index);
-              final count = labels[label]!;
+            itemCount: showingCount,
+            itemBuilder: (_, i) {
+              final name = names.keys.elementAt(i);
+              final count = names[name]!;
               return Card(
-                margin: const EdgeInsets.only(bottom: 6),
+                margin: const EdgeInsets.only(bottom: 4),
                 child: ListTile(
                   dense: true,
                   leading: CircleAvatar(
-                    radius: 16,
-                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                    radius: 14,
+                    backgroundColor: Colors.green.shade100,
                     child: Text('$count',
-                        style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.primary)),
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.green.shade700)),
                   ),
-                  title: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                  subtitle: Text('$count items', style: const TextStyle(fontSize: 11)),
+                  title:
+                      Text(name, style: const TextStyle(fontSize: 13)),
                 ),
               );
             },
@@ -696,6 +867,10 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
       ],
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Progress view
+  // ---------------------------------------------------------------------------
 
   Widget _buildProgressView() {
     return Padding(
@@ -710,33 +885,49 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
                 width: 120,
                 height: 120,
                 child: CircularProgressIndicator(
-                  value: _progress,
-                  strokeWidth: 8,
-                  backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                ),
+                    value: _progress, strokeWidth: 8),
               ),
-              Text('${(_progress * 100).toInt()}%',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                '${(_progress * 100).toInt()}%',
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           const SizedBox(height: 24),
-          Text(_progressText, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 24),
+          Text(_progressText,
+              style: const TextStyle(
+                  fontSize: 16, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: () => setState(() => _cancelled = true),
+            icon: const Icon(Icons.stop_circle_outlined, size: 16),
+            label: const Text('Cancel'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          ),
+          const SizedBox(height: 16),
           Expanded(
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                color:
+                    Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: ListView.builder(
                 itemCount: _progressLog.length,
-                itemBuilder: (context, index) {
-                  return Text(
-                    _progressLog[index],
-                    style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: Colors.grey[700]),
-                  );
-                },
+                itemBuilder: (_, i) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    _progressLog[i],
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        color: Colors.grey[700]),
+                  ),
+                ),
               ),
             ),
           ),
@@ -745,39 +936,42 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
     );
   }
 
-  Widget _buildResultsView() {
-    if (_results == null) return const SizedBox();
+  // ---------------------------------------------------------------------------
+  // Results view
+  // ---------------------------------------------------------------------------
 
-    int totalImported = 0, totalDuplicates = 0, totalSkipped = 0;
-    for (var stat in _results!.values) {
-      totalImported += stat.itemsImported;
-      totalDuplicates += stat.duplicatesSkipped;
-      totalSkipped += stat.rowsSkipped;
-    }
+  Widget _buildResultsView() {
+    // _resultsByLabel is always non-null when _showResults is true.
+    final results = _resultsByLabel!;
 
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(24),
           margin: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [Colors.green.shade400, Colors.green.shade600]),
+            color: Colors.green.shade600,
             borderRadius: BorderRadius.circular(20),
           ),
           child: Column(
             children: [
-              const Icon(Icons.check_circle, color: Colors.white, size: 48),
-              const SizedBox(height: 12),
-              const Text('Bulk Import Complete!',
-                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+              const Icon(Icons.check_circle, color: Colors.white, size: 56),
               const SizedBox(height: 16),
+              const Text(
+                'Import Complete!',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _buildResultStat('Labels', _results!.length.toString()),
-                  _buildResultStat('Imported', totalImported.toString()),
-                  _buildResultStat('Duplicates', totalDuplicates.toString()),
-                  _buildResultStat('Errors', totalSkipped.toString()),
+                  _buildStat('Labels', _totalLabels),
+                  _buildStat('Imported', _totalImported),
+                  _buildStat('Duplicates', _totalDuplicates),
+                  _buildStat('Errors', _totalErrors),
                 ],
               ),
             ],
@@ -786,80 +980,80 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _results!.length,
-            itemBuilder: (context, index) {
-              final label = _results!.keys.elementAt(index);
-              final stats = _results![label]!;
+            itemCount: results.length,
+            itemBuilder: (_, i) {
+              final name = results.keys.elementAt(i);
+              final stats = results[name]!;
               return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ExpansionTile(
+                margin: const EdgeInsets.only(bottom: 6),
+                child: ListTile(
+                  dense: true,
                   leading: CircleAvatar(
-                    backgroundColor: stats.rowsSkipped > 0 ? Colors.orange.shade100 : Colors.green.shade100,
+                    radius: 14,
+                    backgroundColor: stats.rowsSkipped > 0
+                        ? Colors.orange.shade100
+                        : Colors.green.shade100,
                     child: Icon(
-                      stats.rowsSkipped > 0 ? Icons.warning : Icons.check,
-                      color: stats.rowsSkipped > 0 ? Colors.orange.shade700 : Colors.green.shade700,
-                      size: 18,
+                      stats.rowsSkipped > 0
+                          ? Icons.warning
+                          : Icons.check,
+                      size: 16,
+                      color: stats.rowsSkipped > 0
+                          ? Colors.orange.shade700
+                          : Colors.green.shade700,
                     ),
                   ),
-                  title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text('${stats.itemsImported} items imported',
-                      style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          _buildDetailRow('Items imported', stats.itemsImported.toString()),
-                          _buildDetailRow('Duplicates skipped', stats.duplicatesSkipped.toString()),
-                          if (stats.rowsSkipped > 0)
-                            _buildDetailRow('Rows with errors', stats.rowsSkipped.toString()),
-                          _buildDetailRow('Total rows', stats.totalRows.toString()),
-                        ],
-                      ),
-                    ),
-                  ],
+                  title: Text(name,
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w500)),
+                  subtitle: Text(
+                    '${stats.itemsImported} imported'
+                    '${stats.duplicatesSkipped > 0 ? ', ${stats.duplicatesSkipped} duplicates' : ''}'
+                    '${stats.rowsSkipped > 0 ? ', ${stats.rowsSkipped} errors' : ''}',
+                    style: TextStyle(
+                        fontSize: 11, color: Colors.grey[600]),
+                  ),
                 ),
               );
             },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: FilledButton.icon(
+              onPressed: () => Navigator.pop(context, true),
+              icon: const Icon(Icons.check),
+              label: const Text('Back to Inventory'),
+              style: FilledButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildResultStat(String label, String value) {
+  Widget _buildStat(String label, int value) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-        Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12)),
+        Text(
+          '$value',
+          // Use theme-aware white by relying on the green background context.
+          style: const TextStyle(
+              color: Colors.white,
+              fontSize: 28,
+              fontWeight: FontWeight.bold),
+        ),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 12),
+        ),
       ],
     );
   }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-        ],
-      ),
-    );
-  }
-}
-
-class LabelImportStats {
-  final int itemsImported;
-  final int duplicatesSkipped;
-  final int rowsSkipped;
-  final int totalRows;
-
-  LabelImportStats({
-    required this.itemsImported,
-    required this.duplicatesSkipped,
-    required this.rowsSkipped,
-    required this.totalRows,
-  });
 }
