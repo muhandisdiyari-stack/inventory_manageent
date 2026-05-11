@@ -264,15 +264,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final themeProvider = context.watch<ThemeProvider>();
     final isDarkMode = themeProvider.isDarkMode;
 
-    return PopScope(
-      canPop: !_hasChanges,
-      onPopInvoked: (didPop) async {
-        if (didPop) return;
-        final shouldPop = await _onWillPop();
-        if (shouldPop && context.mounted) {
-          Navigator.of(context).pop();
-        }
-      },
+return PopScope(
+  canPop: !_hasChanges,
+  onPopInvokedWithResult: (didPop, result) async {
+    if (didPop) return;
+    final shouldPop = await _onWillPop();
+    if (shouldPop && context.mounted) {
+      Navigator.of(context).pop();
+    }
+  },
       child: Scaffold(
         appBar: AppBar(
           title: Column(
@@ -330,10 +330,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildInfoCard(String inventoryName) {
     return Card(
-      color: Theme.of(context)
-          .colorScheme
-          .primaryContainer
-          .withOpacity(0.3),
+color: Theme.of(context)
+    .colorScheme
+    .primaryContainer
+    .withValues(alpha: 0.3),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
@@ -689,11 +689,11 @@ class _StatusBadge extends StatelessWidget {
   Widget _badge(BuildContext context, String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3), width: 0.5),
-      ),
+decoration: BoxDecoration(
+  color: color.withValues(alpha: 0.12),
+  borderRadius: BorderRadius.circular(8),
+  border: Border.all(color: color.withValues(alpha: 0.3), width: 0.5),
+),
       child: Text(
         label,
         style: TextStyle(

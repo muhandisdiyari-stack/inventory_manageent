@@ -9,76 +9,141 @@ import '../utils/file_export.dart';
 class ActivityLogService {
   static const String _logBoxName = 'activity_logs';
   static const String _logKey = 'all_logs';
+
+  /// Maximum number of log entries retained. Oldest entries are pruned first.
+  static const int _maxLogEntries = 2000;
+
   static final ActivityLogService _instance = ActivityLogService._internal();
-  
   factory ActivityLogService() => _instance;
   ActivityLogService._internal();
 
   Box? _logBox;
 
+  // In-memory cache so getLogs() doesn't re-deserialise on every call.
+  List<ActivityLogEntry>? _cache;
+
+  // ---------------------------------------------------------------------------
+  // Initialisation
+  // ---------------------------------------------------------------------------
+
+  /// Initialises the service. Safe to call multiple times.
   Future<void> initialize() async {
-    if (Hive.isBoxOpen(_logBoxName)) {
-      _logBox = Hive.box(_logBoxName);
-    } else {
-      _logBox = await Hive.openBox(_logBoxName);
-    }
+    if (_logBox != null && _logBox!.isOpen) return;
+    _logBox = Hive.isBoxOpen(_logBoxName)
+        ? Hive.box(_logBoxName)
+        : await Hive.openBox(_logBoxName);
     if (!_logBox!.containsKey(_logKey)) {
       await _logBox!.put(_logKey, <String>[]);
     }
+    _cache = null; // invalidate cache after open
   }
 
+  /// Returns the singleton after guaranteeing initialisation.
+  /// Prefer this over the default constructor in code that runs before
+  /// the app-level initialize() call.
+  static Future<ActivityLogService> getInstance() async {
+    await _instance.initialize();
+    return _instance;
+  }
+
+  // Ensures the box is open before any operation.
+  Future<void> _ensureInitialised() async {
+    if (_logBox == null || !_logBox!.isOpen) await initialize();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Read
+  // ---------------------------------------------------------------------------
+
+  /// Returns all logs, optionally filtered, sorted newest-first.
+  /// Uses an in-memory cache — only deserialises from Hive when the cache
+  /// is stale (after a write).
   List<ActivityLogEntry> getLogs({String? inventoryId, String? entityType}) {
     if (_logBox == null) return [];
-    
-    final rawLogs = _logBox!.get(_logKey, defaultValue: <String>[]) as List;
-    final logs = <ActivityLogEntry>[];
-    for (final json in rawLogs) {
-      try {
-        logs.add(ActivityLogEntry.fromJson(jsonDecode(json)));
-      } catch (e) {
-        debugPrint('Error parsing log entry: $e');
+
+    // Populate cache if empty.
+    if (_cache == null) {
+      final raw =
+          (_logBox!.get(_logKey, defaultValue: <String>[]) as List);
+      final parsed = <ActivityLogEntry>[];
+      for (final json in raw) {
+        try {
+          parsed.add(ActivityLogEntry.fromJson(jsonDecode(json as String)));
+        } catch (e) {
+          // Skip malformed entries rather than crashing.
+          debugPrint('ActivityLogService: skipping malformed entry: $e');
+        }
       }
+      parsed.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      _cache = parsed;
     }
-    
-    var filtered = logs;
+
+    var result = _cache!;
     if (inventoryId != null) {
-      filtered = filtered.where((log) => log.inventoryId == inventoryId).toList();
+      result = result.where((l) => l.inventoryId == inventoryId).toList();
     }
     if (entityType != null) {
-      filtered = filtered.where((log) => log.entityType == entityType).toList();
+      result = result.where((l) => l.entityType == entityType).toList();
     }
-    
-    filtered.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return filtered;
+    return result;
   }
 
+  // ---------------------------------------------------------------------------
+  // Write
+  // ---------------------------------------------------------------------------
+
   Future<void> addLog(ActivityLogEntry entry) async {
-    if (_logBox == null) await initialize();
-    
-    final rawLogs = (_logBox!.get(_logKey, defaultValue: <String>[]) as List).cast<String>();
+    await _ensureInitialised();
+
+    // Copy — never mutate the list returned by Hive directly.
+    final rawLogs = List<String>.from(
+      _logBox!.get(_logKey, defaultValue: <String>[]) as List,
+    );
     rawLogs.add(jsonEncode(entry.toJson()));
+
+    // Prune oldest entries if we exceed the cap.
+    if (rawLogs.length > _maxLogEntries) {
+      rawLogs.removeRange(0, rawLogs.length - _maxLogEntries);
+    }
+
     await _logBox!.put(_logKey, rawLogs);
+    _cache = null; // invalidate cache
   }
 
   Future<void> clearLogs({String? inventoryId}) async {
-    if (_logBox == null) return;
-    
+    await _ensureInitialised();
+
     if (inventoryId != null) {
-      final logs = getLogs();
-      final filteredLogs = logs
-          .where((log) => log.inventoryId != inventoryId)
-          .map((log) => jsonEncode(log.toJson()))
-          .toList();
-      await _logBox!.put(_logKey, filteredLogs);
+      // Work directly on the raw strings to avoid a full deserialise/serialise
+      // round-trip when we only need to filter by inventoryId.
+      final rawLogs = List<String>.from(
+        _logBox!.get(_logKey, defaultValue: <String>[]) as List,
+      );
+      final kept = rawLogs.where((json) {
+        try {
+          final decoded = jsonDecode(json) as Map<String, dynamic>;
+          return decoded['inventoryId'] != inventoryId;
+        } catch (_) {
+          return true; // keep unparseable entries to avoid data loss
+        }
+      }).toList();
+      await _logBox!.put(_logKey, kept);
     } else {
       await _logBox!.put(_logKey, <String>[]);
     }
+    _cache = null;
   }
 
-  Future<String> exportLogsAsText({String? inventoryId}) async {
+  // ---------------------------------------------------------------------------
+  // Export
+  // ---------------------------------------------------------------------------
+
+  /// Builds a human-readable text representation of the logs.
+  /// Not async — no I/O happens here.
+  String exportLogsAsText({String? inventoryId}) {
     final logs = getLogs(inventoryId: inventoryId);
     final buffer = StringBuffer();
-    
+
     buffer.writeln('═══════════════════════════════════════════════════');
     buffer.writeln('  INVENTORY PRO - ACTIVITY LOG');
     buffer.writeln('  Generated: ${DateTime.now().toIso8601String()}');
@@ -88,7 +153,7 @@ class ActivityLogService {
     buffer.writeln('  Total Entries: ${logs.length}');
     buffer.writeln('═══════════════════════════════════════════════════');
     buffer.writeln();
-    
+
     if (logs.isEmpty) {
       buffer.writeln('No activity recorded yet.');
     } else {
@@ -97,18 +162,19 @@ class ActivityLogService {
         buffer.writeln();
       }
     }
-    
+
     return buffer.toString();
   }
 
+  /// Saves the log to a user-accessible file and returns the saved path,
+  /// or null on failure.
   Future<String?> saveLogsToFile({String? inventoryId}) async {
     try {
-      final content = await exportLogsAsText(inventoryId: inventoryId);
+      final content = exportLogsAsText(inventoryId: inventoryId);
       final timestamp = DateTime.now()
           .toIso8601String()
-          .replaceAll(':', '-')
-          .split('.')
-          .first;
+          .replaceAll(RegExp(r'[:.T]'), '-')
+          .substring(0, 19);
       final fileName = 'activity_log_$timestamp.txt';
       final bytes = utf8.encode(content);
 
@@ -117,49 +183,64 @@ class ActivityLogService {
         return 'web_download';
       }
 
-      try {
-        final directory = await getApplicationDocumentsDirectory();
-        final filePath = '${directory.path}/$fileName';
-        final file = File(filePath);
-        await file.writeAsString(content);
-        return filePath;
-      } catch (e) {
-        final tempDir = Directory.systemTemp;
-        final tempPath = '${tempDir.path}/$fileName';
-        final tempFile = File(tempPath);
-        await tempFile.writeAsString(content);
-        return tempPath;
+      String savedPath;
+
+      if (Platform.isAndroid) {
+        // App-scoped external directory: writable on all Android versions
+        // without runtime permissions.
+        // Visible at: /sdcard/Android/data/<package>/files/
+        final dir = await getExternalStorageDirectory();
+        if (dir == null) throw Exception('External storage unavailable');
+        savedPath = '${dir.path}/$fileName';
+      } else if (Platform.isWindows) {
+        final downloadsDir = Directory(
+            '${Platform.environment['USERPROFILE']}\\Downloads');
+        final dir = await downloadsDir.exists()
+            ? downloadsDir
+            : Directory.systemTemp;
+        savedPath = '${dir.path}\\$fileName';
+      } else {
+        // macOS / Linux / iOS
+        final downloadsDir =
+            Directory('${Platform.environment['HOME']}/Downloads');
+        final dir = Platform.isIOS || !await downloadsDir.exists()
+            ? await getApplicationDocumentsDirectory()
+            : downloadsDir;
+        savedPath = '${dir.path}/$fileName';
       }
+
+      await File(savedPath).writeAsString(content);
+      return savedPath;
     } catch (e) {
-      debugPrint('Error saving activity log: $e');
+      debugPrint('ActivityLogService.saveLogsToFile error: $e');
       return null;
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Statistics
+  // ---------------------------------------------------------------------------
+
   Map<String, dynamic> getStatistics({String? inventoryId}) {
     final logs = getLogs(inventoryId: inventoryId);
-    
-    final stats = <String, dynamic>{
-      'totalLogs': logs.length,
-      'created': 0,
-      'modified': 0,
-      'deleted': 0,
-      'byType': <String, int>{},
-    };
+
+    // Use a generic action map so no action type is silently ignored.
+    final byAction = <String, int>{};
+    final byType = <String, int>{};
 
     for (final log in logs) {
-      if (log.action == 'created') {
-        stats['created'] = (stats['created'] as int) + 1;
-      } else if (log.action == 'modified') {
-        stats['modified'] = (stats['modified'] as int) + 1;
-      } else if (log.action == 'deleted') {
-        stats['deleted'] = (stats['deleted'] as int) + 1;
-      }
-
-      final byType = stats['byType'] as Map<String, int>;
+      byAction[log.action] = (byAction[log.action] ?? 0) + 1;
       byType[log.entityType] = (byType[log.entityType] ?? 0) + 1;
     }
 
-    return stats;
+    return {
+      'totalLogs': logs.length,
+      // Keep named keys for backward compatibility with any existing UI.
+      'created': byAction['created'] ?? 0,
+      'modified': byAction['modified'] ?? 0,
+      'deleted': byAction['deleted'] ?? 0,
+      'byAction': byAction,
+      'byType': byType,
+    };
   }
 }
