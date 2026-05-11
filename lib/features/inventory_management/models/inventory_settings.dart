@@ -48,6 +48,7 @@ class InventorySettings extends HiveObject {
       FieldConfig(fieldName: 'Color', isEnabled: false, isRequired: false),
       FieldConfig(fieldName: 'Material', isEnabled: false, isRequired: false),
       FieldConfig(fieldName: 'Size', isEnabled: true, isRequired: false),
+      FieldConfig(fieldName: 'Quantity', isEnabled: true, isRequired: true),
       FieldConfig(fieldName: 'Production Date', isEnabled: false, isRequired: false),
       FieldConfig(fieldName: 'Expire Date', isEnabled: false, isRequired: false),
       FieldConfig(fieldName: 'Note', isEnabled: true, isRequired: false),
@@ -62,6 +63,14 @@ class InventorySettings extends HiveObject {
       orElse: () => FieldConfig(fieldName: fieldName, isEnabled: false, isRequired: false),
     );
     return config.isRequired;
+  }
+  
+  bool isFieldEnabled(String fieldName) {
+    final config = fieldConfigs.firstWhere(
+      (f) => f.fieldName == fieldName,
+      orElse: () => FieldConfig(fieldName: fieldName, isEnabled: true, isRequired: false),
+    );
+    return config.isEnabled;
   }
   
   InventorySettings deepCopy() => InventorySettings(

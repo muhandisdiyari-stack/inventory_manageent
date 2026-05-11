@@ -134,17 +134,16 @@ class _AddItemFormState extends State<_AddItemForm> {
   }
 
   bool _isFieldEnabled(String fieldName) {
-    if (widget.settings == null) return true;
-    final config = widget.settings!.fieldConfigs.firstWhere(
-      (f) => f.fieldName == fieldName,
-      orElse: () =>
-          FieldConfig(fieldName: fieldName, isEnabled: true, isRequired: false),
-    );
-    return config.isEnabled;
+    if (widget.settings == null) {
+      // Without settings, show all standard fields except Production Date and Expire Date
+      const alwaysShown = ['Name', 'Code', 'Barcode', 'Size', 'Quantity', 'Note'];
+      return alwaysShown.contains(fieldName);
+    }
+    return widget.settings!.isFieldEnabled(fieldName);
   }
 
   bool _isFieldRequired(String fieldName) {
-    if (widget.settings == null) return fieldName == 'Name';
+    if (widget.settings == null) return fieldName == 'Name' || fieldName == 'Quantity';
     return widget.settings!.isFieldRequired(fieldName);
   }
 
@@ -269,6 +268,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                   icon: Icons.straighten,
                   required: _isFieldRequired('Size'),
                 ),
+              if (_isFieldEnabled('Quantity')) _buildQuantityField(),
               if (_isFieldEnabled('Production Date'))
                 _buildDateField(
                   label: 'Production Date',
@@ -285,7 +285,6 @@ class _AddItemFormState extends State<_AddItemForm> {
                   onPicked: (d) => setState(() => _expireDate = d),
                   onClear: () => setState(() => _expireDate = null),
                 ),
-              _buildQuantityField(),
               if (_isFieldEnabled('Note'))
                 _buildTextField(
                   controller: _noteController,
@@ -396,13 +395,14 @@ class _AddItemFormState extends State<_AddItemForm> {
   }
 
   Widget _buildQuantityField() {
+    final required = _isFieldRequired('Quantity');
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
         controller: _quantityController,
         keyboardType: TextInputType.number,
         decoration: InputDecoration(
-          labelText: 'Quantity *',
+          labelText: required ? 'Quantity *' : 'Quantity',
           hintText: 'Enter quantity',
           prefixIcon: const Icon(Icons.numbers, size: 20),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
@@ -410,7 +410,10 @@ class _AddItemFormState extends State<_AddItemForm> {
           errorStyle: const TextStyle(fontSize: 12),
         ),
         validator: (v) {
-          if (v == null || v.trim().isEmpty) return 'Quantity is required';
+          if (required && (v == null || v.trim().isEmpty)) {
+            return 'Quantity is required';
+          }
+          if (v == null || v.trim().isEmpty) return null;
           final parsed = int.tryParse(v.trim());
           if (parsed == null) return 'Enter a valid whole number';
           if (parsed < 0) return 'Quantity cannot be negative';
@@ -568,7 +571,6 @@ class _AddItemFormState extends State<_AddItemForm> {
       final isEditing = widget.existingItem != null;
 
       if (isEditing) {
-        // Capture old values before mutation
         final oldItem = widget.existingItem!;
         final oldValues = <String, String>{
           'name': oldItem.name,
@@ -587,7 +589,6 @@ class _AddItemFormState extends State<_AddItemForm> {
           oldValues[entry.key] = entry.value;
         }
 
-        // Mutate the live HiveObject
         oldItem.name = _nameController.text.trim();
         oldItem.code = _isFieldEnabled('Code') ? _codeController.text.trim() : '';
         oldItem.barcode = _isFieldEnabled('Barcode') ? _barcodeController.text.trim() : '';
@@ -603,7 +604,6 @@ class _AddItemFormState extends State<_AddItemForm> {
         oldItem.modified = DateTime.now();
         await oldItem.save();
 
-        // Build changes map
         final changes = <String, FieldChange>{};
         void compareField(String key, String newValue) {
           if (oldValues[key] != newValue) {
@@ -625,7 +625,6 @@ class _AddItemFormState extends State<_AddItemForm> {
           compareField(entry.key, entry.value);
         }
 
-        // Log activity
         if (changes.isNotEmpty) {
           final logEntry = ActivityLogEntry(
             id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -642,7 +641,6 @@ class _AddItemFormState extends State<_AddItemForm> {
           await ActivityLogService().addLog(logEntry);
         }
       } else {
-        // ADD: build a new item
         final item = InventoryItem(
           name: _nameController.text.trim(),
           code: _isFieldEnabled('Code') ? _codeController.text.trim() : '',
@@ -661,7 +659,6 @@ class _AddItemFormState extends State<_AddItemForm> {
         );
         await widget.onSave(item);
 
-        // Log activity
         final logEntry = ActivityLogEntry(
           id: item.createdAt.microsecondsSinceEpoch.toString(),
           timestamp: item.createdAt,

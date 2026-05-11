@@ -248,12 +248,9 @@ class DemoDataService {
         FieldConfig(fieldName: 'Color', isEnabled: true, isRequired: false),
         FieldConfig(fieldName: 'Material', isEnabled: true, isRequired: false),
         FieldConfig(fieldName: 'Size', isEnabled: true, isRequired: false),
-        FieldConfig(
-            fieldName: 'Production Date',
-            isEnabled: false,
-            isRequired: false),
-        FieldConfig(
-            fieldName: 'Expire Date', isEnabled: true, isRequired: false),
+        FieldConfig(fieldName: 'Quantity', isEnabled: true, isRequired: true),
+        FieldConfig(fieldName: 'Production Date', isEnabled: false, isRequired: false),
+        FieldConfig(fieldName: 'Expire Date', isEnabled: true, isRequired: false),
         FieldConfig(fieldName: 'Note', isEnabled: true, isRequired: false),
       ],
       customFieldNames: ['Supplier', 'Location', 'Min Stock'],

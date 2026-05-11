@@ -10,8 +10,7 @@ import '../../search/screens/search_screen.dart';
 import '../../reports/screens/reports_screen.dart';
 import '../../settings/screens/settings_screen.dart';
 import '../../activity_log/screens/activity_log_screen.dart';
-import '../../import/screens/import_labels_screen.dart';
-import '../../import/screens/import_items_screen.dart';
+import '../../import/screens/bulk_import_screen.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/activity_log_service.dart';
 import '../../../core/models/activity_log_entry.dart';
@@ -82,6 +81,28 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     setState(() => _labelSortType = sortType);
   }
 
+  void _bulkImport() {
+    final provider = context.read<InventoryProvider>();
+    if (provider.currentInventoryId == null) {
+      _showSnack('No inventory selected');
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BulkImportScreen(
+          inventoryId: provider.currentInventoryId!,
+          inventoryName: provider.currentInventoryName ?? 'Inventory',
+        ),
+      ),
+    ).then((_) {
+      if (mounted) {
+        context.read<InventoryProvider>().initializeCurrentInventory();
+        setState(() {});
+      }
+    });
+  }
+
   void _showCreateLabelDialog() {
     final controller = TextEditingController();
     showModalBottomSheet(
@@ -108,7 +129,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
 
           setState(() => _currentLabel = name);
           _labelSearchController.clear();
-          _showSnack('✅ "$name" created');
+          _showSnack('\u2705 "$name" created');
           return true;
         },
       ),
@@ -176,56 +197,13 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
               });
               _labelSearchController.clear();
               if (ctx.mounted) Navigator.pop(ctx);
-              _showSnack('🗑️ "$label" deleted');
+              _showSnack('\uD83D\uDDD1\uFE0F "$label" deleted');
             },
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
-  }
-
-  void _importLabels() {
-    final provider = context.read<InventoryProvider>();
-    if (provider.currentInventoryId == null) {
-      _showSnack('No inventory selected');
-      return;
-    }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ImportLabelsScreen(
-          inventoryId: provider.currentInventoryId!,
-          inventoryName: provider.currentInventoryName ?? 'Inventory',
-        ),
-      ),
-    ).then((_) {
-      if (mounted) {
-        context.read<InventoryProvider>().initializeCurrentInventory();
-        setState(() {});
-      }
-    });
-  }
-
-  void _importItems() {
-    final provider = context.read<InventoryProvider>();
-    if (provider.currentInventoryId == null || _currentLabel == null) {
-      _showSnack('Select a label first');
-      return;
-    }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ImportItemsScreen(
-          inventoryId: provider.currentInventoryId!,
-          inventoryName: provider.currentInventoryName ?? 'Inventory',
-          label: _currentLabel!,
-          settings: provider.currentSettings,
-        ),
-      ),
-    ).then((_) {
-      if (mounted) setState(() {});
-    });
   }
 
   void _showAddItemDialog({InventoryItem? existingItem}) {
@@ -245,7 +223,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       inventoryId: provider.currentInventoryId,
       onSave: (item) async {
         if (provider.currentInventoryId == null) {
-          _showSnack('No inventory selected — please select one first');
+          _showSnack('No inventory selected \u2014 please select one first');
           return;
         }
         await provider.saveItem(item);
@@ -329,7 +307,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     if (confirmed == true) {
       try {
         final provider = context.read<InventoryProvider>();
-        
+
         await item.delete();
 
         final logEntry = ActivityLogEntry(
@@ -374,11 +352,10 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<InventoryProvider>();
+    final service = context.read<InventoryService>();
     final width = MediaQuery.of(context).size.width;
     final isMobile = width < AppConstants.mobileBreakpoint;
 
-    // Get sorted labels
-    final service = context.read<InventoryService>();
     final sortedLabels = service.getSortedLabels(sortType: _labelSortType);
 
     return Scaffold(
@@ -410,51 +387,45 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
               ),
           ],
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Import Labels',
-            icon: const Icon(Icons.upload_file),
-            onPressed: _importLabels,
-          ),
-          if (_currentLabel != null)
-            IconButton(
-              tooltip: 'Import Items',
-              icon: const Icon(Icons.drive_folder_upload),
-              onPressed: _importItems,
-            ),
-          IconButton(
-            tooltip: 'Activity Log',
-            icon: const Icon(Icons.history),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ActivityLogScreen()),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Search',
-            icon: const Icon(Icons.search),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SearchScreen()),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Reports',
-            icon: const Icon(Icons.assessment),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ReportsScreen()),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Settings',
-            icon: const Icon(Icons.settings),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
-          ),
-        ],
+actions: [
+  IconButton(
+    tooltip: 'Bulk Import',
+    icon: const Icon(Icons.cloud_upload),
+    onPressed: _bulkImport,
+  ),
+  IconButton(
+    tooltip: 'Activity Log',
+    icon: const Icon(Icons.history),
+    onPressed: () => Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ActivityLogScreen()),
+    ),
+  ),
+  IconButton(
+    tooltip: 'Search',
+    icon: const Icon(Icons.search),
+    onPressed: () => Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SearchScreen()),
+    ),
+  ),
+  IconButton(
+    tooltip: 'Reports',
+    icon: const Icon(Icons.assessment),
+    onPressed: () => Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ReportsScreen()),
+    ),
+  ),
+  IconButton(
+    tooltip: 'Settings',
+    icon: const Icon(Icons.settings),
+    onPressed: () => Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    ),
+  ),
+],
       ),
       body: RefreshIndicator(
         onRefresh: _refreshInventory,
@@ -468,7 +439,8 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     );
   }
 
-  Widget _buildDesktopLayout(InventoryProvider provider, double width, List<String> sortedLabels, InventoryService service) {
+  Widget _buildDesktopLayout(InventoryProvider provider, double width,
+      List<String> sortedLabels, InventoryService service) {
     final sidebarWidth = width * 0.30;
     return Row(
       children: [
@@ -483,7 +455,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
                     child: TextField(
                       controller: _labelSearchController,
                       decoration: InputDecoration(
-                        hintText: 'Search labels…',
+                        hintText: 'Search labels\u2026',
                         prefixIcon: const Icon(Icons.search, size: 16),
                         suffixIcon: _labelSearchController.text.isNotEmpty
                             ? IconButton(
@@ -558,7 +530,8 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     );
   }
 
-  Widget _buildMobileLayout(InventoryProvider provider, List<String> sortedLabels, InventoryService service) {
+  Widget _buildMobileLayout(InventoryProvider provider,
+      List<String> sortedLabels, InventoryService service) {
     if (_showItemsView && _currentLabel != null) {
       return Stack(
         children: [
@@ -594,7 +567,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
               child: TextField(
                 controller: _labelSearchController,
                 decoration: InputDecoration(
-                  hintText: 'Search labels…',
+                  hintText: 'Search labels\u2026',
                   prefixIcon: const Icon(Icons.search, size: 16),
                   suffixIcon: _labelSearchController.text.isNotEmpty
                       ? IconButton(

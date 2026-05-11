@@ -27,10 +27,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final provider = context.read<InventoryProvider>();
     final settings = provider.currentSettings;
     if (settings != null) {
-      // Use deepCopy for safe editing
       final copy = settings.deepCopy();
       _fieldConfigs = copy.fieldConfigs;
       _customFields = copy.customFieldNames;
+      _ensureQuantityField();
     } else {
       final defaultSettings = InventorySettings();
       _fieldConfigs = defaultSettings.fieldConfigs.map((f) => FieldConfig(
@@ -39,6 +39,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
         isRequired: f.isRequired,
       )).toList();
       _customFields = [];
+      _ensureQuantityField();
+    }
+  }
+
+  /// Ensure Quantity field exists in the field configs
+  void _ensureQuantityField() {
+    final hasQuantity = _fieldConfigs.any((f) => f.fieldName == 'Quantity');
+    if (!hasQuantity) {
+      // Insert after Size to maintain logical order
+      final sizeIndex = _fieldConfigs.indexWhere((f) => f.fieldName == 'Size');
+      if (sizeIndex >= 0) {
+        _fieldConfigs.insert(sizeIndex + 1, FieldConfig(
+          fieldName: 'Quantity',
+          isEnabled: true,
+          isRequired: true,
+        ));
+      } else {
+        _fieldConfigs.add(FieldConfig(
+          fieldName: 'Quantity',
+          isEnabled: true,
+          isRequired: true,
+        ));
+      }
     }
   }
 
@@ -59,7 +82,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
-  // Fixed: Use ThemeProvider for live theme switching
   void _toggleDarkMode(bool value) {
     context.read<ThemeProvider>().setThemeMode(
       value ? ThemeMode.dark : ThemeMode.light,
@@ -82,7 +104,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<InventoryProvider>();
     final inventoryName = provider.currentInventoryName ?? 'Inventory';
-    // Watch ThemeProvider for reactive updates
     final themeProvider = context.watch<ThemeProvider>();
     final isDarkMode = themeProvider.isDarkMode;
 
@@ -219,17 +240,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildFieldTile(FieldConfig config, int index) {
-    final isNameField = config.fieldName == 'Name';
+    // Name and Quantity are always required and enabled
+    final isPermanentField = config.fieldName == 'Name' || config.fieldName == 'Quantity';
+    
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: ExpansionTile(
         key: ValueKey('${config.fieldName}_$index'),
-        title: Text(config.fieldName, style: const TextStyle(fontWeight: FontWeight.w600)),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(config.fieldName, style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            if (isPermanentField)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Required',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+        ),
         leading: Switch(
           value: config.isEnabled,
-          onChanged: isNameField
+          onChanged: isPermanentField
               ? null
               : (enabled) {
                   final updated = FieldConfig(
@@ -242,9 +287,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         subtitle: config.isEnabled
             ? Text(
-                config.isRequired ? 'Required' : 'Optional',
+                config.isRequired || isPermanentField ? 'Required' : 'Optional',
                 style: TextStyle(
-                  color: config.isRequired
+                  color: config.isRequired || isPermanentField
                       ? Theme.of(context).colorScheme.error
                       : Theme.of(context).colorScheme.primary,
                   fontSize: 12,
@@ -252,7 +297,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               )
             : const Text('Disabled', style: TextStyle(fontSize: 12)),
         children: [
-          if (!isNameField && config.isEnabled)
+          if (!isPermanentField && config.isEnabled)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
@@ -273,12 +318,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
-          if (isNameField)
-            const Padding(
-              padding: EdgeInsets.all(16),
+          if (isPermanentField)
+            Padding(
+              padding: const EdgeInsets.all(16),
               child: Text(
-                'Name field is always required and enabled',
-                style: TextStyle(color: Colors.grey, fontSize: 12),
+                config.fieldName == 'Name' 
+                    ? 'Name field is always required and enabled'
+                    : 'Quantity field is always required and enabled',
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
               ),
             ),
         ],
@@ -366,6 +413,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _addCustomField() {
     final field = _customFieldController.text.trim();
     if (field.isEmpty) return;
+    // Prevent adding standard field names as custom fields
+    final standardFields = ['Name', 'Code', 'Barcode', 'Color', 'Material', 'Size', 
+                           'Quantity', 'Production Date', 'Expire Date', 'Note', 'Label', 'Inventory'];
+    if (standardFields.any((f) => f.toLowerCase() == field.toLowerCase())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"$field" is a standard field and cannot be added as custom'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     final exists = _customFields.any((f) => f.toLowerCase() == field.toLowerCase());
     if (!exists) {
       setState(() {

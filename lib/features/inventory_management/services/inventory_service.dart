@@ -49,6 +49,21 @@ class InventoryService {
 
   String? get currentInventoryId => _currentInventoryId;
 
+  /// Check if a box is still open and available
+  bool _isBoxAvailable(String boxType, String? inventoryId) {
+    if (inventoryId == null) return false;
+    switch (boxType) {
+      case 'labels':
+        return _labelsBoxes.containsKey(inventoryId) && _labelsBoxes[inventoryId]!.isOpen;
+      case 'items':
+        return _itemsBoxes.containsKey(inventoryId) && _itemsBoxes[inventoryId]!.isOpen;
+      case 'settings':
+        return _settingsBoxes.containsKey(inventoryId) && _settingsBoxes[inventoryId]!.isOpen;
+      default:
+        return false;
+    }
+  }
+
   Future<void> initializeForInventory(String inventoryId) async {
     final String labelsBoxName = 'labels_$inventoryId';
     Box labelsBox;
@@ -110,12 +125,24 @@ class InventoryService {
     }
 
     try {
+      // Close boxes from our maps first
+      if (_itemsBoxes.containsKey(id)) {
+        try { await _itemsBoxes[id]!.close(); } catch (_) {}
+        _itemsBoxes.remove(id);
+      }
+      if (_labelsBoxes.containsKey(id)) {
+        try { await _labelsBoxes[id]!.close(); } catch (_) {}
+        _labelsBoxes.remove(id);
+      }
+      if (_settingsBoxes.containsKey(id)) {
+        try { await _settingsBoxes[id]!.close(); } catch (_) {}
+        _settingsBoxes.remove(id);
+      }
+
+      // Then delete from disk
       await closeAndDeleteBox('items_$id');
-      _itemsBoxes.remove(id);
       await closeAndDeleteBox('labels_$id');
-      _labelsBoxes.remove(id);
       await closeAndDeleteBox('inventory_settings_$id');
-      _settingsBoxes.remove(id);
 
       if (_currentInventoryId == id) {
         _currentInventoryId = null;
@@ -130,7 +157,7 @@ class InventoryService {
   // ── Label Management ──────────────────────────────────────────
 
   Map<String, LabelInfo> get labelInfos {
-    if (_currentInventoryId == null || !_labelsBoxes.containsKey(_currentInventoryId!)) {
+    if (_currentInventoryId == null || !_isBoxAvailable('labels', _currentInventoryId)) {
       return {};
     }
     final infosData = _labelsBoxes[_currentInventoryId!]!.get('labelInfos');
@@ -149,11 +176,26 @@ class InventoryService {
     return getSortedLabels();
   }
 
-  bool get hasLabels => labels.isNotEmpty;
-  bool hasLabel(String label) => labels.contains(label);
+  bool get hasLabels {
+    if (_currentInventoryId == null || !_isBoxAvailable('labels', _currentInventoryId)) {
+      return false;
+    }
+    final labelsData = _labelsBoxes[_currentInventoryId!]!.get('labels');
+    return labelsData is List && labelsData.isNotEmpty;
+  }
 
-  /// Get labels sorted by the specified sort type
+  bool hasLabel(String label) {
+    if (_currentInventoryId == null || !_isBoxAvailable('labels', _currentInventoryId)) {
+      return false;
+    }
+    final labelsData = _labelsBoxes[_currentInventoryId!]!.get('labels');
+    return labelsData is List && labelsData.contains(label);
+  }
+
   List<String> getSortedLabels({LabelSortType sortType = LabelSortType.nameAsc}) {
+    if (_currentInventoryId == null || !_isBoxAvailable('labels', _currentInventoryId)) {
+      return [];
+    }
     final infos = labelInfos;
     if (infos.isEmpty) return [];
 
@@ -183,8 +225,10 @@ class InventoryService {
     return sortedEntries.map((e) => e.key).toList();
   }
 
-  /// Get the LabelInfo for a specific label
   LabelInfo? getLabelInfo(String labelName) {
+    if (_currentInventoryId == null || !_isBoxAvailable('labels', _currentInventoryId)) {
+      return null;
+    }
     return labelInfos[labelName];
   }
 
@@ -195,12 +239,11 @@ class InventoryService {
       await initializeForInventory(_currentInventoryId!);
     }
 
-    final currentLabels = List<String>.from(labels);
+    final currentLabels = _getCurrentLabelsList();
     if (!currentLabels.contains(label)) {
       currentLabels.add(label);
       await _labelsBoxes[_currentInventoryId!]!.put('labels', currentLabels);
       
-      // Store label info with dates
       final now = DateTime.now();
       final infos = Map<String, dynamic>.from(
         _labelsBoxes[_currentInventoryId!]!.get('labelInfos', defaultValue: <String, Map<String, dynamic>>{}) as Map
@@ -208,7 +251,6 @@ class InventoryService {
       infos[label] = LabelInfo(name: label, createdAt: now, modifiedAt: now).toJson();
       await _labelsBoxes[_currentInventoryId!]!.put('labelInfos', infos);
       
-      // Log activity
       final logEntry = ActivityLogEntry(
         id: now.microsecondsSinceEpoch.toString(),
         timestamp: now,
@@ -230,13 +272,12 @@ class InventoryService {
       await initializeForInventory(_currentInventoryId!);
     }
 
-    final currentLabels = List<String>.from(labels);
+    final currentLabels = _getCurrentLabelsList();
     final index = currentLabels.indexOf(oldLabel);
     if (index != -1) {
       currentLabels[index] = newLabel;
       await _labelsBoxes[_currentInventoryId!]!.put('labels', currentLabels);
 
-      // Update label info
       final infos = Map<String, dynamic>.from(
         _labelsBoxes[_currentInventoryId!]!.get('labelInfos', defaultValue: <String, Map<String, dynamic>>{}) as Map
       );
@@ -258,7 +299,6 @@ class InventoryService {
         await item.save();
       }
       
-      // Log activity
       final logEntry = ActivityLogEntry(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
         timestamp: DateTime.now(),
@@ -283,11 +323,10 @@ class InventoryService {
       await initializeForInventory(_currentInventoryId!);
     }
 
-    final currentLabels = List<String>.from(labels);
+    final currentLabels = _getCurrentLabelsList();
     currentLabels.remove(label);
     await _labelsBoxes[_currentInventoryId!]!.put('labels', currentLabels);
 
-    // Remove label info
     final infos = Map<String, dynamic>.from(
       _labelsBoxes[_currentInventoryId!]!.get('labelInfos', defaultValue: <String, Map<String, dynamic>>{}) as Map
     );
@@ -299,7 +338,6 @@ class InventoryService {
       await item.delete();
     }
     
-    // Log activity
     final logEntry = ActivityLogEntry(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       timestamp: DateTime.now(),
@@ -313,10 +351,15 @@ class InventoryService {
     await ActivityLogService().addLog(logEntry);
   }
 
+  List<String> _getCurrentLabelsList() {
+    final labelsData = _labelsBoxes[_currentInventoryId!]!.get('labels');
+    return labelsData is List ? List<String>.from(labelsData.cast<String>()) : [];
+  }
+
   // ── Item Management ───────────────────────────────────────────
 
   List<InventoryItem> getItemsByLabel(String label) {
-    if (_currentInventoryId == null || !_itemsBoxes.containsKey(_currentInventoryId!)) {
+    if (_currentInventoryId == null || !_isBoxAvailable('items', _currentInventoryId)) {
       return [];
     }
     return _itemsBoxes[_currentInventoryId!]!.values
@@ -336,7 +379,6 @@ class InventoryService {
     }
   }
 
-  /// Import items from a list, skipping exact duplicates
   Future<int> importItems(String label, List<InventoryItem> newItems) async {
     if (_currentInventoryId == null) return 0;
 
@@ -351,7 +393,6 @@ class InventoryService {
     for (var newItem in newItems) {
       newItem.label = label;
       
-      // Check for exact duplicates
       bool isDuplicate = existingItems.any((existing) =>
         existing.name == newItem.name &&
         existing.code == newItem.code &&
@@ -418,8 +459,6 @@ class InventoryService {
     return allItems;
   }
 
-  // ── Inventory Name Lookup ─────────────────────────────────────
-
   Map<String, String> getAllInventoryNames() {
     final names = <String, String>{};
     try {
@@ -450,16 +489,12 @@ class InventoryService {
     return inventoryId;
   }
 
-  // ── Cross-Inventory Search ───────────────────────────────────
-
   List<Map<String, dynamic>> searchAllInventories(String query) {
     final results = <Map<String, dynamic>>[];
     final lowerQuery = query.toLowerCase().trim();
-
     if (lowerQuery.isEmpty) return results;
 
     final inventoryNames = getAllInventoryNames();
-
     final Set<String> allInventoryIds = {};
     allInventoryIds.addAll(_itemsBoxes.keys);
     allInventoryIds.addAll(inventoryNames.keys);
@@ -467,7 +502,6 @@ class InventoryService {
     for (var inventoryId in allInventoryIds) {
       try {
         Box<InventoryItem>? box;
-
         if (_itemsBoxes.containsKey(inventoryId)) {
           box = _itemsBoxes[inventoryId];
         } else {
@@ -478,11 +512,9 @@ class InventoryService {
             continue;
           }
         }
-
         if (box == null || box.isEmpty) continue;
 
         final inventoryName = inventoryNames[inventoryId] ?? getInventoryName(inventoryId);
-
         for (var item in box.values) {
           if (_itemMatchesQuery(item, lowerQuery)) {
             results.add({
@@ -500,13 +532,10 @@ class InventoryService {
     results.sort((a, b) {
       final itemA = a['item'] as InventoryItem;
       final itemB = b['item'] as InventoryItem;
-
       final aNameMatch = itemA.name.toLowerCase() == lowerQuery;
       final bNameMatch = itemB.name.toLowerCase() == lowerQuery;
-
       if (aNameMatch && !bNameMatch) return -1;
       if (!aNameMatch && bNameMatch) return 1;
-
       return itemA.name.compareTo(itemB.name);
     });
 
@@ -525,19 +554,14 @@ class InventoryService {
         item.customFields.values.any((v) => v.toLowerCase().contains(lowerQuery));
   }
 
-  // ── Settings ─────────────────────────────────────────────────
-
   InventorySettings? get currentSettings {
-    if (_currentInventoryId == null) return null;
-    if (!_settingsBoxes.containsKey(_currentInventoryId!)) return null;
-
+    if (_currentInventoryId == null || !_isBoxAvailable('settings', _currentInventoryId)) return null;
     final settings = _settingsBoxes[_currentInventoryId!]!.get('main');
     if (settings == null) {
       final defaultSettings = InventorySettings();
       _settingsBoxes[_currentInventoryId!]!.put('main', defaultSettings);
       return defaultSettings;
     }
-
     return settings;
   }
 
@@ -548,11 +572,10 @@ class InventoryService {
     }
     
     final oldSettings = _settingsBoxes[_currentInventoryId!]!.get('main');
-    
     await _settingsBoxes[_currentInventoryId!]!.put('main', settings);
     
     final changes = <String, FieldChange>{};
-        if (oldSettings != null) {
+    if (oldSettings != null) {
       final oldFields = oldSettings.fieldConfigs
           .where((f) => f.isEnabled)
           .map((f) => '${f.fieldName}(${f.isRequired ? "required" : "optional"})')
@@ -564,7 +587,6 @@ class InventoryService {
       if (oldFields != newFields) {
         changes['fieldConfigs'] = FieldChange(oldValue: oldFields, newValue: newFields);
       }
-      
       final oldCustom = oldSettings.customFieldNames.join(', ');
       final newCustom = settings.customFieldNames.join(', ');
       if (oldCustom != newCustom) {
