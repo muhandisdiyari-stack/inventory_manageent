@@ -65,7 +65,7 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
     if (!mounted) return;
 
     final listProvider = context.read<InventoryListProvider>();
-    final service = context.read<InventoryService>();
+    context.read<InventoryService>();
     
     listProvider.selectInventory(id);
 

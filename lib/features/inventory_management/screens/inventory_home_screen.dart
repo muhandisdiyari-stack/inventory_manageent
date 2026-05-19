@@ -15,7 +15,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/services/activity_log_service.dart';
 import '../../../core/models/activity_log_entry.dart';
 import '../../company/screens/company_settings_screen.dart';
-import '../../../core/config/app_config.dart';
+
 
 class InventoryHomeScreen extends StatefulWidget {
   const InventoryHomeScreen({super.key});

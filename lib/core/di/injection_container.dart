@@ -13,13 +13,14 @@ class InjectionContainer {
     supabaseClient: supabaseClient,
   );
 
-  static List<ChangeNotifierProvider<ChangeNotifier>> registerChangeNotifierProviders() {
+  static List<ChangeNotifierProvider<ChangeNotifier>>
+      registerChangeNotifierProviders() {
     return [
       ChangeNotifierProvider<AuthProvider>(
         create: (_) => AuthProvider(authService: authService),
       ),
       ChangeNotifierProvider<CompanyProvider>(
-        create: (_) => CompanyProvider(cacheService: cacheService),
+        create: (_) => CompanyProvider(),
       ),
     ];
   }

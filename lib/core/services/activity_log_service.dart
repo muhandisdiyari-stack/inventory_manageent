@@ -67,9 +67,7 @@ class ActivityLogService {
     if (!_initialized || _logBox == null) return [];
 
     // Populate cache if empty
-    if (_cache == null) {
-      _cache = _loadAllLogs();
-    }
+    _cache ??= _loadAllLogs();
 
     var result = _cache!;
     

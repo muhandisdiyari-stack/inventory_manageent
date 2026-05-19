@@ -75,52 +75,61 @@ class SupabaseClientService {
     }
   }
 
-  Future<Map<String, dynamic>?> signIn(String email, String password) async {
+// FIX #9: Replace fixed delays with retry logic
+Future<Map<String, dynamic>?> signIn(String email, String password) async {
     if (!isConfigured) return null;
     try {
-      final response = await _client.auth.signInWithPassword(
-        email: email,
-        password: password,
-      );
+      final response = await _client.auth
+          .signInWithPassword(
+            email: email,
+            password: password,
+          )
+          .timeout(const Duration(seconds: 10));
+
       final user = response.user;
-      if (user != null) {
-        // Wait for handle_new_user trigger
-        await Future.delayed(const Duration(milliseconds: 500));
-        
-        final profileData = await _client
-            .from('profiles')
-            .select()
-            .eq('id', user.id)
-            .maybeSingle();
-        
-        if (profileData == null) {
-          debugPrint('⚠️ Profile not found for user ${user.id}');
-          // Profile might still be creating via trigger
-          await Future.delayed(const Duration(seconds: 2));
-          final retryProfile = await _client
+      if (user == null) return null;
+
+      // FIX #9: Use retry with exponential backoff
+      Map<String, dynamic>? profileData;
+      int retries = 0;
+      const maxRetries = 3;
+
+      while (retries < maxRetries) {
+        try {
+          profileData = await _client
               .from('profiles')
               .select()
               .eq('id', user.id)
               .maybeSingle();
-          
-          if (retryProfile == null) {
-            throw Exception('User profile not created. Please try again.');
+
+          if (profileData != null) break;
+
+          retries++;
+          if (retries < maxRetries) {
+            await Future.delayed(Duration(milliseconds: 300 * (retries + 1)));
           }
+        } catch (e) {
+          retries++;
+          if (retries >= maxRetries) rethrow;
         }
-        
-        final profile = profileData ?? {};
-        return {
-          'id': user.id,
-          'email': user.email,
-          'display_name': profile['display_name'] ?? user.userMetadata?['display_name'],
-          'role': profile['role'] ?? 'staff',
-          'company_id': profile['company_id'],
-          'is_approved': profile['is_approved'] ?? false,
-          'created_at': user.createdAt,
-          'permissions': profile['permissions'] ?? {},
-        };
       }
-      return null;
+
+      if (profileData == null) {
+        throw Exception('Profile not found after $maxRetries retries');
+      }
+
+      return {
+        'id': user.id,
+        'email': user.email,
+        'display_name':
+            profileData['display_name'] ?? user.userMetadata?['display_name'],
+        'role': profileData['role'] ?? 'staff',
+        'company_id': profileData['company_id'],
+        'is_approved': profileData['is_approved'] ?? false,
+        'email_confirmed': user.emailConfirmedAt != null,
+        'created_at': user.createdAt,
+        'permissions': profileData['permissions'] ?? {},
+      };
     } on AuthException catch (e) {
       debugPrint('Auth error: ${e.message}');
       rethrow;
@@ -271,16 +280,19 @@ class SupabaseClientService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getUserCompanies() async {
+// Add this updated method for Issue #3
+Future<List<Map<String, dynamic>>> getUserCompanies() async {
     if (!isConfigured) return [];
     try {
       final user = _client.auth.currentUser;
       if (user == null) return [];
 
+      // FIX #3: Only show companies where membership was properly established
       final memberships = await _client
           .from('company_members')
-          .select('company_id, role')
-          .eq('user_id', user.id);
+          .select('company_id, role, joined_at')
+          .eq('user_id', user.id)
+          .not('joined_at', 'is', null); // Only properly joined memberships
 
       if (memberships.isEmpty) return [];
 
@@ -296,16 +308,17 @@ class SupabaseClientService {
           .select()
           .inFilter('id', companyIds);
 
-      final membershipMap = <String, String>{};
+      final membershipMap = <String, Map<String, dynamic>>{};
       for (final m in memberships) {
-        membershipMap[m['company_id'] as String] = m['role'] as String? ?? 'staff';
+        membershipMap[m['company_id'] as String] = m;
       }
 
       return companiesData.map((c) => {
-        'id': c['id'],
-        'name': c['name'],
-        'role': membershipMap[c['id']] ?? 'staff',
-      }).toList();
+            'id': c['id'],
+            'name': c['name'],
+            'role': membershipMap[c['id']]?['role'] ?? 'staff',
+            'joined_at': membershipMap[c['id']]?['joined_at'],
+          }).toList();
     } catch (e) {
       debugPrint('Get user companies error: $e');
       return [];

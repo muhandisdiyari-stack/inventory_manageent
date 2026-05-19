@@ -80,7 +80,7 @@ class InventoryService {
   final Map<String, Box> _labelsBoxes = {};
   final Map<String, Box<InventorySettings>> _settingsBoxes = {};
 
-  // FIX #8: Cache parsed labelInfos to avoid repeated JSON deserialization.
+  // Cache for parsed label infos
   final Map<String, Map<String, LabelInfo>> _labelInfosCache = {};
 
   String? _currentInventoryId;
@@ -119,8 +119,7 @@ class InventoryService {
     _isInitializing = true;
 
     try {
-      // FIX #7: Flush all pending writes before closing boxes to prevent
-      // in-flight write loss.
+      // Flush and close all previously open boxes
       await _closeAllBoxes();
 
       // Open labels box
@@ -141,8 +140,7 @@ class InventoryService {
 
       // Open settings box
       final String settingsBoxName = 'inventory_settings_$inventoryId';
-      final settingsBox =
-          await Hive.openBox<InventorySettings>(settingsBoxName);
+      final settingsBox = await Hive.openBox<InventorySettings>(settingsBoxName);
       if (!settingsBox.containsKey('main')) {
         await settingsBox.put('main', InventorySettings());
       }
@@ -150,16 +148,19 @@ class InventoryService {
 
       _currentInventoryId = inventoryId;
 
-      // Invalidate label infos cache for this inventory on fresh init
+      // Invalidate label infos cache for this inventory
       _labelInfosCache.remove(inventoryId);
 
       // Load company ID for sync
       await _loadCompanyId();
 
-      // Sync with Supabase if enabled
-      if (AppConfig.useSupabase) {
+      // Sync with Supabase if enabled and company ID is available
+      if (AppConfig.useSupabase && _currentCompanyId != null) {
+        debugPrint('🔄 Syncing inventory $inventoryId for company $_currentCompanyId');
         await _syncLabelsWithSupabase(inventoryId);
         await _loadAndMergeSupabaseItems(inventoryId);
+      } else {
+        debugPrint('⚠️ Skipping sync - no company ID or Supabase disabled');
       }
     } catch (e) {
       debugPrint('Error initializing inventory $inventoryId: $e');
@@ -170,7 +171,6 @@ class InventoryService {
   }
 
   Future<void> _closeAllBoxes() async {
-    // FIX #7: Flush pending writes before closing each box.
     for (final box in _itemsBoxes.values) {
       try {
         await box.flush();
@@ -192,7 +192,6 @@ class InventoryService {
     _itemsBoxes.clear();
     _labelsBoxes.clear();
     _settingsBoxes.clear();
-    // Clear the cache when all boxes are closed
     _labelInfosCache.clear();
   }
 
@@ -210,6 +209,7 @@ class InventoryService {
           .maybeSingle();
 
       _currentCompanyId = profileData?['company_id'] as String?;
+      debugPrint('📋 Loaded company ID: $_currentCompanyId');
     } catch (e) {
       debugPrint('Could not load company ID: $e');
       _currentCompanyId = null;
@@ -226,7 +226,6 @@ class InventoryService {
     debugPrint('=== Deleting inventory data for: $id ===');
 
     try {
-      // FIX #7: Flush before closing to ensure no data loss.
       if (_itemsBoxes.containsKey(id)) {
         try {
           await _itemsBoxes[id]!.flush();
@@ -249,12 +248,8 @@ class InventoryService {
         _settingsBoxes.remove(id);
       }
 
-      // Invalidate label infos cache for deleted inventory
       _labelInfosCache.remove(id);
 
-      // FIX #5: Use Hive.deleteBoxFromDisk — avoids re-opening typed boxes
-      // with the wrong generic type (Hive.box() returns Box<dynamic> which
-      // throws for typed boxes).
       await _deleteBoxSafely('items_$id');
       await _deleteBoxSafely('labels_$id');
       await _deleteBoxSafely('inventory_settings_$id');
@@ -263,7 +258,6 @@ class InventoryService {
         _currentInventoryId = null;
       }
 
-      // Clean up Supabase if applicable
       final companyId = _currentCompanyId;
       if (AppConfig.useSupabase && companyId != null) {
         try {
@@ -273,21 +267,17 @@ class InventoryService {
               .eq('inventory_id', id)
               .eq('company_id', companyId);
         } catch (e) {
-          debugPrint('Supabase cleanup error for inventory $id: $e');
+          debugPrint('Supabase cleanup error: $e');
         }
       }
 
-      debugPrint('=== Inventory data deleted successfully: $id ===');
+      debugPrint('=== Inventory data deleted: $id ===');
     } catch (e) {
       debugPrint('=== Error deleting inventory data: $e ===');
       rethrow;
     }
   }
 
-  // FIX #5: Use Hive.deleteBoxFromDisk instead of Hive.box() to avoid a
-  // runtime type error when the box was registered as a typed Box<T>.
-  // Hive.box() returns Box<dynamic> for a named open box, which throws when
-  // the box was originally opened as Box<InventoryItem>.
   Future<void> _deleteBoxSafely(String boxName) async {
     try {
       await Hive.deleteBoxFromDisk(boxName);
@@ -301,7 +291,6 @@ class InventoryService {
 
   Future<void> _syncLabelsWithSupabase(String inventoryId) async {
     if (!AppConfig.useSupabase) return;
-
     final companyId = _currentCompanyId;
     if (companyId == null) return;
     if (!_labelsBoxes.containsKey(inventoryId)) return;
@@ -309,7 +298,7 @@ class InventoryService {
     try {
       final client = Supabase.instance.client;
 
-      // Load labels from Supabase
+      // Load labels from Supabase (is_deleted column now exists)
       final supabaseLabels = await client
           .from('labels')
           .select()
@@ -323,7 +312,6 @@ class InventoryService {
 
       bool hasChanges = false;
 
-      // Merge Supabase labels into local
       for (final sl in supabaseLabels) {
         final name = sl['name'] as String;
         if (!localInfos.containsKey(name)) {
@@ -343,10 +331,8 @@ class InventoryService {
       }
 
       if (hasChanges) {
-        // Update local labels list
         final currentLabels = List<String>.from(
-          _labelsBoxes[inventoryId]!
-              .get('labels', defaultValue: <String>[]) as List,
+          _labelsBoxes[inventoryId]!.get('labels', defaultValue: <String>[]) as List,
         );
 
         for (final name in localInfos.keys) {
@@ -357,9 +343,8 @@ class InventoryService {
 
         await _labelsBoxes[inventoryId]!.put('labels', currentLabels);
         await _labelsBoxes[inventoryId]!.put('labelInfos', localInfos);
-
-        // Invalidate cache after write
         _labelInfosCache.remove(inventoryId);
+        debugPrint('✅ Synced ${supabaseLabels.length} labels from Supabase');
       }
     } catch (e) {
       debugPrint('Label sync error: $e');
@@ -371,7 +356,6 @@ class InventoryService {
   Future<void> _syncItemToSupabase(InventoryItem item) async {
     if (!AppConfig.useSupabase) return;
     if (_currentInventoryId == null) return;
-
     final companyId = _currentCompanyId;
     if (companyId == null) return;
 
@@ -398,67 +382,46 @@ class InventoryService {
         'production_date': item.productionDate?.toIso8601String(),
         'expire_date': item.expireDate?.toIso8601String(),
         'created_by': user.id,
-        'created_by_name':
-            user.userMetadata?['display_name'] ?? user.email ?? 'Unknown',
+        'created_by_name': user.userMetadata?['display_name'] ?? user.email ?? 'Unknown',
         'updated_at': now,
       };
 
-      // Check if item has a Supabase ID stored
       final supabaseId = item.customFields['_supabase_id'];
 
       if (supabaseId != null && supabaseId.isNotEmpty) {
-        // Update existing Supabase record
         data['id'] = supabaseId;
         await client.from('inventory_items').update(data).eq('id', supabaseId);
-        debugPrint('🔄 Item updated in Supabase: ${item.name}');
+        debugPrint('🔄 Item updated: ${item.name}');
       } else {
-        // Insert new record
         final newId = _uuid.v4();
         data['id'] = newId;
         data['created_at'] = item.createdAt.toUtc().toIso8601String();
         await client.from('inventory_items').insert(data);
 
-        // Store Supabase ID locally for future syncs
         item.customFields['_supabase_id'] = newId;
         await item.save();
-        debugPrint('✅ New item synced to Supabase: ${item.name}');
+        debugPrint('✅ New item synced: ${item.name}');
       }
     } catch (e) {
-      debugPrint('❌ Sync error for item ${item.name}: $e');
+      debugPrint('❌ Sync error for ${item.name}: $e');
     }
   }
 
   Future<void> _loadAndMergeSupabaseItems(String inventoryId) async {
     if (!AppConfig.useSupabase) return;
-
     final companyId = _currentCompanyId;
     if (companyId == null) return;
 
     try {
       final client = Supabase.instance.client;
 
-      // FIX #4: Added .eq('inventory_id', inventoryId) filter to prevent
-      // items from other inventories in the same company being merged into
-      // the current inventory, which was a cross-inventory data leak.
-      PostgrestFilterBuilder<PostgrestList> query = client
+      final supabaseItems = await client
           .from('inventory_items')
           .select()
           .eq('company_id', companyId)
           .eq('inventory_id', inventoryId)
-          .eq('is_deleted', false);
-
-      // Incremental sync if we have a last sync timestamp
-      if (_lastSyncTimestamp != null) {
-        query = query.gt(
-          'updated_at',
-          _lastSyncTimestamp!.toUtc().toIso8601String(),
-        );
-      }
-
-      // .order() returns PostgrestTransformBuilder, so we resolve the full
-      // query into a final awaitable rather than assigning back to the
-      // PostgrestFilterBuilder variable (which would be a type mismatch).
-      final supabaseItems = await query.order('updated_at', ascending: false);
+          .eq('is_deleted', false)
+          .order('updated_at', ascending: false);
 
       final box = _itemsBoxes[inventoryId];
       if (box == null) return;
@@ -470,7 +433,6 @@ class InventoryService {
         final supabaseId = itemData['id'] as String?;
         if (supabaseId == null) continue;
 
-        // Find existing item by Supabase ID
         InventoryItem? existingItem;
         for (final item in box.values) {
           if (item.customFields['_supabase_id'] == supabaseId) {
@@ -480,34 +442,22 @@ class InventoryService {
         }
 
         if (existingItem != null) {
-          // Update existing item if Supabase version is newer
           final supabaseUpdated = itemData['updated_at'] != null
               ? DateTime.parse(itemData['updated_at'] as String)
               : DateTime.now();
 
           if (supabaseUpdated.isAfter(existingItem.modified)) {
-            existingItem.name =
-                itemData['name'] as String? ?? existingItem.name;
-            existingItem.code =
-                itemData['code'] as String? ?? existingItem.code;
-            existingItem.barcode =
-                itemData['barcode'] as String? ?? existingItem.barcode;
-            existingItem.color =
-                itemData['color'] as String? ?? existingItem.color;
-            existingItem.material =
-                itemData['material'] as String? ?? existingItem.material;
-            existingItem.size =
-                itemData['size'] as String? ?? existingItem.size;
-            existingItem.quantity =
-                itemData['quantity'] as int? ?? existingItem.quantity;
-            existingItem.label =
-                itemData['label'] as String? ?? existingItem.label;
-            existingItem.note =
-                itemData['note'] as String? ?? existingItem.note;
+            existingItem.name = itemData['name'] as String? ?? existingItem.name;
+            existingItem.code = itemData['code'] as String? ?? existingItem.code;
+            existingItem.barcode = itemData['barcode'] as String? ?? existingItem.barcode;
+            existingItem.color = itemData['color'] as String? ?? existingItem.color;
+            existingItem.material = itemData['material'] as String? ?? existingItem.material;
+            existingItem.size = itemData['size'] as String? ?? existingItem.size;
+            existingItem.quantity = itemData['quantity'] as int? ?? existingItem.quantity;
+            existingItem.label = itemData['label'] as String? ?? existingItem.label;
+            existingItem.note = itemData['note'] as String? ?? existingItem.note;
 
-            // Merge custom fields
-            final supabaseCustomFields =
-                itemData['custom_fields'] as Map<String, dynamic>?;
+            final supabaseCustomFields = itemData['custom_fields'] as Map<String, dynamic>?;
             if (supabaseCustomFields != null) {
               for (final entry in supabaseCustomFields.entries) {
                 existingItem.customFields[entry.key] = entry.value.toString();
@@ -526,13 +476,8 @@ class InventoryService {
             updatedCount++;
           }
         } else {
-          // Create new local item from Supabase data
-          final customFields = <String, String>{
-            '_supabase_id': supabaseId,
-          };
-
-          final supabaseCustomFields =
-              itemData['custom_fields'] as Map<String, dynamic>?;
+          final customFields = <String, String>{'_supabase_id': supabaseId};
+          final supabaseCustomFields = itemData['custom_fields'] as Map<String, dynamic>?;
           if (supabaseCustomFields != null) {
             for (final entry in supabaseCustomFields.entries) {
               customFields[entry.key] = entry.value.toString();
@@ -565,49 +510,17 @@ class InventoryService {
         }
       }
 
-      // Update sync timestamp
       _lastSyncTimestamp = DateTime.now();
-
-      debugPrint(
-        '✅ Synced ${supabaseItems.length} items from Supabase '
-        '($updatedCount updated, $addedCount added)',
-      );
+      debugPrint('✅ Synced ${supabaseItems.length} items ($updatedCount updated, $addedCount added)');
     } catch (e) {
       debugPrint('❌ Load from Supabase error: $e');
     }
   }
 
-  Future<List<Map<String, dynamic>>> loadItemsFromSupabase(
-      String inventoryId) async {
-    if (!AppConfig.useSupabase) return [];
-
-    final companyId = _currentCompanyId;
-    if (companyId == null) return [];
-
-    try {
-      final client = Supabase.instance.client;
-      final data = await client
-          .from('inventory_items')
-          .select()
-          .eq('company_id', companyId)
-          .eq('is_deleted', false)
-          .order('created_at', ascending: false);
-      return List<Map<String, dynamic>>.from(data);
-    } catch (e) {
-      debugPrint('Load from Supabase error: $e');
-      return [];
-    }
-  }
-
   // ─── Label Management ──────────────────────────────────────────
 
-  // FIX #8: Cache parsed LabelInfo map per inventory to avoid repeated JSON
-  // deserialization on every call to labelInfos (which is called from
-  // getSortedLabels, getLabelInfo, renameLabel, deleteLabel, etc.).
-  // Cache is invalidated whenever the box is written to.
   Map<String, LabelInfo> _parseLabelInfos(String inventoryId) {
-    final rawMap =
-        _labelsBoxes[inventoryId]!.get('labelInfos');
+    final rawMap = _labelsBoxes[inventoryId]!.get('labelInfos');
     if (rawMap is! Map) return {};
 
     return rawMap.map((key, value) {
@@ -625,28 +538,21 @@ class InventoryService {
   }
 
   Map<String, LabelInfo> get labelInfos {
-    if (_currentInventoryId == null ||
-        !_isBoxAvailable('labels', _currentInventoryId)) {
+    if (_currentInventoryId == null || !_isBoxAvailable('labels', _currentInventoryId)) {
       return {};
     }
-    // Return cached version if available, otherwise parse and cache
-    return _labelInfosCache[_currentInventoryId!] ??=
-        _parseLabelInfos(_currentInventoryId!);
+    return _labelInfosCache[_currentInventoryId!] ??= _parseLabelInfos(_currentInventoryId!);
   }
 
-  /// Writes updated label infos to the box and invalidates the cache.
-  Future<void> _saveLabelInfos(
-      String inventoryId, Map<String, dynamic> infos) async {
+  Future<void> _saveLabelInfos(String inventoryId, Map<String, dynamic> infos) async {
     await _labelsBoxes[inventoryId]!.put('labelInfos', infos);
-    // Invalidate cache so next access re-parses from the box
     _labelInfosCache.remove(inventoryId);
   }
 
   List<String> get labels => getSortedLabels();
 
   bool get hasLabels {
-    if (_currentInventoryId == null ||
-        !_isBoxAvailable('labels', _currentInventoryId)) {
+    if (_currentInventoryId == null || !_isBoxAvailable('labels', _currentInventoryId)) {
       return false;
     }
     final labelsData = _labelsBoxes[_currentInventoryId!]!.get('labels');
@@ -654,19 +560,15 @@ class InventoryService {
   }
 
   bool hasLabel(String label) {
-    if (_currentInventoryId == null ||
-        !_isBoxAvailable('labels', _currentInventoryId)) {
+    if (_currentInventoryId == null || !_isBoxAvailable('labels', _currentInventoryId)) {
       return false;
     }
     final labelsData = _labelsBoxes[_currentInventoryId!]!.get('labels');
     return labelsData is List && labelsData.contains(label);
   }
 
-  List<String> getSortedLabels({
-    LabelSortType sortType = LabelSortType.nameAsc,
-  }) {
-    if (_currentInventoryId == null ||
-        !_isBoxAvailable('labels', _currentInventoryId)) {
+  List<String> getSortedLabels({LabelSortType sortType = LabelSortType.nameAsc}) {
+    if (_currentInventoryId == null || !_isBoxAvailable('labels', _currentInventoryId)) {
       return [];
     }
     final infos = labelInfos;
@@ -676,31 +578,24 @@ class InventoryService {
 
     switch (sortType) {
       case LabelSortType.nameAsc:
-        sortedEntries.sort(
-            (a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+        sortedEntries.sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
       case LabelSortType.nameDesc:
-        sortedEntries.sort(
-            (a, b) => b.key.toLowerCase().compareTo(a.key.toLowerCase()));
+        sortedEntries.sort((a, b) => b.key.toLowerCase().compareTo(a.key.toLowerCase()));
       case LabelSortType.dateCreatedAsc:
-        sortedEntries
-            .sort((a, b) => a.value.createdAt.compareTo(b.value.createdAt));
+        sortedEntries.sort((a, b) => a.value.createdAt.compareTo(b.value.createdAt));
       case LabelSortType.dateCreatedDesc:
-        sortedEntries
-            .sort((a, b) => b.value.createdAt.compareTo(a.value.createdAt));
+        sortedEntries.sort((a, b) => b.value.createdAt.compareTo(a.value.createdAt));
       case LabelSortType.dateModifiedAsc:
-        sortedEntries
-            .sort((a, b) => a.value.modifiedAt.compareTo(b.value.modifiedAt));
+        sortedEntries.sort((a, b) => a.value.modifiedAt.compareTo(b.value.modifiedAt));
       case LabelSortType.dateModifiedDesc:
-        sortedEntries
-            .sort((a, b) => b.value.modifiedAt.compareTo(a.value.modifiedAt));
+        sortedEntries.sort((a, b) => b.value.modifiedAt.compareTo(a.value.modifiedAt));
     }
 
     return sortedEntries.map((e) => e.key).toList();
   }
 
   LabelInfo? getLabelInfo(String labelName) {
-    if (_currentInventoryId == null ||
-        !_isBoxAvailable('labels', _currentInventoryId)) {
+    if (_currentInventoryId == null || !_isBoxAvailable('labels', _currentInventoryId)) {
       return null;
     }
     return labelInfos[labelName];
@@ -730,10 +625,9 @@ class InventoryService {
         isSynced: false,
       ).toJson();
 
-      // Use helper so cache is invalidated
       await _saveLabelInfos(_currentInventoryId!, infos);
 
-      // Sync label to Supabase
+      // Sync to Supabase
       final companyId = _currentCompanyId;
       if (AppConfig.useSupabase && companyId != null) {
         try {
@@ -743,16 +637,13 @@ class InventoryService {
             'name': label,
           }).select().single();
 
-          // result from .single() is non-nullable — it throws on no rows,
-          // so a null check here is unnecessary and was a lint warning.
           final updatedInfos = Map<String, dynamic>.from(
             _labelsBoxes[_currentInventoryId!]!.get('labelInfos',
                 defaultValue: <String, Map<String, dynamic>>{}) as Map,
           );
           final existingInfo = updatedInfos[label] as Map<String, dynamic>?;
           if (existingInfo != null) {
-            final info =
-                LabelInfo.fromJson(Map<String, dynamic>.from(existingInfo));
+            final info = LabelInfo.fromJson(Map<String, dynamic>.from(existingInfo));
             updatedInfos[label] = info.copyWith(
               supabaseId: result['id'] as String?,
               modifiedAt: DateTime.now(),
@@ -761,14 +652,11 @@ class InventoryService {
             await _saveLabelInfos(_currentInventoryId!, updatedInfos);
           }
         } catch (e) {
-          debugPrint('Label sync to Supabase error: $e');
+          debugPrint('Label sync error: $e');
         }
       }
 
-      // FIX #9: Use uuid v4 instead of microsecondsSinceEpoch to avoid ID
-      // collisions when multiple log entries are created in rapid succession
-      // (e.g. during bulk label creation).
-      final logEntry = ActivityLogEntry(
+      await ActivityLogService().addLog(ActivityLogEntry(
         id: _uuid.v4(),
         timestamp: now,
         action: 'created',
@@ -777,8 +665,7 @@ class InventoryService {
         inventoryId: _currentInventoryId,
         inventoryName: getInventoryName(_currentInventoryId!),
         details: 'Label created: "$label"',
-      );
-      await ActivityLogService().addLog(logEntry);
+      ));
     }
   }
 
@@ -789,28 +676,21 @@ class InventoryService {
       await initializeForInventory(_currentInventoryId!);
     }
 
+    final supabaseId = getLabelInfo(oldLabel)?.supabaseId;
     final currentLabels = _getCurrentLabelsList();
     final index = currentLabels.indexOf(oldLabel);
-    if (index != -1) {
-      // FIX #2: Capture the supabaseId from the old label BEFORE modifying
-      // the infos map. Previously it was read after the rename write, at which
-      // point labelInfos[oldLabel] no longer exists (the key was removed and
-      // labelInfos[newLabel] was written with isSynced:false, potentially
-      // losing the supabaseId in the lookup).
-      final supabaseId = getLabelInfo(oldLabel)?.supabaseId;
 
+    if (index != -1) {
       currentLabels[index] = newLabel;
       await _labelsBoxes[_currentInventoryId!]!.put('labels', currentLabels);
 
-      // Update label infos
       final infos = Map<String, dynamic>.from(
         _labelsBoxes[_currentInventoryId!]!.get('labelInfos',
             defaultValue: <String, Map<String, dynamic>>{}) as Map,
       );
       final oldInfo = infos[oldLabel];
       if (oldInfo is Map) {
-        final labelInfo =
-            LabelInfo.fromJson(Map<String, dynamic>.from(oldInfo));
+        final labelInfo = LabelInfo.fromJson(Map<String, dynamic>.from(oldInfo));
         infos.remove(oldLabel);
         infos[newLabel] = labelInfo.copyWith(
           name: newLabel,
@@ -820,7 +700,6 @@ class InventoryService {
         await _saveLabelInfos(_currentInventoryId!, infos);
       }
 
-      // Update all items with this label
       final items = getItemsByLabel(oldLabel);
       for (var item in items) {
         item.label = newLabel;
@@ -828,22 +707,19 @@ class InventoryService {
         await _syncItemToSupabase(item);
       }
 
-      // Sync label rename to Supabase using the pre-captured supabaseId
       final companyId = _currentCompanyId;
-      if (AppConfig.useSupabase && companyId != null) {
+      if (AppConfig.useSupabase && companyId != null && supabaseId != null) {
         try {
-          if (supabaseId != null) {
-            await Supabase.instance.client
-                .from('labels')
-                .update({'name': newLabel}).eq('id', supabaseId);
-          }
+          await Supabase.instance.client
+              .from('labels')
+              .update({'name': newLabel})
+              .eq('id', supabaseId);
         } catch (e) {
           debugPrint('Label rename sync error: $e');
         }
       }
 
-      // FIX #9: Use uuid v4 for log entry ID
-      final logEntry = ActivityLogEntry(
+      await ActivityLogService().addLog(ActivityLogEntry(
         id: _uuid.v4(),
         timestamp: DateTime.now(),
         action: 'modified',
@@ -852,11 +728,8 @@ class InventoryService {
         inventoryId: _currentInventoryId,
         inventoryName: getInventoryName(_currentInventoryId!),
         details: 'Label renamed',
-        changes: {
-          'name': FieldChange(oldValue: oldLabel, newValue: newLabel),
-        },
-      );
-      await ActivityLogService().addLog(logEntry);
+        changes: {'name': FieldChange(oldValue: oldLabel, newValue: newLabel)},
+      ));
     }
   }
 
@@ -867,26 +740,19 @@ class InventoryService {
       await initializeForInventory(_currentInventoryId!);
     }
 
-    // FIX #1: Capture the supabaseId and item list BEFORE modifying local
-    // state. Previously the supabaseId was read after infos.remove(label) was
-    // written to the box, so labelInfos[label] always returned null and the
-    // Supabase soft-delete for the label record was silently skipped.
     final supabaseId = getLabelInfo(label)?.supabaseId;
     final items = getItemsByLabel(label);
-
-    // FIX #3: Perform the Supabase soft-delete BEFORE the local hard-delete.
-    // This ensures Supabase records are marked is_deleted:true before local
-    // items are removed. If the order were reversed, a sync triggered between
-    // local deletion and Supabase update could re-import the deleted items.
     final companyId = _currentCompanyId;
+
+    // Sync to Supabase first (soft delete)
     if (AppConfig.useSupabase && companyId != null) {
       try {
         if (supabaseId != null) {
           await Supabase.instance.client
               .from('labels')
-              .update({'is_deleted': true}).eq('id', supabaseId);
+              .update({'is_deleted': true})
+              .eq('id', supabaseId);
         }
-
         await Supabase.instance.client
             .from('inventory_items')
             .update({'is_deleted': true})
@@ -897,7 +763,7 @@ class InventoryService {
       }
     }
 
-    // Now perform local deletion
+    // Local deletion
     final currentLabels = _getCurrentLabelsList();
     currentLabels.remove(label);
     await _labelsBoxes[_currentInventoryId!]!.put('labels', currentLabels);
@@ -913,8 +779,7 @@ class InventoryService {
       await item.delete();
     }
 
-    // FIX #9: Use uuid v4 for log entry ID
-    final logEntry = ActivityLogEntry(
+    await ActivityLogService().addLog(ActivityLogEntry(
       id: _uuid.v4(),
       timestamp: DateTime.now(),
       action: 'deleted',
@@ -923,22 +788,18 @@ class InventoryService {
       inventoryId: _currentInventoryId,
       inventoryName: getInventoryName(_currentInventoryId!),
       details: 'Label deleted: "$label" with ${items.length} items',
-    );
-    await ActivityLogService().addLog(logEntry);
+    ));
   }
 
   List<String> _getCurrentLabelsList() {
     final labelsData = _labelsBoxes[_currentInventoryId!]!.get('labels');
-    return labelsData is List
-        ? List<String>.from(labelsData.cast<String>())
-        : [];
+    return labelsData is List ? List<String>.from(labelsData.cast<String>()) : [];
   }
 
   // ─── Item Management ───────────────────────────────────────────
 
   List<InventoryItem> getItemsByLabel(String label) {
-    if (_currentInventoryId == null ||
-        !_isBoxAvailable('items', _currentInventoryId)) {
+    if (_currentInventoryId == null || !_isBoxAvailable('items', _currentInventoryId)) {
       return [];
     }
     return _itemsBoxes[_currentInventoryId!]!.values
@@ -949,8 +810,7 @@ class InventoryService {
   List<InventoryItem> getItems(String label) => getItemsByLabel(label);
 
   Future<void> saveItem(InventoryItem item) async {
-    if (_currentInventoryId == null ||
-        !_itemsBoxes.containsKey(_currentInventoryId!)) {
+    if (_currentInventoryId == null || !_itemsBoxes.containsKey(_currentInventoryId!)) {
       return;
     }
 
@@ -970,12 +830,7 @@ class InventoryService {
       await initializeForInventory(_currentInventoryId!);
     }
 
-    // FIX #6: Ensure _currentInventoryId matches the target label's inventory
-    // before syncing. If selectInventory was called with a different ID between
-    // the guard above and the sync call below, items would be synced to the
-    // wrong inventory in Supabase.
     final targetInventoryId = _currentInventoryId!;
-
     final box = _itemsBoxes[targetInventoryId]!;
     final existingItems = box.values.where((i) => i.label == label).toList();
     int importedCount = 0;
@@ -995,7 +850,6 @@ class InventoryService {
 
       if (!isDuplicate) {
         await box.add(newItem);
-        // Only sync if _currentInventoryId still matches our target
         if (_currentInventoryId == targetInventoryId) {
           await _syncItemToSupabase(newItem);
         }
@@ -1004,52 +858,6 @@ class InventoryService {
     }
 
     return importedCount;
-  }
-
-  Future<void> saveItems(String label, List<InventoryItem> newItems) async {
-    if (_currentInventoryId == null) return;
-
-    if (!_itemsBoxes.containsKey(_currentInventoryId!)) {
-      await initializeForInventory(_currentInventoryId!);
-    }
-
-    // FIX #6: Capture the target inventory ID at the start to guard against
-    // _currentInventoryId drifting mid-operation during inventory switches.
-    final targetInventoryId = _currentInventoryId!;
-
-    final box = _itemsBoxes[targetInventoryId]!;
-    final existingItems = box.values.where((i) => i.label == label).toList();
-
-    final existingByKey = <int, InventoryItem>{};
-    for (var item in existingItems) {
-      if (item.key != null) {
-        existingByKey[item.key!] = item;
-      }
-    }
-
-    final keysUsed = <int>{};
-
-    for (var item in newItems) {
-      item.label = label;
-      if (item.key != null && existingByKey.containsKey(item.key)) {
-        await item.save();
-        if (_currentInventoryId == targetInventoryId) {
-          await _syncItemToSupabase(item);
-        }
-        keysUsed.add(item.key!);
-      } else {
-        await box.add(item);
-        if (_currentInventoryId == targetInventoryId) {
-          await _syncItemToSupabase(item);
-        }
-      }
-    }
-
-    for (var key in existingByKey.keys) {
-      if (!keysUsed.contains(key)) {
-        await existingByKey[key]!.delete();
-      }
-    }
   }
 
   Map<String, List<InventoryItem>> getAllItems() {
@@ -1120,8 +928,7 @@ class InventoryService {
 
         if (box == null || box.isEmpty) continue;
 
-        final inventoryName =
-            inventoryNames[inventoryId] ?? getInventoryName(inventoryId);
+        final inventoryName = inventoryNames[inventoryId] ?? getInventoryName(inventoryId);
 
         for (var item in box.values) {
           if (_itemMatchesQuery(item, lowerQuery)) {
@@ -1159,15 +966,13 @@ class InventoryService {
         item.note.toLowerCase().contains(lowerQuery) ||
         item.color.toLowerCase().contains(lowerQuery) ||
         item.material.toLowerCase().contains(lowerQuery) ||
-        item.customFields.values
-            .any((v) => v.toLowerCase().contains(lowerQuery));
+        item.customFields.values.any((v) => v.toLowerCase().contains(lowerQuery));
   }
 
   // ─── Settings ──────────────────────────────────────────────────
 
   InventorySettings? get currentSettings {
-    if (_currentInventoryId == null ||
-        !_isBoxAvailable('settings', _currentInventoryId)) {
+    if (_currentInventoryId == null || !_isBoxAvailable('settings', _currentInventoryId)) {
       return null;
     }
     final settings = _settingsBoxes[_currentInventoryId!]!.get('main');
@@ -1192,28 +997,23 @@ class InventoryService {
     if (oldSettings is InventorySettings) {
       final oldFields = oldSettings.fieldConfigs
           .where((f) => f.isEnabled)
-          .map((f) =>
-              '${f.fieldName}(${f.isRequired ? "required" : "optional"})')
+          .map((f) => '${f.fieldName}(${f.isRequired ? "required" : "optional"})')
           .join(', ');
       final newFields = settings.fieldConfigs
           .where((f) => f.isEnabled)
-          .map((f) =>
-              '${f.fieldName}(${f.isRequired ? "required" : "optional"})')
+          .map((f) => '${f.fieldName}(${f.isRequired ? "required" : "optional"})')
           .join(', ');
       if (oldFields != newFields) {
-        changes['fieldConfigs'] =
-            FieldChange(oldValue: oldFields, newValue: newFields);
+        changes['fieldConfigs'] = FieldChange(oldValue: oldFields, newValue: newFields);
       }
       final oldCustom = oldSettings.customFieldNames.join(', ');
       final newCustom = settings.customFieldNames.join(', ');
       if (oldCustom != newCustom) {
-        changes['customFields'] =
-            FieldChange(oldValue: oldCustom, newValue: newCustom);
+        changes['customFields'] = FieldChange(oldValue: oldCustom, newValue: newCustom);
       }
     }
 
-    // FIX #9: Use uuid v4 for log entry ID
-    final logEntry = ActivityLogEntry(
+    await ActivityLogService().addLog(ActivityLogEntry(
       id: _uuid.v4(),
       timestamp: DateTime.now(),
       action: 'modified',
@@ -1223,8 +1023,7 @@ class InventoryService {
       inventoryName: getInventoryName(_currentInventoryId!),
       details: 'Settings updated',
       changes: changes.isNotEmpty ? changes : null,
-    );
-    await ActivityLogService().addLog(logEntry);
+    ));
   }
 
   // ─── Cleanup ───────────────────────────────────────────────────

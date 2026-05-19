@@ -1,7 +1,4 @@
-// File: lib/core/constants/app_constants.dart
-
 class AppConstants {
-  // App Info
   static const String appVersion = '2.1.0';
   static const String appName = 'Inventory Pro';
 
@@ -34,7 +31,5 @@ class AppConstants {
   static const int batchSize = 100;
   static const int previewLimit = 50;
 
-  // Demo Mode
-  // Set to true to auto-load demo data on first run
-  static const bool autoLoadDemoData = true;
+  // REMOVED: autoLoadDemoData - Not used in multi-tenant workflow
 }

@@ -1,9 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/inventory_list_item.dart';
 import '../../inventory_management/services/inventory_service.dart';
 import '../../../core/services/activity_log_service.dart';
 import '../../../core/models/activity_log_entry.dart';
+import '../../../core/config/app_config.dart';
+import 'package:uuid/uuid.dart';
+
+const _uuid = Uuid();
 
 class InventoryListProvider extends ChangeNotifier {
   final Box _inventoriesListBox;
@@ -35,11 +40,11 @@ class InventoryListProvider extends ChangeNotifier {
     for (var key in _inventoriesListBox.keys) {
       final value = _inventoriesListBox.get(key);
       if (value is Map) {
-        final Map<String, dynamic> typedMap = {};
+        final typedMap = <String, dynamic>{};
         value.forEach((k, v) => typedMap[k.toString()] = v);
         final name = typedMap['name'] as String? ?? '';
         if (name.isNotEmpty) {
-          _inventories.add(InventoryListItem.fromMap(key, typedMap));
+          _inventories.add(InventoryListItem.fromMap(key.toString(), typedMap));
         }
       }
     }
@@ -48,10 +53,16 @@ class InventoryListProvider extends ChangeNotifier {
 
   Future<void> refreshInventories() async {
     _isLoading = true;
+    _error = null;
     notifyListeners();
-    _loadInventories();
-    _isLoading = false;
-    notifyListeners();
+    try {
+      _loadInventories();
+    } catch (e) {
+      _error = 'Failed to refresh: ${e.toString()}';
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<String> createInventory(String name, InventoryService service) async {
@@ -59,22 +70,23 @@ class InventoryListProvider extends ChangeNotifier {
     _isLoading = true;
     _error = null;
     notifyListeners();
+
     try {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final id = '${now}_${name.hashCode.abs()}';
+      final id = _uuid.v4();
       final timestamp = DateTime.now();
+
       await _inventoriesListBox.put(id, {
         'name': name.trim(),
         'created': timestamp.toIso8601String(),
         'modified': timestamp.toIso8601String(),
       });
+
       await service.initializeForInventory(id);
       _selectedInventoryId = id;
       _loadInventories();
-      _isLoading = false;
-      notifyListeners();
-      final logEntry = ActivityLogEntry(
-        id: timestamp.microsecondsSinceEpoch.toString(),
+
+      await ActivityLogService().addLog(ActivityLogEntry(
+        id: _uuid.v4(),
         timestamp: timestamp,
         action: 'created',
         entityType: 'inventory',
@@ -82,14 +94,16 @@ class InventoryListProvider extends ChangeNotifier {
         inventoryId: id,
         inventoryName: name.trim(),
         details: 'Inventory created: "${name.trim()}"',
-      );
-      await ActivityLogService().addLog(logEntry);
+      ));
+
       return id;
     } catch (e) {
-      _isLoading = false;
       _error = 'Failed to create inventory: $e';
       notifyListeners();
       rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
   }
 
@@ -98,17 +112,17 @@ class InventoryListProvider extends ChangeNotifier {
     try {
       final data = _inventoriesListBox.get(id);
       if (data is Map) {
-        final Map<String, dynamic> typedMap = {};
+        final typedMap = <String, dynamic>{};
         data.forEach((k, v) => typedMap[k.toString()] = v);
         final oldName = typedMap['name'] as String? ?? '';
-        final updatedData = Map<String, dynamic>.from(typedMap);
-        updatedData['name'] = newName.trim();
-        updatedData['modified'] = DateTime.now().toIso8601String();
-        await _inventoriesListBox.put(id, updatedData);
+        typedMap['name'] = newName.trim();
+        typedMap['modified'] = DateTime.now().toIso8601String();
+        await _inventoriesListBox.put(id, typedMap);
         _loadInventories();
         notifyListeners();
-        final logEntry = ActivityLogEntry(
-          id: DateTime.now().microsecondsSinceEpoch.toString(),
+
+        await ActivityLogService().addLog(ActivityLogEntry(
+          id: _uuid.v4(),
           timestamp: DateTime.now(),
           action: 'modified',
           entityType: 'inventory',
@@ -117,23 +131,21 @@ class InventoryListProvider extends ChangeNotifier {
           inventoryName: newName.trim(),
           details: 'Inventory renamed',
           changes: {'name': FieldChange(oldValue: oldName, newValue: newName.trim())},
-        );
-        await ActivityLogService().addLog(logEntry);
+        ));
       }
     } catch (e) {
-      debugPrint('Error renaming inventory: $e');
-      _error = 'Failed to rename inventory: $e';
+      _error = 'Failed to rename: $e';
       notifyListeners();
     }
   }
 
   Future<void> deleteInventory(String id, InventoryService service) async {
-    _error = null;
     try {
       final data = _inventoriesListBox.get(id);
       final inventoryName = data is Map ? (data['name'] as String? ?? '') : '';
-      final logEntry = ActivityLogEntry(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
+
+      await ActivityLogService().addLog(ActivityLogEntry(
+        id: _uuid.v4(),
         timestamp: DateTime.now(),
         action: 'deleted',
         entityType: 'inventory',
@@ -141,19 +153,19 @@ class InventoryListProvider extends ChangeNotifier {
         inventoryId: id,
         inventoryName: inventoryName,
         details: 'Inventory deleted: "$inventoryName"',
-      );
-      await ActivityLogService().addLog(logEntry);
+      ));
+
       await ActivityLogService().clearLogs(inventoryId: id);
       await service.deleteInventoryData(id);
       await _inventoriesListBox.delete(id);
       _loadInventories();
+
       if (_selectedInventoryId == id) {
         _selectedInventoryId = _inventories.isNotEmpty ? _inventories.first.id : null;
       }
       notifyListeners();
     } catch (e) {
-      debugPrint('Error deleting inventory: $e');
-      _error = 'Failed to delete inventory: $e';
+      _error = 'Failed to delete: $e';
       notifyListeners();
       rethrow;
     }
@@ -170,7 +182,7 @@ class InventoryListProvider extends ChangeNotifier {
     if (_selectedInventoryId == null) return null;
     final data = _inventoriesListBox.get(_selectedInventoryId);
     if (data is Map) {
-      final Map<String, dynamic> typedMap = {};
+      final typedMap = <String, dynamic>{};
       data.forEach((k, v) => typedMap[k.toString()] = v);
       return typedMap['name'] as String?;
     }
