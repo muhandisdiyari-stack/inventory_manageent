@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Inventory Management</string>
+	<string>Inventory Pro</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -28,16 +28,13 @@
 	<true/>
 	
 	<!-- ============ CAMERA PERMISSIONS ============ -->
-	<!-- Camera access for barcode scanning -->
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access to scan barcodes and QR codes.</string>
 	
-	<!-- Photo Library access for scanning barcodes from images -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This app needs photo library access to scan barcodes from saved images.</string>
 	
 	<!-- ============ DOCUMENT PERMISSIONS ============ -->
-	<!-- Document access permissions -->
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>UIFileSharingEnabled</key>
@@ -45,7 +42,6 @@
 	<key>NSDocumentsFolderUsageDescription</key>
 	<string>This app needs access to documents to save and import inventory CSV files.</string>
 	
-	<!-- Document types for CSV -->
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -62,7 +58,6 @@
 		</dict>
 	</array>
 	
-	<!-- Import document types -->
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>

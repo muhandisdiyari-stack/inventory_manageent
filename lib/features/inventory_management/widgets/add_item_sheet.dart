@@ -58,6 +58,7 @@ class _AddItemForm extends StatefulWidget {
 
 class _AddItemFormState extends State<_AddItemForm> {
   final _formKey = GlobalKey<FormState>();
+  
   late final TextEditingController _nameController;
   late final TextEditingController _codeController;
   late final TextEditingController _barcodeController;
@@ -66,17 +67,19 @@ class _AddItemFormState extends State<_AddItemForm> {
   late final TextEditingController _sizeController;
   late final TextEditingController _noteController;
   late final TextEditingController _quantityController;
+  
   DateTime? _productionDate;
   DateTime? _expireDate;
-
   final Map<String, TextEditingController> _customFieldControllers = {};
-
+  
   bool _saving = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
     final item = widget.existingItem;
+    
     _nameController = TextEditingController(text: item?.name ?? '');
     _codeController = TextEditingController(text: item?.code ?? '');
     _barcodeController = TextEditingController(text: item?.barcode ?? '');
@@ -84,12 +87,18 @@ class _AddItemFormState extends State<_AddItemForm> {
     _materialController = TextEditingController(text: item?.material ?? '');
     _sizeController = TextEditingController(text: item?.size ?? '');
     _noteController = TextEditingController(text: item?.note ?? '');
-    _quantityController =
-        TextEditingController(text: (item?.quantity ?? 0).toString());
+    _quantityController = TextEditingController(
+      text: (item?.quantity ?? 0).toString(),
+    );
     _productionDate = item?.productionDate;
     _expireDate = item?.expireDate;
 
-    for (final fieldName in widget.settings?.customFieldNames ?? const []) {
+    _initializeCustomFields(item);
+  }
+
+  void _initializeCustomFields(InventoryItem? item) {
+    final customFieldNames = widget.settings?.customFieldNames ?? const [];
+    for (final fieldName in customFieldNames) {
       _customFieldControllers[fieldName] = TextEditingController(
         text: item?.customFields[fieldName] ?? '',
       );
@@ -100,6 +109,8 @@ class _AddItemFormState extends State<_AddItemForm> {
   void didUpdateWidget(covariant _AddItemForm oldWidget) {
     super.didUpdateWidget(oldWidget);
     final newFields = widget.settings?.customFieldNames ?? const [];
+    
+    // Add new fields
     for (final fieldName in newFields) {
       if (!_customFieldControllers.containsKey(fieldName)) {
         _customFieldControllers[fieldName] = TextEditingController(
@@ -107,13 +118,16 @@ class _AddItemFormState extends State<_AddItemForm> {
         );
       }
     }
-    _customFieldControllers.keys
+    
+    // Remove old fields
+    final keysToRemove = _customFieldControllers.keys
         .where((key) => !newFields.contains(key))
-        .toList()
-        .forEach((key) {
+        .toList();
+    for (final key in keysToRemove) {
       _customFieldControllers[key]?.dispose();
       _customFieldControllers.remove(key);
-    });
+    }
+    
     setState(() {});
   }
 
@@ -135,7 +149,6 @@ class _AddItemFormState extends State<_AddItemForm> {
 
   bool _isFieldEnabled(String fieldName) {
     if (widget.settings == null) {
-      // Without settings, show all standard fields except Production Date and Expire Date
       const alwaysShown = ['Name', 'Code', 'Barcode', 'Size', 'Quantity', 'Note'];
       return alwaysShown.contains(fieldName);
     }
@@ -143,7 +156,9 @@ class _AddItemFormState extends State<_AddItemForm> {
   }
 
   bool _isFieldRequired(String fieldName) {
-    if (widget.settings == null) return fieldName == 'Name' || fieldName == 'Quantity';
+    if (widget.settings == null) {
+      return fieldName == 'Name' || fieldName == 'Quantity';
+    }
     return widget.settings!.isFieldRequired(fieldName);
   }
 
@@ -151,38 +166,41 @@ class _AddItemFormState extends State<_AddItemForm> {
     UnifiedBarcodeScanner.showScanner(
       context,
       onBarcodeScanned: (barcode) {
-        setState(() => _barcodeController.text = barcode);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.check_circle, color: Colors.white, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Barcode scanned: $barcode',
-                      overflow: TextOverflow.ellipsis,
-                    ),
+        if (!mounted) return;
+        setState(() {
+          _barcodeController.text = barcode;
+          _errorMessage = null;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Barcode scanned: $barcode',
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ],
-              ),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(40)),
-              margin: const EdgeInsets.all(20),
-              duration: const Duration(seconds: 2),
+                ),
+              ],
             ),
-          );
-        }
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+            margin: const EdgeInsets.all(20),
+            duration: const Duration(seconds: 2),
+          ),
+        );
       },
     );
   }
 
   void _clearBarcode() {
-    if (_barcodeController.text.isNotEmpty) {
-      setState(() => _barcodeController.clear());
-    }
+    setState(() {
+      _barcodeController.clear();
+      _errorMessage = null;
+    });
   }
 
   @override
@@ -203,6 +221,7 @@ class _AddItemFormState extends State<_AddItemForm> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Drag handle
               Center(
                 child: Container(
                   width: 40,
@@ -214,16 +233,44 @@ class _AddItemFormState extends State<_AddItemForm> {
                 ),
               ),
               const SizedBox(height: 18),
+              
+              // Title
               Text(
-                isEditing
-                    ? 'Edit Item'
-                    : 'Add New Item to ${widget.label}',
+                isEditing ? 'Edit Item' : 'Add New Item to ${widget.label}',
                 style: Theme.of(context)
                     .textTheme
                     .headlineSmall
                     ?.copyWith(fontWeight: FontWeight.w800),
               ),
+              
+              // Error message
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline, color: Colors.red, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _errorMessage!,
+                          style: const TextStyle(color: Colors.red, fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              
               const SizedBox(height: 16),
+              
+              // Form fields
               if (_isFieldEnabled('Name'))
                 _buildTextField(
                   controller: _nameController,
@@ -232,7 +279,9 @@ class _AddItemFormState extends State<_AddItemForm> {
                   icon: Icons.label,
                   required: _isFieldRequired('Name'),
                   textCapitalization: TextCapitalization.words,
+                  autofocus: true,
                 ),
+                
               if (_isFieldEnabled('Code'))
                 _buildTextField(
                   controller: _codeController,
@@ -241,7 +290,9 @@ class _AddItemFormState extends State<_AddItemForm> {
                   icon: Icons.code,
                   required: _isFieldRequired('Code'),
                 ),
+                
               if (_isFieldEnabled('Barcode')) _buildBarcodeField(),
+              
               if (_isFieldEnabled('Color'))
                 _buildTextField(
                   controller: _colorController,
@@ -251,6 +302,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                   required: _isFieldRequired('Color'),
                   textCapitalization: TextCapitalization.words,
                 ),
+                
               if (_isFieldEnabled('Material'))
                 _buildTextField(
                   controller: _materialController,
@@ -260,6 +312,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                   required: _isFieldRequired('Material'),
                   textCapitalization: TextCapitalization.words,
                 ),
+                
               if (_isFieldEnabled('Size'))
                 _buildTextField(
                   controller: _sizeController,
@@ -268,7 +321,9 @@ class _AddItemFormState extends State<_AddItemForm> {
                   icon: Icons.straighten,
                   required: _isFieldRequired('Size'),
                 ),
+                
               if (_isFieldEnabled('Quantity')) _buildQuantityField(),
+              
               if (_isFieldEnabled('Production Date'))
                 _buildDateField(
                   label: 'Production Date',
@@ -277,6 +332,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                   onPicked: (d) => setState(() => _productionDate = d),
                   onClear: () => setState(() => _productionDate = null),
                 ),
+                
               if (_isFieldEnabled('Expire Date'))
                 _buildDateField(
                   label: 'Expire Date',
@@ -285,6 +341,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                   onPicked: (d) => setState(() => _expireDate = d),
                   onClear: () => setState(() => _expireDate = null),
                 ),
+                
               if (_isFieldEnabled('Note'))
                 _buildTextField(
                   controller: _noteController,
@@ -295,18 +352,22 @@ class _AddItemFormState extends State<_AddItemForm> {
                   required: _isFieldRequired('Note'),
                   textCapitalization: TextCapitalization.sentences,
                 ),
+                
               ..._buildCustomFields(),
+              
               const SizedBox(height: 16),
+              
+              // Action buttons
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed:
-                          _saving ? null : () => Navigator.pop(context),
+                      onPressed: _saving ? null : () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(40)),
+                          borderRadius: BorderRadius.circular(40),
+                        ),
                       ),
                       child: const Text('Cancel'),
                     ),
@@ -318,7 +379,8 @@ class _AddItemFormState extends State<_AddItemForm> {
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(40)),
+                          borderRadius: BorderRadius.circular(40),
+                        ),
                       ),
                       child: _saving
                           ? const SizedBox(
@@ -355,7 +417,7 @@ class _AddItemFormState extends State<_AddItemForm> {
         controller: _barcodeController,
         decoration: InputDecoration(
           labelText: required ? 'Barcode *' : 'Barcode',
-          hintText: 'Enter barcode manually',
+          hintText: 'Enter barcode manually or scan',
           prefixIcon: const Icon(Icons.qr_code, size: 20),
           suffixIcon: Row(
             mainAxisSize: MainAxisSize.min,
@@ -387,8 +449,7 @@ class _AddItemFormState extends State<_AddItemForm> {
               : null,
         ),
         validator: required
-            ? (v) =>
-                (v == null || v.trim().isEmpty) ? 'Barcode is required' : null
+            ? (v) => (v == null || v.trim().isEmpty) ? 'Barcode is required' : null
             : null,
       ),
     );
@@ -403,7 +464,7 @@ class _AddItemFormState extends State<_AddItemForm> {
         keyboardType: TextInputType.number,
         decoration: InputDecoration(
           labelText: required ? 'Quantity *' : 'Quantity',
-          hintText: 'Enter quantity',
+          hintText: 'Enter quantity (0-${InventoryItem.maxQuantity})',
           prefixIcon: const Icon(Icons.numbers, size: 20),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           filled: true,
@@ -435,9 +496,8 @@ class _AddItemFormState extends State<_AddItemForm> {
     int maxLines = 1,
     TextInputType? keyboardType,
     TextCapitalization textCapitalization = TextCapitalization.none,
+    bool autofocus = false,
   }) {
-    final displayLabel = required ? '$label *' : label;
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
@@ -445,8 +505,9 @@ class _AddItemFormState extends State<_AddItemForm> {
         maxLines: maxLines,
         keyboardType: keyboardType,
         textCapitalization: textCapitalization,
+        autofocus: autofocus,
         decoration: InputDecoration(
-          labelText: displayLabel,
+          labelText: required ? '$label *' : label,
           hintText: hint,
           prefixIcon: Icon(icon, size: 20),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
@@ -472,8 +533,6 @@ class _AddItemFormState extends State<_AddItemForm> {
     required Function(DateTime) onPicked,
     required VoidCallback onClear,
   }) {
-    final displayLabel = required ? '$label *' : label;
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: FormField<DateTime?>(
@@ -481,63 +540,60 @@ class _AddItemFormState extends State<_AddItemForm> {
         validator: required
             ? (v) => v == null ? '$label is required' : null
             : null,
-        builder: (formFieldState) => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            InkWell(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: value ?? DateTime.now(),
-                  firstDate: DateTime(2000),
-                  lastDate: DateTime(2100),
-                  helpText: 'Select $label',
-                  cancelText: 'Cancel',
-                  confirmText: 'OK',
-                );
-                if (picked != null) {
-                  onPicked(picked);
-                  formFieldState.didChange(picked);
-                }
-              },
-              child: InputDecorator(
-                decoration: InputDecoration(
-                  labelText: displayLabel,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                  filled: true,
-                  prefixIcon: const Icon(Icons.calendar_today, size: 18),
-                  suffixIcon: value != null
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 18),
-                          tooltip: 'Clear date',
-                          onPressed: () {
-                            onClear();
-                            formFieldState.didChange(null);
-                          },
-                        )
-                      : null,
-                  errorText: formFieldState.errorText,
-                ),
-                child: Text(
-                  value != null
-                      ? '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}'
-                      : 'Select date',
-                  style: TextStyle(
-                    color: value != null ? null : Colors.grey,
-                    fontSize: 16,
-                  ),
-                ),
+        builder: (formFieldState) => InkWell(
+          onTap: () async {
+            try {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: value ?? DateTime.now(),
+                firstDate: DateTime(2000),
+                lastDate: DateTime(2100),
+                helpText: 'Select $label',
+                cancelText: 'Cancel',
+                confirmText: 'OK',
+              );
+              if (picked != null && mounted) {
+                onPicked(picked);
+                formFieldState.didChange(picked);
+              }
+            } catch (e) {
+              debugPrint('Date picker error: $e');
+            }
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              labelText: required ? '$label *' : label,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+              filled: true,
+              prefixIcon: const Icon(Icons.calendar_today, size: 18),
+              suffixIcon: value != null
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      tooltip: 'Clear date',
+                      onPressed: () {
+                        onClear();
+                        formFieldState.didChange(null);
+                      },
+                    )
+                  : null,
+              errorText: formFieldState.errorText,
+            ),
+            child: Text(
+              value != null
+                  ? '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}'
+                  : 'Select date',
+              style: TextStyle(
+                color: value != null ? null : Colors.grey,
+                fontSize: 16,
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
   List<Widget> _buildCustomFields() {
-    if (_customFieldControllers.isEmpty) return const [];
-
     return _customFieldControllers.entries.map((entry) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 12),
@@ -557,9 +613,15 @@ class _AddItemFormState extends State<_AddItemForm> {
   }
 
   Future<void> _submit() async {
+    // Dismiss keyboard
+    FocusScope.of(context).unfocus();
+
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _errorMessage = null;
+    });
 
     try {
       final customFields = <String, String>{};
@@ -571,23 +633,9 @@ class _AddItemFormState extends State<_AddItemForm> {
       final isEditing = widget.existingItem != null;
 
       if (isEditing) {
+        // Update existing item
         final oldItem = widget.existingItem!;
-        final oldValues = <String, String>{
-          'name': oldItem.name,
-          'code': oldItem.code,
-          'barcode': oldItem.barcode,
-          'color': oldItem.color,
-          'material': oldItem.material,
-          'size': oldItem.size,
-          'productionDate': oldItem.productionDate?.toIso8601String() ?? '',
-          'expireDate': oldItem.expireDate?.toIso8601String() ?? '',
-          'note': oldItem.note,
-          'quantity': oldItem.quantity.toString(),
-          'label': oldItem.label,
-        };
-        for (final entry in oldItem.customFields.entries) {
-          oldValues[entry.key] = entry.value;
-        }
+        final oldValues = _captureOldValues(oldItem);
 
         oldItem.name = _nameController.text.trim();
         oldItem.code = _isFieldEnabled('Code') ? _codeController.text.trim() : '';
@@ -598,35 +646,16 @@ class _AddItemFormState extends State<_AddItemForm> {
         oldItem.productionDate = _isFieldEnabled('Production Date') ? _productionDate : null;
         oldItem.expireDate = _isFieldEnabled('Expire Date') ? _expireDate : null;
         oldItem.note = _isFieldEnabled('Note') ? _noteController.text.trim() : '';
-        oldItem.quantity = int.parse(_quantityController.text.trim());
+        oldItem.quantity = int.tryParse(_quantityController.text.trim()) ?? 0;
         oldItem.label = widget.label;
         oldItem.customFields = customFields;
         oldItem.modified = DateTime.now();
         await oldItem.save();
 
-        final changes = <String, FieldChange>{};
-        void compareField(String key, String newValue) {
-          if (oldValues[key] != newValue) {
-            changes[key] = FieldChange(oldValue: oldValues[key] ?? '', newValue: newValue);
-          }
-        }
-        compareField('name', oldItem.name);
-        compareField('code', oldItem.code);
-        compareField('barcode', oldItem.barcode);
-        compareField('color', oldItem.color);
-        compareField('material', oldItem.material);
-        compareField('size', oldItem.size);
-        compareField('productionDate', oldItem.productionDate?.toIso8601String() ?? '');
-        compareField('expireDate', oldItem.expireDate?.toIso8601String() ?? '');
-        compareField('note', oldItem.note);
-        compareField('quantity', oldItem.quantity.toString());
-        compareField('label', oldItem.label);
-        for (final entry in customFields.entries) {
-          compareField(entry.key, entry.value);
-        }
-
+        // Log changes
+        final changes = _detectChanges(oldValues, oldItem, customFields);
         if (changes.isNotEmpty) {
-          final logEntry = ActivityLogEntry(
+          await ActivityLogService().addLog(ActivityLogEntry(
             id: DateTime.now().microsecondsSinceEpoch.toString(),
             timestamp: DateTime.now(),
             action: 'modified',
@@ -637,10 +666,10 @@ class _AddItemFormState extends State<_AddItemForm> {
             labelName: widget.label,
             details: 'Item modified: "${oldItem.displayName}"',
             changes: changes,
-          );
-          await ActivityLogService().addLog(logEntry);
+          ));
         }
       } else {
+        // Create new item
         final item = InventoryItem(
           name: _nameController.text.trim(),
           code: _isFieldEnabled('Code') ? _codeController.text.trim() : '',
@@ -651,15 +680,18 @@ class _AddItemFormState extends State<_AddItemForm> {
           productionDate: _isFieldEnabled('Production Date') ? _productionDate : null,
           expireDate: _isFieldEnabled('Expire Date') ? _expireDate : null,
           note: _isFieldEnabled('Note') ? _noteController.text.trim() : '',
-          quantity: int.parse(_quantityController.text.trim()),
+          quantity: int.tryParse(_quantityController.text.trim()) ?? 0,
           label: widget.label,
           customFields: customFields,
           modified: DateTime.now(),
+          createdBy: widget.inventoryId,
           createdAt: DateTime.now(),
         );
+
         await widget.onSave(item);
 
-        final logEntry = ActivityLogEntry(
+        // Log creation
+        await ActivityLogService().addLog(ActivityLogEntry(
           id: item.createdAt.microsecondsSinceEpoch.toString(),
           timestamp: item.createdAt,
           action: 'created',
@@ -669,22 +701,20 @@ class _AddItemFormState extends State<_AddItemForm> {
           inventoryName: widget.inventoryName,
           labelName: widget.label,
           details: 'Item created: "${item.displayName}" with quantity ${item.quantity}',
-        );
-        await ActivityLogService().addLog(logEntry);
+        ));
       }
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
+        setState(() {
+          _saving = false;
+          _errorMessage = 'Error saving item: ${e.toString()}';
+        });
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error_outline, color: Colors.white, size: 18),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Error saving item: $e')),
-              ],
-            ),
+            content: Text('Error saving item: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
@@ -692,8 +722,61 @@ class _AddItemFormState extends State<_AddItemForm> {
           ),
         );
       }
-    } finally {
-      if (mounted) setState(() => _saving = false);
     }
+  }
+
+  Map<String, String> _captureOldValues(InventoryItem item) {
+    final values = <String, String>{
+      'name': item.name,
+      'code': item.code,
+      'barcode': item.barcode,
+      'color': item.color,
+      'material': item.material,
+      'size': item.size,
+      'productionDate': item.productionDate?.toIso8601String() ?? '',
+      'expireDate': item.expireDate?.toIso8601String() ?? '',
+      'note': item.note,
+      'quantity': item.quantity.toString(),
+      'label': item.label,
+    };
+    for (final entry in item.customFields.entries) {
+      values[entry.key] = entry.value;
+    }
+    return values;
+  }
+
+  Map<String, FieldChange> _detectChanges(
+    Map<String, String> oldValues,
+    InventoryItem newItem,
+    Map<String, String> newCustomFields,
+  ) {
+    final changes = <String, FieldChange>{};
+
+    void compare(String key, String newValue) {
+      if (oldValues[key] != newValue) {
+        changes[key] = FieldChange(
+          oldValue: oldValues[key] ?? '',
+          newValue: newValue,
+        );
+      }
+    }
+
+    compare('name', newItem.name);
+    compare('code', newItem.code);
+    compare('barcode', newItem.barcode);
+    compare('color', newItem.color);
+    compare('material', newItem.material);
+    compare('size', newItem.size);
+    compare('productionDate', newItem.productionDate?.toIso8601String() ?? '');
+    compare('expireDate', newItem.expireDate?.toIso8601String() ?? '');
+    compare('note', newItem.note);
+    compare('quantity', newItem.quantity.toString());
+    compare('label', newItem.label);
+
+    for (final entry in newCustomFields.entries) {
+      compare(entry.key, entry.value);
+    }
+
+    return changes;
   }
 }

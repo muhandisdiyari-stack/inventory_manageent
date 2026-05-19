@@ -1,35 +1,50 @@
 // File: lib/features/inventory_management/services/demo_data_service.dart
 
+import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/inventory_item.dart';
 import '../models/inventory_settings.dart';
 import '../../../core/constants/app_constants.dart';
+import 'package:uuid/uuid.dart';
 
 class DemoDataService {
+  static const _uuid = Uuid();
+
   /// Loads sample demo data into the app.
-  /// Only runs when [AppConstants.autoLoadDemoData] is true.
+  /// Only runs when [AppConstants.autoLoadDemoData] is true
+  /// and no inventories exist yet.
   static Future<void> loadDemoData() async {
-    if (!AppConstants.autoLoadDemoData) return;
+    if (!AppConstants.autoLoadDemoData) {
+      debugPrint('📦 Demo data disabled - skipping');
+      return;
+    }
 
     final inventoriesBox = Hive.box(AppConstants.inventoriesListBox);
-    if (inventoriesBox.isNotEmpty) return;
+    
+    // FIXED: Only load if box is actually empty
+    if (inventoriesBox.isNotEmpty) {
+      debugPrint('📦 Inventories already exist - skipping demo data');
+      return;
+    }
 
-    // FIX (bug): millisecondsSinceEpoch + 1 can collide on fast hardware.
-    // Use a large fixed offset that guarantees two distinct values regardless
-    // of execution speed. A UUID library would be even safer if already a
-    // dependency, but this is sufficient without adding a new package.
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final warehouseId = '${now}_warehouse';
-    final storeId = '${now}_store';
+    debugPrint('📦 Loading demo data...');
+
+    // FIXED: Use UUID for unique IDs instead of milliseconds
+    final warehouseId = 'demo_${_uuid.v4()}';
+    final storeId = 'demo_${_uuid.v4()}';
+
+    final now = DateTime.now();
 
     await inventoriesBox.put(warehouseId, {
       'name': 'Main Warehouse',
-      'created': DateTime.now().toIso8601String(),
+      'created': now.toIso8601String(),
+      'modified': now.toIso8601String(),
     });
 
     await inventoriesBox.put(storeId, {
       'name': 'Retail Store',
-      'created': DateTime.now().toIso8601String(),
+      'created': now.toIso8601String(),
+      'modified': now.toIso8601String(),
     });
 
     await _initInventoryBoxes(warehouseId);
@@ -40,6 +55,8 @@ class DemoDataService {
 
     await _addDemoSettings(warehouseId);
     await _addDemoSettings(storeId);
+
+    debugPrint('✅ Demo data loaded successfully');
   }
 
   static Future<void> _initInventoryBoxes(String inventoryId) async {
@@ -47,11 +64,13 @@ class DemoDataService {
     if (!labelsBox.containsKey('labels')) {
       await labelsBox.put('labels', <String>[]);
     }
+    if (!labelsBox.containsKey('labelInfos')) {
+      await labelsBox.put('labelInfos', <String, Map<String, dynamic>>{});
+    }
 
     await Hive.openBox<InventoryItem>('items_$inventoryId');
 
-    final settingsBox =
-        await Hive.openBox<InventorySettings>('inventory_settings_$inventoryId');
+    final settingsBox = await Hive.openBox<InventorySettings>('inventory_settings_$inventoryId');
     if (!settingsBox.containsKey('main')) {
       await settingsBox.put('main', InventorySettings());
     }
@@ -63,6 +82,19 @@ class DemoDataService {
 
     final labels = ['Electronics', 'Furniture', 'Packaging', 'Raw Materials'];
     await labelsBox.put('labels', labels);
+
+    // Initialize label infos with timestamps
+    final labelInfos = <String, Map<String, dynamic>>{};
+    final now = DateTime.now();
+    for (final label in labels) {
+      labelInfos[label] = {
+        'name': label,
+        'createdAt': now.toIso8601String(),
+        'modifiedAt': now.toIso8601String(),
+        'isSynced': false,
+      };
+    }
+    await labelsBox.put('labelInfos', labelInfos);
 
     final warehouseItems = [
       InventoryItem(
@@ -179,6 +211,18 @@ class DemoDataService {
     final labels = ['Clothing', 'Accessories', 'Shoes'];
     await labelsBox.put('labels', labels);
 
+    final labelInfos = <String, Map<String, dynamic>>{};
+    final now = DateTime.now();
+    for (final label in labels) {
+      labelInfos[label] = {
+        'name': label,
+        'createdAt': now.toIso8601String(),
+        'modifiedAt': now.toIso8601String(),
+        'isSynced': false,
+      };
+    }
+    await labelsBox.put('labelInfos', labelInfos);
+
     final storeItems = [
       InventoryItem(
         name: 'Cotton T-Shirt',
@@ -237,8 +281,7 @@ class DemoDataService {
   }
 
   static Future<void> _addDemoSettings(String inventoryId) async {
-    final settingsBox =
-        Hive.box<InventorySettings>('inventory_settings_$inventoryId');
+    final settingsBox = Hive.box<InventorySettings>('inventory_settings_$inventoryId');
 
     final settings = InventorySettings(
       fieldConfigs: [

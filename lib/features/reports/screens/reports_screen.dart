@@ -30,6 +30,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   String? _lastFileName;
   int _totalItems = 0;
   String? _cachedInventoryName;
+  String? _errorMessage;
 
   late final CsvService _csvService;
   late final ReportGenerator _reportGenerator;
@@ -41,7 +42,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     _csvService = CsvService();
     _reportGenerator = ReportGenerator(csvService: _csvService);
     _reportPreviewer = ReportPreviewer();
-    
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeFromProvider();
     });
@@ -49,16 +50,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   void _initializeFromProvider() {
     if (!mounted) return;
-    final provider = context.read<InventoryProvider>();
-    _cachedInventoryName = provider.currentInventoryName;
-    final settings = provider.currentSettings;
-    if (settings != null) {
-      for (var field in settings.activeFields) {
-        _selectedFields.add(field.fieldName);
+    try {
+      final provider = context.read<InventoryProvider>();
+      _cachedInventoryName = provider.currentInventoryName;
+      final settings = provider.currentSettings;
+      if (settings != null) {
+        for (var field in settings.activeFields) {
+          _selectedFields.add(field.fieldName);
+        }
       }
+      _selectedFields.add('Inventory');
+      setState(() {});
+    } catch (e) {
+      debugPrint('Error initializing report fields: $e');
     }
-    _selectedFields.add('Inventory');
-    setState(() {});
   }
 
   @override
@@ -93,12 +98,37 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _buildMainContent(List<String> availableFields, InventoryProvider provider) {
-    // Ensure we have a preview data or create an empty one
-    final previewData = _previewData;
-    
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // Error message
+        if (_errorMessage != null)
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _errorMessage!,
+                    style: const TextStyle(color: Colors.red, fontSize: 13),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 16),
+                  onPressed: () => setState(() => _errorMessage = null),
+                ),
+              ],
+            ),
+          ),
+        
         ReportTypeCard(
           selectedType: _reportType,
           onTypeChanged: (type) => setState(() => _reportType = type),
@@ -126,10 +156,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
             csvService: _csvService,
           ),
         ],
-        if (previewData != null && previewData.isNotEmpty) ...[
+        if (_previewData != null && _previewData!.isNotEmpty) ...[
           const SizedBox(height: 16),
           PreviewCard(
-            previewData: previewData,
+            previewData: _previewData!,
             totalItems: _totalItems,
             onClear: () => setState(() => _previewData = null),
           ),
@@ -141,7 +171,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   List<String> _getAvailableFields(InventoryProvider provider) {
     final fields = [
       'Name', 'Code', 'Barcode', 'Color', 'Material', 'Size',
-      'Production Date', 'Expire Date', 'Note', 'Quantity', 'Label', 'Inventory'
+      'Production Date', 'Expire Date', 'Note', 'Quantity', 'Label', 'Inventory',
     ];
     final settings = provider.currentSettings;
     if (settings != null) {
@@ -151,25 +181,31 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   void _previewReport(InventoryProvider provider) {
-    final result = _reportPreviewer.preview(
-      provider: provider,
-      reportType: _reportType,
-      selectedFields: _selectedFields,
-      inventoryName: _cachedInventoryName ?? 'Unknown',
-    );
-    
-    if (result.error != null) {
-      _showMessage(result.error!, isError: true);
-      return;
-    }
-    
-    setState(() {
-      _previewData = result.data;
-      _totalItems = result.totalItems;
-    });
-    
-    if (result.message != null) {
-      _showMessage(result.message!);
+    setState(() => _errorMessage = null);
+
+    try {
+      final result = _reportPreviewer.preview(
+        provider: provider,
+        reportType: _reportType,
+        selectedFields: _selectedFields,
+        inventoryName: _cachedInventoryName ?? 'Unknown',
+      );
+
+      if (result.error != null) {
+        setState(() => _errorMessage = result.error);
+        return;
+      }
+
+      setState(() {
+        _previewData = result.data;
+        _totalItems = result.totalItems;
+      });
+
+      if (result.message != null && mounted) {
+        _showSnackBar(result.message!);
+      }
+    } catch (e) {
+      setState(() => _errorMessage = 'Preview failed: ${e.toString()}');
     }
   }
 
@@ -178,6 +214,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       _isGenerating = true;
       _progress = 0;
       _statusMessage = 'Preparing data...';
+      _errorMessage = null;
     });
 
     try {
@@ -204,43 +241,53 @@ class _ReportsScreenState extends State<ReportsScreen> {
           _previewData = null;
           _isGenerating = false;
         });
-        
+
         if (result.filePath != null) {
-          _showMessage('📊 Report saved: ${result.fileName}', duration: 4);
+          _showSnackBar('📊 Report saved: ${result.fileName}', duration: 4);
+        } else {
+          _showSnackBar('Report generated successfully');
         }
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isGenerating = false);
-        _showMessage('Error: ${e.toString()}', isError: true);
+        setState(() {
+          _isGenerating = false;
+          _errorMessage = 'Failed to generate report: ${e.toString()}';
+        });
       }
     }
   }
 
   void _downloadAgain() {
     if (_lastGeneratedCsv != null && _lastFileName != null) {
-      _csvService.saveFile(_lastGeneratedCsv!, _lastFileName!);
+      try {
+        _csvService.saveFile(_lastGeneratedCsv!, _lastFileName!);
+        _showSnackBar('File downloaded again');
+      } catch (e) {
+        _showSnackBar('Download failed: ${e.toString()}', isError: true);
+      }
     }
   }
 
   void _copyToClipboard() {
     if (_lastGeneratedCsv == null) return;
     Clipboard.setData(ClipboardData(text: _lastGeneratedCsv!));
-    _showMessage('CSV data copied to clipboard');
+    _showSnackBar('CSV data copied to clipboard');
   }
 
-  void _showMessage(String message, {int duration = 3, bool isError = false}) {
+  void _showSnackBar(String message, {int duration = 3, bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red : null,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
-        margin: const EdgeInsets.all(20),
-        duration: Duration(seconds: duration),
-      ),
-    );
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: isError ? Colors.red : null,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+          margin: const EdgeInsets.all(20),
+          duration: Duration(seconds: duration),
+        ),
+      );
   }
 }

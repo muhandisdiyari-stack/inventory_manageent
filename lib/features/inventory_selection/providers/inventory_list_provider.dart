@@ -7,7 +7,6 @@ import '../../../core/models/activity_log_entry.dart';
 
 class InventoryListProvider extends ChangeNotifier {
   final Box _inventoriesListBox;
-  
   List<InventoryListItem> _inventories = [];
   String? _selectedInventoryId;
   bool _isInitialized = false;
@@ -37,9 +36,7 @@ class InventoryListProvider extends ChangeNotifier {
       final value = _inventoriesListBox.get(key);
       if (value is Map) {
         final Map<String, dynamic> typedMap = {};
-        value.forEach((k, v) {
-          typedMap[k.toString()] = v;
-        });
+        value.forEach((k, v) => typedMap[k.toString()] = v);
         final name = typedMap['name'] as String? ?? '';
         if (name.isNotEmpty) {
           _inventories.add(InventoryListItem.fromMap(key, typedMap));
@@ -52,7 +49,6 @@ class InventoryListProvider extends ChangeNotifier {
   Future<void> refreshInventories() async {
     _isLoading = true;
     notifyListeners();
-    
     _loadInventories();
     _isLoading = false;
     notifyListeners();
@@ -60,30 +56,23 @@ class InventoryListProvider extends ChangeNotifier {
 
   Future<String> createInventory(String name, InventoryService service) async {
     if (name.trim().isEmpty) throw Exception('Inventory name cannot be empty');
-
     _isLoading = true;
     _error = null;
     notifyListeners();
-
     try {
       final now = DateTime.now().millisecondsSinceEpoch;
       final id = '${now}_${name.hashCode.abs()}';
-      
       final timestamp = DateTime.now();
       await _inventoriesListBox.put(id, {
         'name': name.trim(),
         'created': timestamp.toIso8601String(),
         'modified': timestamp.toIso8601String(),
       });
-      
       await service.initializeForInventory(id);
-      _selectedInventoryId ??= id;
-      
+      _selectedInventoryId = id;
       _loadInventories();
       _isLoading = false;
       notifyListeners();
-      
-      // Log activity
       final logEntry = ActivityLogEntry(
         id: timestamp.microsecondsSinceEpoch.toString(),
         timestamp: timestamp,
@@ -95,7 +84,6 @@ class InventoryListProvider extends ChangeNotifier {
         details: 'Inventory created: "${name.trim()}"',
       );
       await ActivityLogService().addLog(logEntry);
-      
       return id;
     } catch (e) {
       _isLoading = false;
@@ -107,19 +95,18 @@ class InventoryListProvider extends ChangeNotifier {
 
   Future<void> renameInventory(String id, String newName) async {
     if (newName.trim().isEmpty) throw Exception('Inventory name cannot be empty');
-
     try {
       final data = _inventoriesListBox.get(id);
       if (data is Map) {
-        final oldName = data['name'] as String? ?? '';
-        final updatedData = Map<String, dynamic>.from(data);
+        final Map<String, dynamic> typedMap = {};
+        data.forEach((k, v) => typedMap[k.toString()] = v);
+        final oldName = typedMap['name'] as String? ?? '';
+        final updatedData = Map<String, dynamic>.from(typedMap);
         updatedData['name'] = newName.trim();
         updatedData['modified'] = DateTime.now().toIso8601String();
         await _inventoriesListBox.put(id, updatedData);
         _loadInventories();
         notifyListeners();
-        
-        // Log activity
         final logEntry = ActivityLogEntry(
           id: DateTime.now().microsecondsSinceEpoch.toString(),
           timestamp: DateTime.now(),
@@ -129,9 +116,7 @@ class InventoryListProvider extends ChangeNotifier {
           inventoryId: id,
           inventoryName: newName.trim(),
           details: 'Inventory renamed',
-          changes: {
-            'name': FieldChange(oldValue: oldName, newValue: newName.trim()),
-          },
+          changes: {'name': FieldChange(oldValue: oldName, newValue: newName.trim())},
         );
         await ActivityLogService().addLog(logEntry);
       }
@@ -144,15 +129,9 @@ class InventoryListProvider extends ChangeNotifier {
 
   Future<void> deleteInventory(String id, InventoryService service) async {
     _error = null;
-
     try {
       final data = _inventoriesListBox.get(id);
       final inventoryName = data is Map ? (data['name'] as String? ?? '') : '';
-      
-      await _inventoriesListBox.delete(id);
-      await service.deleteInventoryData(id);
-      
-      // Log activity BEFORE clearing logs for this inventory
       final logEntry = ActivityLogEntry(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
         timestamp: DateTime.now(),
@@ -164,13 +143,13 @@ class InventoryListProvider extends ChangeNotifier {
         details: 'Inventory deleted: "$inventoryName"',
       );
       await ActivityLogService().addLog(logEntry);
-      
+      await ActivityLogService().clearLogs(inventoryId: id);
+      await service.deleteInventoryData(id);
+      await _inventoriesListBox.delete(id);
       _loadInventories();
-      
       if (_selectedInventoryId == id) {
         _selectedInventoryId = _inventories.isNotEmpty ? _inventories.first.id : null;
       }
-      
       notifyListeners();
     } catch (e) {
       debugPrint('Error deleting inventory: $e');
@@ -190,7 +169,11 @@ class InventoryListProvider extends ChangeNotifier {
   String? getSelectedInventoryName() {
     if (_selectedInventoryId == null) return null;
     final data = _inventoriesListBox.get(_selectedInventoryId);
-    if (data is Map) return data['name'] as String?;
+    if (data is Map) {
+      final Map<String, dynamic> typedMap = {};
+      data.forEach((k, v) => typedMap[k.toString()] = v);
+      return typedMap['name'] as String?;
+    }
     return null;
   }
 }

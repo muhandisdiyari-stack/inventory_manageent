@@ -39,6 +39,8 @@ dependencies:
 
   # Image Picking for Barcode Scanning
   image_picker: ^1.0.7
+  supabase_flutter: ^2.12.4
+  uuid: ^4.5.3
 
 dev_dependencies:
   flutter_test:

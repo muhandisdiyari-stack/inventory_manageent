@@ -16,25 +16,57 @@ class InventorySelectionScreen extends StatefulWidget {
 }
 
 class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
+  bool _isInitializing = true;
+  String? _error;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<InventoryListProvider>().initialize();
-      }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _initialize());
+  }
+
+  Future<void> _initialize() async {
+    if (!mounted) return;
+
+    setState(() {
+      _isInitializing = true;
+      _error = null;
     });
+
+    try {
+      final listProvider = context.read<InventoryListProvider>();
+      listProvider.initialize();
+      
+      if (!mounted) return;
+      setState(() => _isInitializing = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isInitializing = false;
+        _error = 'Failed to load inventories: ${e.toString()}';
+      });
+    }
   }
 
   Future<void> _refreshInventories() async {
     if (!mounted) return;
-    await context.read<InventoryListProvider>().refreshInventories();
+
+    setState(() => _error = null);
+
+    try {
+      await context.read<InventoryListProvider>().refreshInventories();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Failed to refresh: ${e.toString()}');
+    }
   }
 
   void _openInventory(String id) {
     if (!mounted) return;
 
     final listProvider = context.read<InventoryListProvider>();
+    final service = context.read<InventoryService>();
+    
     listProvider.selectInventory(id);
 
     Navigator.push(
@@ -42,7 +74,12 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
       MaterialPageRoute(
         builder: (_) => const InventoryHomeScreen(),
       ),
-    );
+    ).then((_) {
+      // Refresh list when returning
+      if (mounted) {
+        _refreshInventories();
+      }
+    });
   }
 
   void _showCreateDialog() {
@@ -64,7 +101,6 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
   Widget build(BuildContext context) {
     final listProvider = context.watch<InventoryListProvider>();
     final service = context.read<InventoryService>();
-    final inventories = listProvider.inventories;
 
     return Scaffold(
       appBar: AppBar(
@@ -84,22 +120,50 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
         elevation: 4,
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      body: RefreshIndicator(
-        onRefresh: _refreshInventories,
-        color: Theme.of(context).colorScheme.primary,
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        displacement: 60,
-        child: SafeArea(
-          child: inventories.isEmpty
-              ? EmptyStateWidget(
-                  onCreateInventory: _showCreateDialog,
-                )
-              : InventoryListWidget(
-                  inventories: inventories,
-                  listProvider: listProvider,
-                  service: service,
-                  onOpenInventory: _openInventory,
+      body: _isInitializing
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? _buildErrorState()
+              : RefreshIndicator(
+                  onRefresh: _refreshInventories,
+                  color: Theme.of(context).colorScheme.primary,
+                  backgroundColor: Theme.of(context).colorScheme.surface,
+                  displacement: 60,
+                  child: SafeArea(
+                    child: listProvider.inventories.isEmpty
+                        ? EmptyStateWidget(onCreateInventory: _showCreateDialog)
+                        : InventoryListWidget(
+                            inventories: listProvider.inventories,
+                            listProvider: listProvider,
+                            service: service,
+                            onOpenInventory: _openInventory,
+                          ),
+                  ),
                 ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+            const SizedBox(height: 16),
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.red[700]),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _refreshInventories,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
         ),
       ),
     );

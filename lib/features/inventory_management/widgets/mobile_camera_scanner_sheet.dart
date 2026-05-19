@@ -4,15 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 
-class DesktopCameraScannerSheet {
+/// Mobile camera scanner using the device camera and ML Kit barcode detection.
+/// This works on Android and iOS only — desktop/web platforms should use
+/// keyboard or image-based scanning instead.
+class MobileCameraScannerSheet {
   static Future<void> show(
     BuildContext context, {
     required Function(String) onBarcodeScanned,
   }) async {
-    // FIX (warning): the camera + ML Kit combination used here only works on
-    // Android and iOS. The class was misleadingly named "Desktop" but used
-    // nv21 / bgra8888 image formats that are mobile-only. Guard explicitly so
-    // callers on Windows / macOS / Linux / web never reach this code.
+    // This scanner only works on mobile platforms
     if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -42,7 +42,7 @@ class DesktopCameraScannerSheet {
         showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (_) => _DesktopCameraScannerDialog(
+          builder: (_) => _MobileCameraScannerDialog(
             cameras: cameras,
             onBarcodeScanned: (barcode) {
               Navigator.pop(context);
@@ -61,22 +61,22 @@ class DesktopCameraScannerSheet {
   }
 }
 
-class _DesktopCameraScannerDialog extends StatefulWidget {
+class _MobileCameraScannerDialog extends StatefulWidget {
   final List<CameraDescription> cameras;
   final Function(String) onBarcodeScanned;
 
-  const _DesktopCameraScannerDialog({
+  const _MobileCameraScannerDialog({
     required this.cameras,
     required this.onBarcodeScanned,
   });
 
   @override
-  State<_DesktopCameraScannerDialog> createState() =>
-      _DesktopCameraScannerDialogState();
+  State<_MobileCameraScannerDialog> createState() =>
+      _MobileCameraScannerDialogState();
 }
 
-class _DesktopCameraScannerDialogState
-    extends State<_DesktopCameraScannerDialog> {
+class _MobileCameraScannerDialogState
+    extends State<_MobileCameraScannerDialog> {
   CameraController? _controller;
   CameraDescription? _selectedCamera;
   bool _isInitialized = false;
@@ -111,7 +111,6 @@ class _DesktopCameraScannerDialogState
 
     await _controller!.initialize();
 
-    // Guard after await.
     if (!mounted) return;
 
     setState(() => _isInitialized = true);
@@ -137,7 +136,6 @@ class _DesktopCameraScannerDialogState
 
       final barcodes = await _barcodeScanner.processImage(inputImage);
 
-      // Guard after await.
       if (!mounted) return;
 
       for (final barcode in barcodes) {

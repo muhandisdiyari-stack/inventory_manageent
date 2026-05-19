@@ -14,6 +14,8 @@ import '../../import/screens/bulk_import_screen.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/activity_log_service.dart';
 import '../../../core/models/activity_log_entry.dart';
+import '../../company/screens/company_settings_screen.dart';
+import '../../../core/config/app_config.dart';
 
 class InventoryHomeScreen extends StatefulWidget {
   const InventoryHomeScreen({super.key});
@@ -28,19 +30,16 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
   final _itemSearchController = TextEditingController();
   bool _showItemsView = false;
   LabelSortType _labelSortType = LabelSortType.nameAsc;
+  bool _isRefreshing = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final provider = context.read<InventoryProvider>();
-      provider.initializeCurrentInventory();
-      if (provider.hasLabels && _currentLabel == null) {
-        setState(() {
-          _currentLabel = provider.labels.first;
-        });
-      }
+      _initializeInventory();
     });
+    
     _labelSearchController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -56,17 +55,62 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     super.dispose();
   }
 
-  Future<void> _refreshInventory() async {
-    final provider = context.read<InventoryProvider>();
-    await provider.initializeCurrentInventory();
-
+  Future<void> _initializeInventory() async {
     if (!mounted) return;
-
+    
     setState(() {
-      if (_currentLabel != null && !provider.hasLabel(_currentLabel!)) {
-        _currentLabel = provider.hasLabels ? provider.labels.first : null;
-      }
+      _isRefreshing = true;
+      _errorMessage = null;
     });
+
+    try {
+      final provider = context.read<InventoryProvider>();
+      await provider.initializeCurrentInventory();
+
+      if (!mounted) return;
+
+      setState(() {
+        if (provider.hasLabels && _currentLabel == null) {
+          _currentLabel = provider.labels.first;
+        }
+        _isRefreshing = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isRefreshing = false;
+        _errorMessage = 'Failed to load inventory: ${e.toString()}';
+      });
+    }
+  }
+
+  Future<void> _refreshInventory() async {
+    if (!mounted) return;
+    
+    setState(() {
+      _isRefreshing = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final provider = context.read<InventoryProvider>();
+      await provider.initializeCurrentInventory();
+
+      if (!mounted) return;
+
+      setState(() {
+        if (_currentLabel != null && !provider.hasLabel(_currentLabel!)) {
+          _currentLabel = provider.hasLabels ? provider.labels.first : null;
+        }
+        _isRefreshing = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isRefreshing = false;
+        _errorMessage = 'Failed to refresh: ${e.toString()}';
+      });
+    }
   }
 
   void _selectLabel(String label) {
@@ -74,6 +118,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       _currentLabel = label;
       _showItemsView = true;
       _itemSearchController.clear();
+      _errorMessage = null;
     });
   }
 
@@ -83,15 +128,18 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
 
   void _bulkImport() {
     final provider = context.read<InventoryProvider>();
-    if (provider.currentInventoryId == null) {
-      _showSnack('No inventory selected');
+    final inventoryId = provider.currentInventoryId;
+    
+    if (inventoryId == null) {
+      _showSnackBar('No inventory selected');
       return;
     }
+    
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => BulkImportScreen(
-          inventoryId: provider.currentInventoryId!,
+          inventoryId: inventoryId,
           inventoryName: provider.currentInventoryName ?? 'Inventory',
         ),
       ),
@@ -120,17 +168,23 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
         onSubmit: (name) async {
           final provider = context.read<InventoryProvider>();
           if (provider.hasLabel(name)) {
-            _showSnack('"$name" already exists');
+            _showSnackBar('"$name" already exists', isError: true);
             return false;
           }
-          await provider.createLabel(name);
-
-          if (!mounted) return false;
-
-          setState(() => _currentLabel = name);
-          _labelSearchController.clear();
-          _showSnack('\u2705 "$name" created');
-          return true;
+          
+          try {
+            await provider.createLabel(name);
+            if (!mounted) return false;
+            
+            setState(() => _currentLabel = name);
+            _labelSearchController.clear();
+            _showSnackBar('✅ "$name" created');
+            return true;
+          } catch (e) {
+            if (!mounted) return false;
+            _showSnackBar('Error creating label: $e', isError: true);
+            return false;
+          }
         },
       ),
     );
@@ -152,21 +206,28 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
         controller: controller,
         onSubmit: (newName) async {
           if (newName == oldLabel) return true;
+          
           final provider = context.read<InventoryProvider>();
           if (provider.hasLabel(newName)) {
-            _showSnack('"$newName" already exists');
+            _showSnackBar('"$newName" already exists', isError: true);
             return false;
           }
-          await provider.renameLabel(oldLabel, newName);
-
-          if (!mounted) return false;
-
-          setState(() {
-            if (_currentLabel == oldLabel) _currentLabel = newName;
-          });
-          _labelSearchController.clear();
-          _showSnack('Renamed to "$newName"');
-          return true;
+          
+          try {
+            await provider.renameLabel(oldLabel, newName);
+            if (!mounted) return false;
+            
+            setState(() {
+              if (_currentLabel == oldLabel) _currentLabel = newName;
+            });
+            _labelSearchController.clear();
+            _showSnackBar('Renamed to "$newName"');
+            return true;
+          } catch (e) {
+            if (!mounted) return false;
+            _showSnackBar('Error renaming label: $e', isError: true);
+            return false;
+          }
         },
       ),
     );
@@ -177,7 +238,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Label'),
-        content: Text('Delete "$label" and all its items?'),
+        content: Text('Delete "$label" and all its items?\n\nThis cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -185,19 +246,25 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
           ),
           TextButton(
             onPressed: () async {
-              final provider = context.read<InventoryProvider>();
-              await provider.deleteLabel(label);
+              Navigator.pop(ctx);
+              
+              try {
+                final provider = context.read<InventoryProvider>();
+                await provider.deleteLabel(label);
 
-              if (!mounted) return;
+                if (!mounted) return;
 
-              setState(() {
-                if (_currentLabel == label) {
-                  _currentLabel = provider.hasLabels ? provider.labels.first : null;
-                }
-              });
-              _labelSearchController.clear();
-              if (ctx.mounted) Navigator.pop(ctx);
-              _showSnack('\uD83D\uDDD1\uFE0F "$label" deleted');
+                setState(() {
+                  if (_currentLabel == label) {
+                    _currentLabel = provider.hasLabels ? provider.labels.first : null;
+                  }
+                });
+                _labelSearchController.clear();
+                _showSnackBar('🗑️ "$label" deleted');
+              } catch (e) {
+                if (!mounted) return;
+                _showSnackBar('Error deleting label: $e', isError: true);
+              }
             },
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
@@ -208,7 +275,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
 
   void _showAddItemDialog({InventoryItem? existingItem}) {
     if (_currentLabel == null) {
-      _showSnack('Select a label first');
+      _showSnackBar('Select a label first');
       return;
     }
 
@@ -222,21 +289,20 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       inventoryName: provider.currentInventoryName,
       inventoryId: provider.currentInventoryId,
       onSave: (item) async {
-        if (provider.currentInventoryId == null) {
-          _showSnack('No inventory selected \u2014 please select one first');
-          return;
+        try {
+          if (provider.currentInventoryId == null) {
+            _showSnackBar('No inventory selected — please select one first', isError: true);
+            return;
+          }
+          await provider.saveItem(item);
+          if (!mounted) return;
+          setState(() {});
+        } catch (e) {
+          if (!mounted) return;
+          _showSnackBar('Error saving item: $e', isError: true);
         }
-        await provider.saveItem(item);
-        if (!mounted) return;
-        setState(() {});
       },
     );
-
-    if (existingItem != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() {});
-      });
-    }
   }
 
   void _editItem(InventoryItem item) {
@@ -246,38 +312,40 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
   Future<void> _adjustQuantity(InventoryItem item, int delta) async {
     try {
       final oldQuantity = item.quantity;
-      item.quantity = (item.quantity + delta).clamp(0, InventoryItem.maxQuantity);
+      final newQuantity = (item.quantity + delta).clamp(0, InventoryItem.maxQuantity);
+      
+      if (oldQuantity == newQuantity) return;
+      
+      item.quantity = newQuantity;
       item.modified = DateTime.now();
       await item.save();
 
       if (!mounted) return;
 
-      if (oldQuantity != item.quantity) {
-        final provider = context.read<InventoryProvider>();
-        final logEntry = ActivityLogEntry(
-          id: DateTime.now().microsecondsSinceEpoch.toString(),
-          timestamp: DateTime.now(),
-          action: 'modified',
-          entityType: 'item',
-          entityName: item.displayName,
-          inventoryId: provider.currentInventoryId,
-          inventoryName: provider.currentInventoryName,
-          labelName: item.label,
-          details: 'Quantity adjusted',
-          changes: {
-            'quantity': FieldChange(
-              oldValue: oldQuantity.toString(),
-              newValue: item.quantity.toString(),
-            ),
-          },
-        );
-        await ActivityLogService().addLog(logEntry);
-      }
+      final provider = context.read<InventoryProvider>();
+      final logEntry = ActivityLogEntry(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        timestamp: DateTime.now(),
+        action: 'modified',
+        entityType: 'item',
+        entityName: item.displayName,
+        inventoryId: provider.currentInventoryId,
+        inventoryName: provider.currentInventoryName,
+        labelName: item.label,
+        details: 'Quantity adjusted',
+        changes: {
+          'quantity': FieldChange(
+            oldValue: oldQuantity.toString(),
+            newValue: item.quantity.toString(),
+          ),
+        },
+      );
+      await ActivityLogService().addLog(logEntry);
 
       setState(() {});
     } catch (e) {
       if (!mounted) return;
-      _showSnack('Error: $e');
+      _showSnackBar('Error updating quantity: $e', isError: true);
     }
   }
 
@@ -302,52 +370,52 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       ),
     );
 
-    if (!mounted) return;
+    if (confirmed != true || !mounted) return;
 
-    if (confirmed == true) {
-      try {
-        final provider = context.read<InventoryProvider>();
+    try {
+      final provider = context.read<InventoryProvider>();
 
-        await item.delete();
+      await item.delete();
 
-        final logEntry = ActivityLogEntry(
-          id: DateTime.now().microsecondsSinceEpoch.toString(),
-          timestamp: DateTime.now(),
-          action: 'deleted',
-          entityType: 'item',
-          entityName: itemName,
-          inventoryId: provider.currentInventoryId,
-          inventoryName: provider.currentInventoryName,
-          labelName: item.label,
-          details: 'Item deleted: "$itemName"',
-        );
-        await ActivityLogService().addLog(logEntry);
+      final logEntry = ActivityLogEntry(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        timestamp: DateTime.now(),
+        action: 'deleted',
+        entityType: 'item',
+        entityName: itemName,
+        inventoryId: provider.currentInventoryId,
+        inventoryName: provider.currentInventoryName,
+        labelName: item.label,
+        details: 'Item deleted: "$itemName"',
+      );
+      await ActivityLogService().addLog(logEntry);
 
-        if (!mounted) return;
-
-        setState(() {});
-        _showSnack('Removed "$itemName"');
-      } catch (e) {
-        if (!mounted) return;
-        _showSnack('Error: $e');
-      }
+      if (!mounted) return;
+      setState(() {});
+      _showSnackBar('Removed "$itemName"');
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('Error removing item: $e', isError: true);
     }
   }
 
-  void _showSnack(String message, {Duration duration = AppConstants.snackbarDuration}) {
+  void _showSnackBar(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
         SnackBar(
           content: Text(message),
-          duration: duration,
+          backgroundColor: isError ? Colors.red : null,
+          duration: AppConstants.snackbarDuration,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
           margin: const EdgeInsets.all(20),
         ),
       );
   }
+
+  // ─── Build Method ──────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -358,255 +426,336 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
 
     final sortedLabels = service.getSortedLabels(sortType: _labelSortType);
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            if (_showItemsView && isMobile) {
-              setState(() => _showItemsView = false);
-            } else {
-              Navigator.pop(context);
-            }
-          },
-        ),
-        title: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _showItemsView && _currentLabel != null
-                  ? _currentLabel!
-                  : provider.currentInventoryName ?? 'Inventory',
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+    return PopScope(
+      canPop: !_showItemsView || !isMobile,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _showItemsView && isMobile) {
+          setState(() => _showItemsView = false);
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: Icon(
+              (_showItemsView && isMobile) ? Icons.arrow_back : Icons.arrow_back,
             ),
-            if (_showItemsView && _currentLabel != null)
+            onPressed: () {
+              if (_showItemsView && isMobile) {
+                setState(() => _showItemsView = false);
+              } else {
+                Navigator.pop(context);
+              }
+            },
+          ),
+          title: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Text(
-                provider.currentInventoryName ?? '',
-                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.primary),
+                _showItemsView && _currentLabel != null
+                    ? _currentLabel!
+                    : provider.currentInventoryName ?? 'Inventory',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
               ),
+              if (_showItemsView && _currentLabel != null)
+                Text(
+                  provider.currentInventoryName ?? '',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+            ],
+          ),
+          actions: [
+            // Only show actions when not in mobile items view
+            if (!isMobile || !_showItemsView) ...[
+              IconButton(
+                tooltip: 'Members & Permissions',
+                icon: const Icon(Icons.people),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CompanySettingsScreen(
+                      inventoryId: provider.currentInventoryId ?? 'default',
+                      inventoryName: provider.currentInventoryName ?? 'Inventory',
+                    ),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Bulk Import',
+                icon: const Icon(Icons.cloud_upload),
+                onPressed: _bulkImport,
+              ),
+              IconButton(
+                tooltip: 'Activity Log',
+                icon: const Icon(Icons.history),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ActivityLogScreen()),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Search',
+                icon: const Icon(Icons.search),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SearchScreen()),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Reports',
+                icon: const Icon(Icons.assessment),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ReportsScreen()),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Settings',
+                icon: const Icon(Icons.settings),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                ),
+              ),
+            ],
           ],
         ),
-actions: [
-  IconButton(
-    tooltip: 'Bulk Import',
-    icon: const Icon(Icons.cloud_upload),
-    onPressed: _bulkImport,
-  ),
-  IconButton(
-    tooltip: 'Activity Log',
-    icon: const Icon(Icons.history),
-    onPressed: () => Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const ActivityLogScreen()),
-    ),
-  ),
-  IconButton(
-    tooltip: 'Search',
-    icon: const Icon(Icons.search),
-    onPressed: () => Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const SearchScreen()),
-    ),
-  ),
-  IconButton(
-    tooltip: 'Reports',
-    icon: const Icon(Icons.assessment),
-    onPressed: () => Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const ReportsScreen()),
-    ),
-  ),
-  IconButton(
-    tooltip: 'Settings',
-    icon: const Icon(Icons.settings),
-    onPressed: () => Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const SettingsScreen()),
-    ),
-  ),
-],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _refreshInventory,
-        color: Theme.of(context).colorScheme.primary,
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        displacement: 60,
-        child: isMobile
-            ? _buildMobileLayout(provider, sortedLabels, service)
-            : _buildDesktopLayout(provider, width, sortedLabels, service),
+        body: _isRefreshing
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: _refreshInventory,
+                color: Theme.of(context).colorScheme.primary,
+                backgroundColor: Theme.of(context).colorScheme.surface,
+                displacement: 60,
+                child: SafeArea(
+                  child: _errorMessage != null
+                      ? _buildErrorState()
+                      : isMobile
+                          ? _buildMobileLayout(provider, sortedLabels, service)
+                          : _buildDesktopLayout(provider, width, sortedLabels, service),
+                ),
+              ),
       ),
     );
   }
 
-  Widget _buildDesktopLayout(InventoryProvider provider, double width,
-      List<String> sortedLabels, InventoryService service) {
-    final sidebarWidth = width * 0.30;
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+            const SizedBox(height: 16),
+            Text(
+              _errorMessage!,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.red[700]),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _refreshInventory,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopLayout(
+    InventoryProvider provider,
+    double width,
+    List<String> sortedLabels,
+    InventoryService service,
+  ) {
+    final sidebarWidth = (width * AppConstants.sidebarWidthRatio).clamp(250.0, 400.0);
+
     return Row(
       children: [
         SizedBox(
           width: sidebarWidth,
-          child: Stack(
-            children: [
-              Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(10.0),
-                    child: TextField(
-                      controller: _labelSearchController,
-                      decoration: InputDecoration(
-                        hintText: 'Search labels\u2026',
-                        prefixIcon: const Icon(Icons.search, size: 16),
-                        suffixIcon: _labelSearchController.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear, size: 16),
-                                onPressed: () => _labelSearchController.clear(),
-                              )
-                            : null,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
-                        filled: true,
-                        fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: SafeArea(
+            child: Stack(
+              children: [
+                Column(
+                  children: [
+                    // Search bar
+                    Padding(
+                      padding: const EdgeInsets.all(10.0),
+                      child: TextField(
+                        controller: _labelSearchController,
+                        decoration: InputDecoration(
+                          hintText: 'Search labels…',
+                          prefixIcon: const Icon(Icons.search, size: 16),
+                          suffixIcon: _labelSearchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, size: 16),
+                                  onPressed: () => _labelSearchController.clear(),
+                                )
+                              : null,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
+                          filled: true,
+                          fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        ),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: LabelListWidget(
-                      labels: sortedLabels,
-                      currentLabel: _currentLabel,
-                      searchController: _labelSearchController,
-                      onSelectLabel: _selectLabel,
-                      onRenameLabel: _showRenameDialog,
-                      onDeleteLabel: _deleteLabel,
-                      sortType: _labelSortType,
-                      onSortChanged: _onSortChanged,
-                      inventoryService: service,
+                    // Labels list
+                    Expanded(
+                      child: LabelListWidget(
+                        labels: sortedLabels,
+                        currentLabel: _currentLabel,
+                        searchController: _labelSearchController,
+                        onSelectLabel: _selectLabel,
+                        onRenameLabel: _showRenameDialog,
+                        onDeleteLabel: _deleteLabel,
+                        sortType: _labelSortType,
+                        onSortChanged: _onSortChanged,
+                        inventoryService: service,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              Positioned(
-                bottom: 24,
-                right: 24,
-                child: FloatingActionButton(
-                  heroTag: 'add_label',
-                  tooltip: 'New label',
-                  onPressed: _showCreateLabelDialog,
-                  child: const Icon(Icons.add),
+                  ],
                 ),
-              ),
-            ],
-          ),
-        ),
-        const VerticalDivider(width: 1),
-        Expanded(
-          child: Stack(
-            children: [
-              _currentLabel == null
-                  ? _buildEmptyState()
-                  : ItemsListWidget(
-                      items: provider.getItems(_currentLabel!),
-                      label: _currentLabel!,
-                      searchController: _itemSearchController,
-                      onAdjustQuantity: _adjustQuantity,
-                      onDeleteItem: _deleteItem,
-                      onAddItem: () => _showAddItemDialog(),
-                      onEditItem: _editItem,
-                    ),
-              if (_currentLabel != null)
+                // Add label FAB
                 Positioned(
                   bottom: 24,
                   right: 24,
                   child: FloatingActionButton(
-                    heroTag: 'add_item',
-                    tooltip: 'Add item',
-                    onPressed: () => _showAddItemDialog(),
-                    child: const Icon(Icons.add_box),
+                    heroTag: 'add_label_desktop',
+                    tooltip: 'New label',
+                    onPressed: _showCreateLabelDialog,
+                    child: const Icon(Icons.add),
                   ),
                 ),
-            ],
+              ],
+            ),
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        // Items panel
+        Expanded(
+          child: SafeArea(
+            child: Stack(
+              children: [
+                _currentLabel == null
+                    ? _buildEmptyState()
+                    : ItemsListWidget(
+                        items: provider.getItems(_currentLabel!),
+                        label: _currentLabel!,
+                        searchController: _itemSearchController,
+                        onAdjustQuantity: _adjustQuantity,
+                        onDeleteItem: _deleteItem,
+                        onAddItem: () => _showAddItemDialog(),
+                        onEditItem: _editItem,
+                      ),
+                if (_currentLabel != null)
+                  Positioned(
+                    bottom: 24,
+                    right: 24,
+                    child: FloatingActionButton(
+                      heroTag: 'add_item_desktop',
+                      tooltip: 'Add item',
+                      onPressed: () => _showAddItemDialog(),
+                      child: const Icon(Icons.add_box),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildMobileLayout(InventoryProvider provider,
-      List<String> sortedLabels, InventoryService service) {
+  Widget _buildMobileLayout(
+    InventoryProvider provider,
+    List<String> sortedLabels,
+    InventoryService service,
+  ) {
     if (_showItemsView && _currentLabel != null) {
-      return Stack(
-        children: [
-          ItemsListWidget(
-            items: provider.getItems(_currentLabel!),
-            label: _currentLabel!,
-            searchController: _itemSearchController,
-            onAdjustQuantity: _adjustQuantity,
-            onDeleteItem: _deleteItem,
-            onAddItem: () => _showAddItemDialog(),
-            onEditItem: _editItem,
-          ),
-          Positioned(
-            bottom: 24,
-            right: 24,
-            child: FloatingActionButton(
-              heroTag: 'add_item_mobile',
-              tooltip: 'Add item',
-              onPressed: () => _showAddItemDialog(),
-              child: const Icon(Icons.add_box),
-            ),
-          ),
-        ],
-      );
-    }
-
-    return Stack(
-      children: [
-        Column(
+      return SafeArea(
+        child: Stack(
           children: [
-            Padding(
-              padding: const EdgeInsets.all(10.0),
-              child: TextField(
-                controller: _labelSearchController,
-                decoration: InputDecoration(
-                  hintText: 'Search labels\u2026',
-                  prefixIcon: const Icon(Icons.search, size: 16),
-                  suffixIcon: _labelSearchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 16),
-                          onPressed: () => _labelSearchController.clear(),
-                        )
-                      : null,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
-                  filled: true,
-                  fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                ),
-              ),
+            ItemsListWidget(
+              items: provider.getItems(_currentLabel!),
+              label: _currentLabel!,
+              searchController: _itemSearchController,
+              onAdjustQuantity: _adjustQuantity,
+              onDeleteItem: _deleteItem,
+              onAddItem: () => _showAddItemDialog(),
+              onEditItem: _editItem,
             ),
-            Expanded(
-              child: LabelListWidget(
-                labels: sortedLabels,
-                currentLabel: _currentLabel,
-                searchController: _labelSearchController,
-                onSelectLabel: _selectLabel,
-                onRenameLabel: _showRenameDialog,
-                onDeleteLabel: _deleteLabel,
-                sortType: _labelSortType,
-                onSortChanged: _onSortChanged,
-                inventoryService: service,
+            Positioned(
+              bottom: AppConstants.fabBottomMargin,
+              right: AppConstants.fabRightMargin,
+              child: FloatingActionButton(
+                heroTag: 'add_item_mobile',
+                tooltip: 'Add item',
+                onPressed: () => _showAddItemDialog(),
+                child: const Icon(Icons.add_box),
               ),
             ),
           ],
         ),
-        Positioned(
-          bottom: 24,
-          right: 24,
-          child: FloatingActionButton(
-            heroTag: 'add_label_mobile',
-            tooltip: 'New label',
-            onPressed: _showCreateLabelDialog,
-            child: const Icon(Icons.add),
+      );
+    }
+
+    return SafeArea(
+      child: Stack(
+        children: [
+          Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(10.0),
+                child: TextField(
+                  controller: _labelSearchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search labels…',
+                    prefixIcon: const Icon(Icons.search, size: 16),
+                    suffixIcon: _labelSearchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 16),
+                            onPressed: () => _labelSearchController.clear(),
+                          )
+                        : null,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
+                    filled: true,
+                    fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: LabelListWidget(
+                  labels: sortedLabels,
+                  currentLabel: _currentLabel,
+                  searchController: _labelSearchController,
+                  onSelectLabel: _selectLabel,
+                  onRenameLabel: _showRenameDialog,
+                  onDeleteLabel: _deleteLabel,
+                  sortType: _labelSortType,
+                  onSortChanged: _onSortChanged,
+                  inventoryService: service,
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+          Positioned(
+            bottom: AppConstants.fabBottomMargin,
+            right: AppConstants.fabRightMargin,
+            child: FloatingActionButton(
+              heroTag: 'add_label_mobile',
+              tooltip: 'New label',
+              onPressed: _showCreateLabelDialog,
+              child: const Icon(Icons.add),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -648,6 +797,8 @@ actions: [
   }
 }
 
+// ─── Label Name Bottom Sheet ─────────────────────────────────────
+
 class _LabelNameSheet extends StatefulWidget {
   final String title;
   final String hint;
@@ -669,17 +820,39 @@ class _LabelNameSheet extends StatefulWidget {
 
 class _LabelNameSheetState extends State<_LabelNameSheet> {
   bool _saving = false;
+  String? _error;
 
   Future<void> _submit() async {
     final name = widget.controller.text.trim();
-    if (name.isEmpty) return;
-    setState(() => _saving = true);
+    if (name.isEmpty) {
+      setState(() => _error = 'Name cannot be empty');
+      return;
+    }
+    if (name.length < 2) {
+      setState(() => _error = 'Name must be at least 2 characters');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+
     try {
       final ok = await widget.onSubmit(name);
       if (!mounted) return;
-      if (ok) Navigator.pop(context);
-    } finally {
-      if (mounted) setState(() => _saving = false);
+      if (ok) {
+        Navigator.pop(context);
+      } else {
+        setState(() => _saving = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = 'Error: ${e.toString()}';
+        });
+      }
     }
   }
 
@@ -696,6 +869,7 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Drag handle
           Center(
             child: Container(
               width: 40,
@@ -709,7 +883,9 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
           const SizedBox(height: 18),
           Text(
             widget.title,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 16),
           TextField(
@@ -720,8 +896,10 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
               hintText: widget.hint,
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
               filled: true,
+              errorText: _error,
             ),
             onSubmitted: (_) => _saving ? null : _submit(),
+            onChanged: (_) => setState(() => _error = null),
           ),
           const SizedBox(height: 16),
           Row(
@@ -750,8 +928,10 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
                           width: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Text(widget.submitLabel,
-                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                      : Text(
+                          widget.submitLabel,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
                 ),
               ),
             ],

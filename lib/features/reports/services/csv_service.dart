@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../inventory_management/models/inventory_item.dart';
 import '../../inventory_management/models/inventory_settings.dart';
 import '../../../core/utils/file_export.dart';
@@ -12,7 +13,6 @@ import '../features/report_utils.dart';
 class CsvService {
   /// Returns headers based on settings AND user-selected fields.
   List<String> _getHeaders(InventorySettings? settings, List<String>? selectedFields) {
-    // If user explicitly selected fields, honour that selection
     if (selectedFields != null && selectedFields.isNotEmpty) {
       return List<String>.from(selectedFields);
     }
@@ -50,8 +50,6 @@ class CsvService {
     return generateCsvWithFields(items, settings, inventoryName, reportType, null);
   }
 
-  /// Generates CSV with the given [selectedFields].
-  /// When [selectedFields] is null, falls back to active fields from settings.
   String generateCsvWithFields(
     List<InventoryItem> items,
     InventorySettings? settings,
@@ -62,7 +60,7 @@ class CsvService {
     final headers = _getHeaders(settings, selectedFields);
     final rows = <List<dynamic>>[];
 
-    // Minimal metadata as comments (prefixed with # so import can skip)
+    // Minimal metadata as comments
     rows.add(['# Inventory: $inventoryName']);
     rows.add(['# Generated: ${DateTime.now().toIso8601String()}']);
     rows.add(['# Report Type: $reportType']);
@@ -73,7 +71,6 @@ class CsvService {
     for (var item in items) {
       final row = <dynamic>[];
       for (var header in headers) {
-        // Fixed: Use ReportUtils as single source of truth
         row.add(ReportUtils.getFieldValue(item, header, inventoryName));
       }
       rows.add(row);
@@ -83,68 +80,171 @@ class CsvService {
   }
 
   /// Save CSV file with platform-appropriate handling.
-  ///
-  /// - **Web**: Triggers a browser download via blob URL using downloadFileWeb()
-  /// - **Native**: Tries file picker first, falls back to documents directory,
-  ///   then falls back to temp directory
-  ///
-  /// Returns the file path on native platforms, or `'web_download'` on web.
   Future<String?> saveFile(String csvString, String fileName) async {
     try {
-      // Encode to proper UTF-8 bytes (not UTF-16 code units)
       final bytes = utf8.encode(csvString);
 
       // ── Web platform: trigger browser download ─────────────────
       if (kIsWeb) {
-        // Call the top-level function imported from file_export.dart
         downloadFileWeb(bytes, fileName, 'text/csv');
         return 'web_download';
       }
 
-      // ── Native platforms ───────────────────────────────────────
-      try {
-        // Try file picker for user-selected location
-        final result = await FilePicker.platform.saveFile(
-          dialogTitle: 'Save CSV Report',
-          fileName: fileName,
-          type: FileType.custom,
-          allowedExtensions: ['csv'],
-          bytes: bytes,
-        );
+      // ── Android: Try multiple methods ──────────────────────────
+      if (Platform.isAndroid) {
+        // Method 1: Try file picker (let user choose location)
+        try {
+          final result = await FilePicker.platform.saveFile(
+            dialogTitle: 'Save CSV Report',
+            fileName: fileName,
+            type: FileType.custom,
+            allowedExtensions: ['csv'],
+            bytes: bytes,
+          );
 
-        if (result != null) {
-          final savedFile = File(result);
-          await savedFile.writeAsString(csvString);
-          return result;
+          if (result != null && result.isNotEmpty) {
+            return result;
+          }
+        } catch (e) {
+          debugPrint('FilePicker save failed: $e');
         }
-      } catch (e) {
-        // File picker failed or was cancelled - continue to local save
+
+        // Method 2: Save to Downloads using MediaStore (Android 10+)
+        try {
+          final savedPath = await _saveToAndroidDownloads(bytes, fileName);
+          if (savedPath != null) return savedPath;
+        } catch (e) {
+          debugPrint('Android Downloads save failed: $e');
+        }
+
+        // Method 3: Fallback to app-specific external storage
+        try {
+          final dir = await getExternalStorageDirectory();
+          if (dir != null) {
+            final localPath = '${dir.path}/$fileName';
+            await File(localPath).writeAsBytes(bytes);
+            return localPath;
+          }
+        } catch (e) {
+          debugPrint('External storage fallback failed: $e');
+        }
+
+        // Method 4: Last resort - documents directory
+        try {
+          final dir = await getApplicationDocumentsDirectory();
+          final localPath = '${dir.path}/$fileName';
+          await File(localPath).writeAsBytes(bytes);
+          return localPath;
+        } catch (e) {
+          debugPrint('Documents directory fallback failed: $e');
+        }
       }
 
-      // ── Save to documents directory ───────────────────────────
+      // ── iOS: Save to app directory (share sheet can be used later) ──
+      if (Platform.isIOS) {
+        try {
+          final dir = await getApplicationDocumentsDirectory();
+          final localPath = '${dir.path}/$fileName';
+          await File(localPath).writeAsBytes(bytes);
+          return localPath;
+        } catch (e) {
+          debugPrint('iOS save failed: $e');
+        }
+      }
+
+      // ── Windows ───────────────────────────────────────────────
+      if (Platform.isWindows) {
+        try {
+          final downloadsDir = Directory('${Platform.environment['USERPROFILE']}\\Downloads');
+          if (!await downloadsDir.exists()) {
+            await downloadsDir.create(recursive: true);
+          }
+          final localPath = '${downloadsDir.path}\\$fileName';
+          await File(localPath).writeAsBytes(bytes);
+          return localPath;
+        } catch (e) {
+          debugPrint('Windows save failed: $e');
+        }
+      }
+
+      // ── macOS / Linux ─────────────────────────────────────────
       try {
-        final directory = await getApplicationDocumentsDirectory();
-        final localPath = '${directory.path}/$fileName';
-        final localFile = File(localPath);
-        await localFile.writeAsString(csvString);
+        final downloadsDir = Directory('${Platform.environment['HOME']}/Downloads');
+        if (!await downloadsDir.exists()) {
+          await downloadsDir.create(recursive: true);
+        }
+        final localPath = '${downloadsDir.path}/$fileName';
+        await File(localPath).writeAsBytes(bytes);
         return localPath;
       } catch (e) {
-        // Documents directory failed - continue to temp
+        debugPrint('Desktop save failed: $e');
       }
 
-      // ── Last resort: temp directory ───────────────────────────
+      // ── Universal fallback ────────────────────────────────────
       try {
-        final tempDir = Directory.systemTemp;
-        final tempPath = '${tempDir.path}/$fileName';
-        final tempFile = File(tempPath);
-        await tempFile.writeAsString(csvString);
-        return tempPath;
+        final dir = await getApplicationDocumentsDirectory();
+        final localPath = '${dir.path}/$fileName';
+        await File(localPath).writeAsBytes(bytes);
+        return localPath;
       } catch (e) {
+        debugPrint('Universal fallback failed: $e');
         return null;
       }
     } catch (e) {
+      debugPrint('CsvService.saveFile error: $e');
       return null;
     }
+  }
+
+  /// Save file to Android Downloads directory using multiple approaches
+  Future<String?> _saveToAndroidDownloads(List<int> bytes, String fileName) async {
+    try {
+      // Check storage permissions
+      final manageStorageStatus = await Permission.manageExternalStorage.status;
+      final storageStatus = await Permission.storage.status;
+
+      if (!manageStorageStatus.isGranted && !storageStatus.isGranted) {
+        // Request permissions
+        final requested = await Permission.storage.request();
+        if (!requested.isGranted) {
+          // Try manage external storage for Android 11+
+          final manageRequested = await Permission.manageExternalStorage.request();
+          if (!manageRequested.isGranted) {
+            return null;
+          }
+        }
+      }
+
+      // Try multiple common Downloads paths
+      final possiblePaths = [
+        '/storage/emulated/0/Download',
+        '/sdcard/Download',
+        '/storage/sdcard0/Download',
+        '/storage/emulated/0/Downloads',
+        '/sdcard/Downloads',
+      ];
+
+      for (final path in possiblePaths) {
+        final dir = Directory(path);
+        if (await dir.exists()) {
+          try {
+            final file = File('${dir.path}/$fileName');
+            await file.writeAsBytes(bytes);
+
+            // Verify the file was written
+            if (await file.exists() && await file.length() > 0) {
+              return file.path;
+            }
+          } catch (e) {
+            // Try next path
+            continue;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('_saveToAndroidDownloads error: $e');
+    }
+    return null;
   }
 
   /// Opens a file picker to select a CSV file and returns its contents.

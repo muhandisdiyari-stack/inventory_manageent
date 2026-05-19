@@ -60,7 +60,8 @@ class InventoryItem extends HiveObject {
     this.quantity = 0,
     Map<String, String>? customFields,
     this.label = '',
-    DateTime? createdAt,
+    DateTime? createdAt, 
+    String? createdBy,
   })  : modified = modified ?? DateTime.now(),
         customFields = customFields ?? {},
         createdAt = createdAt ?? DateTime.now();
