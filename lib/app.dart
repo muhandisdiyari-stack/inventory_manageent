@@ -5,6 +5,7 @@ import 'core/constants/app_constants.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/config/app_config.dart';
 import 'core/services/auth_service.dart';
+import 'core/services/admin_service.dart';
 import 'core/di/injection_container.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/auth/screens/login_screen.dart';
@@ -13,6 +14,7 @@ import 'features/inventory_selection/providers/inventory_list_provider.dart';
 import 'features/inventory_management/services/inventory_service.dart' as service;
 import 'features/inventory_management/providers/inventory_provider.dart';
 import 'features/inventory_selection/screens/inventory_selection_screen.dart';
+import 'features/admin/screens/admin_dashboard_screen.dart';
 
 class InventoryProApp extends StatelessWidget {
   final service.InventoryService inventoryService;
@@ -98,15 +100,12 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
   @override
   Widget build(BuildContext context) {
     if (_isInitializing) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     return const _AuthGate();
   }
 }
 
-// FIXED: Proper auth gate that navigates on sign out
 class _AuthGate extends StatelessWidget {
   const _AuthGate();
 
@@ -118,21 +117,110 @@ class _AuthGate extends StatelessWidget {
 
     return Consumer<AuthProvider>(
       builder: (context, authProvider, child) {
-        // Show loading while initializing
-        if (!authProvider.isInitialized || authProvider.isLoading) {
+        if (!authProvider.isInitialized) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+
+        if (authProvider.isLoading) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Please wait...'),
+                ],
+              ),
+            ),
           );
         }
 
-        // If not authenticated, show login
         if (!authProvider.isAuthenticated) {
           return const LoginScreen();
         }
 
-        // If authenticated, show company setup
-        return const CompanySetupScreen();
+        return const _AdminCheckScreen();
       },
     );
+  }
+}
+
+class _AdminCheckScreen extends StatefulWidget {
+  const _AdminCheckScreen();
+
+  @override
+  State<_AdminCheckScreen> createState() => _AdminCheckScreenState();
+}
+
+class _AdminCheckScreenState extends State<_AdminCheckScreen> {
+  bool _checking = true;
+  bool _isAdmin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAdmin();
+  }
+
+  Future<void> _checkAdmin() async {
+    try {
+      final adminService = AdminService();
+      _isAdmin = await adminService.isAdmin();
+    } catch (_) {
+      _isAdmin = false;
+    }
+    if (mounted) setState(() => _checking = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_checking) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (_isAdmin) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Row(children: [
+              Icon(Icons.admin_panel_settings, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Admin Access'),
+            ]),
+            content: const Text('You have admin privileges. Where would you like to go?'),
+            actions: [
+              OutlinedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const CompanySetupScreen()),
+                    (route) => false,
+                  );
+                },
+                child: const Text('User Dashboard'),
+              ),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+                    (route) => false,
+                  );
+                },
+                icon: const Icon(Icons.dashboard),
+                label: const Text('Admin Dashboard'),
+                style: FilledButton.styleFrom(backgroundColor: Colors.blue),
+              ),
+            ],
+          ),
+        );
+      });
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    return const CompanySetupScreen();
   }
 }
