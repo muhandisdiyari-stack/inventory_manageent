@@ -26,14 +26,35 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	
+
+	<!--
+		✅ FIX: Register the "inventory" URL scheme so iOS can intercept
+		the Supabase confirmation link (inventory://auth/callback) from
+		the Mail app or any email client, and open this app directly.
+
+		This scheme must exactly match:
+		  - emailRedirectTo in supabase_client.dart  → "inventory://auth/callback"
+		  - Redirect URLs added in Supabase Dashboard → "inventory://auth/callback"
+	-->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>auth-callback</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>inventory</string>
+			</array>
+		</dict>
+	</array>
+
 	<!-- ============ CAMERA PERMISSIONS ============ -->
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access to scan barcodes and QR codes.</string>
-	
+
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This app needs photo library access to scan barcodes from saved images.</string>
-	
+
 	<!-- ============ DOCUMENT PERMISSIONS ============ -->
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
@@ -41,7 +62,7 @@
 	<true/>
 	<key>NSDocumentsFolderUsageDescription</key>
 	<string>This app needs access to documents to save and import inventory CSV files.</string>
-	
+
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -57,7 +78,7 @@
 			<string>Editor</string>
 		</dict>
 	</array>
-	
+
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
@@ -85,7 +106,7 @@
 			</dict>
 		</dict>
 	</array>
-	
+
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

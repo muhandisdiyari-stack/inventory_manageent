@@ -2,6 +2,34 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/app_config.dart';
 
+/// Returns the correct redirect URL for email confirmation based on platform.
+///
+/// - Web:             uses the browser's current origin  → "https://yourapp.com/auth/callback"
+/// - Android/iOS:     custom URI scheme                  → "inventory://auth/callback"
+/// - Windows/macOS/Linux: custom URI scheme              → "inventory://auth/callback"
+///
+/// This value must be added to Supabase Dashboard → Authentication → URL Configuration
+/// → Redirect URLs.  The Site URL should be set to your web domain (or
+/// http://localhost:3000 for local dev).
+String _getEmailRedirectTo() {
+  if (kIsWeb) {
+    final origin = Uri.base.origin;
+    final path = Uri.base.path; // e.g. "/inventory_manageent/"
+
+    // GitHub Pages (or any subdirectory host): preserve the base path
+    // so the redirect lands back inside the app, not at the domain root.
+    // Flutter web hash routing means we append /#/auth/callback.
+    if (path.length > 1) {
+      // Hosted in a subdirectory e.g. /inventory_manageent/
+      return '$origin$path#/auth/callback';
+    }
+    // Hosted at root e.g. https://yourdomain.com/
+    return '$origin/#/auth/callback';
+  }
+  // Android, iOS, Windows, macOS, Linux
+  return 'inventory://auth/callback';
+}
+
 class SupabaseClientService {
   late final SupabaseClient _client;
   bool _isInitialized = false;
@@ -29,7 +57,6 @@ class SupabaseClientService {
       _lastError = e.toString();
       _isInitialized = false;
       debugPrint('❌ Supabase initialization failed: $e');
-      // Don't crash - allow offline mode
       if (AppConfig.isProduction) {
         throw Exception('Failed to initialize Supabase in production: $e');
       }
@@ -38,15 +65,14 @@ class SupabaseClientService {
 
   SupabaseClient get client {
     if (!_isInitialized) {
-      throw SupabaseNotInitializedException(_lastError ?? 'Supabase not initialized');
+      throw SupabaseNotInitializedException(
+          _lastError ?? 'Supabase not initialized');
     }
     return _client;
   }
 
-  /// Safe client access - returns null if not initialized instead of throwing
-  SupabaseClient? get safeClient {
-    return _isInitialized ? _client : null;
-  }
+  /// Safe client access — returns null if not initialized instead of throwing.
+  SupabaseClient? get safeClient => _isInitialized ? _client : null;
 
   // ─── Auth ─────────────────────────────────────────────────────
 
@@ -55,15 +81,11 @@ class SupabaseClientService {
     try {
       final user = _client.auth.currentUser;
       if (user == null) return null;
-      
-      // Verify session is still valid
       try {
         await _client.auth.refreshSession();
       } catch (_) {
-        // Session expired
-        return null;
+        return null; // Session expired
       }
-      
       return {
         'id': user.id,
         'email': user.email,
@@ -75,21 +97,18 @@ class SupabaseClientService {
     }
   }
 
-// FIX #9: Replace fixed delays with retry logic
-Future<Map<String, dynamic>?> signIn(String email, String password) async {
+  Future<Map<String, dynamic>?> signIn(String email, String password) async {
     if (!isConfigured) return null;
     try {
       final response = await _client.auth
-          .signInWithPassword(
-            email: email,
-            password: password,
-          )
+          .signInWithPassword(email: email, password: password)
           .timeout(const Duration(seconds: 10));
 
       final user = response.user;
       if (user == null) return null;
 
-      // FIX #9: Use retry with exponential backoff
+      // Retry with exponential backoff — profile row may not exist yet if the
+      // database trigger is slow.
       Map<String, dynamic>? profileData;
       int retries = 0;
       const maxRetries = 3;
@@ -106,7 +125,8 @@ Future<Map<String, dynamic>?> signIn(String email, String password) async {
 
           retries++;
           if (retries < maxRetries) {
-            await Future.delayed(Duration(milliseconds: 300 * (retries + 1)));
+            await Future.delayed(
+                Duration(milliseconds: 300 * (retries + 1)));
           }
         } catch (e) {
           retries++;
@@ -139,25 +159,42 @@ Future<Map<String, dynamic>?> signIn(String email, String password) async {
     }
   }
 
-  Future<Map<String, dynamic>?> signUp(String email, String password, String displayName) async {
+  /// ✅ FIX: Pass [emailRedirectTo] so Supabase embeds the correct callback
+  /// URL inside the confirmation email.  Without this, Supabase has nowhere
+  /// valid to redirect after the user clicks the link — causing the
+  /// "requested path is invalid" error.
+  Future<Map<String, dynamic>?> signUp(
+      String email, String password, String displayName) async {
     if (!isConfigured) return null;
     try {
+      final redirectUrl = _getEmailRedirectTo();
+      debugPrint('📧 signUp emailRedirectTo: $redirectUrl');
+
       final response = await _client.auth.signUp(
         email: email,
         password: password,
         data: {'display_name': displayName},
+        // ✅ THE FIX: tells Supabase where to redirect after email confirmation.
+        emailRedirectTo: redirectUrl,
       );
+
       final user = response.user;
-      if (user != null) {
-        return {
-          'id': user.id,
-          'email': user.email,
-          'display_name': displayName,
-          'created_at': user.createdAt,
-          'email_confirmed': response.session == null, // null session means email confirmation required
-        };
-      }
-      return null;
+      if (user == null) return null;
+
+      // response.session == null  →  email confirmation is required (expected).
+      // response.session != null  →  email confirmation is disabled in Supabase
+      //                              dashboard; user is signed in immediately.
+      final requiresConfirmation = response.session == null;
+
+      return {
+        'id': user.id,
+        'email': user.email,
+        'display_name': displayName,
+        'created_at': user.createdAt,
+        // true  = user must confirm before we create a session
+        // false = no confirmation needed, proceed to app
+        'email_confirmed': !requiresConfirmation,
+      };
     } on AuthException catch (e) {
       debugPrint('Sign up auth error: ${e.message}');
       rethrow;
@@ -176,7 +213,7 @@ Future<Map<String, dynamic>?> signIn(String email, String password) async {
     }
   }
 
-  /// Verifies the current session is valid
+  /// Verifies the current session is valid by attempting a refresh.
   Future<bool> verifySession() async {
     if (!isConfigured) return false;
     try {
@@ -192,10 +229,9 @@ Future<Map<String, dynamic>?> signIn(String email, String password) async {
   Future<Map<String, dynamic>?> createCompany(String name) async {
     if (!isConfigured) return null;
     try {
-      final result = await _client.rpc('create_company', params: {'p_name': name.trim()});
-      if (result is Map) {
-        return Map<String, dynamic>.from(result);
-      }
+      final result = await _client
+          .rpc('create_company', params: {'p_name': name.trim()});
+      if (result is Map) return Map<String, dynamic>.from(result);
       return null;
     } catch (e) {
       debugPrint('Create company error: $e');
@@ -206,13 +242,10 @@ Future<Map<String, dynamic>?> signIn(String email, String password) async {
   Future<bool> updateCompany(String companyId, String newName) async {
     if (!isConfigured) return false;
     try {
-      await _client
-          .from('companies')
-          .update({
-            'name': newName.trim(),
-            'updated_at': DateTime.now().toUtc().toIso8601String(),
-          })
-          .eq('id', companyId);
+      await _client.from('companies').update({
+        'name': newName.trim(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', companyId);
       return true;
     } catch (e) {
       debugPrint('Update company error: $e');
@@ -223,20 +256,29 @@ Future<Map<String, dynamic>?> signIn(String email, String password) async {
   Future<bool> deleteCompany(String companyId) async {
     if (!isConfigured) return false;
     try {
-      // Use RPC for atomic deletion with proper cascading
-      final result = await _client.rpc('delete_company_cascade', params: {
-        'p_company_id': companyId,
-      });
+      final result = await _client.rpc('delete_company_cascade',
+          params: {'p_company_id': companyId});
       return result is Map && result['success'] == true;
     } catch (e) {
       debugPrint('Delete company error: $e');
-      // Fallback to manual deletion if RPC doesn't exist
       try {
-        await _client.from('inventory_items').delete().eq('company_id', companyId);
+        await _client
+            .from('inventory_items')
+            .delete()
+            .eq('company_id', companyId);
         await _client.from('labels').delete().eq('company_id', companyId);
-        await _client.from('invitations').delete().eq('company_id', companyId);
-        await _client.from('inventory_members').delete().eq('company_id', companyId);
-        await _client.from('company_members').delete().eq('company_id', companyId);
+        await _client
+            .from('invitations')
+            .delete()
+            .eq('company_id', companyId);
+        await _client
+            .from('inventory_members')
+            .delete()
+            .eq('company_id', companyId);
+        await _client
+            .from('company_members')
+            .delete()
+            .eq('company_id', companyId);
         await _client.from('companies').delete().eq('id', companyId);
         return true;
       } catch (e2) {
@@ -269,9 +311,7 @@ Future<Map<String, dynamic>?> signIn(String email, String password) async {
       final result = await _client.rpc('get_user_company');
       if (result is Map) {
         final map = Map<String, dynamic>.from(result);
-        if (map['has_company'] == true) {
-          return map;
-        }
+        if (map['has_company'] == true) return map;
       }
       return null;
     } catch (e) {
@@ -280,19 +320,17 @@ Future<Map<String, dynamic>?> signIn(String email, String password) async {
     }
   }
 
-// Add this updated method for Issue #3
-Future<List<Map<String, dynamic>>> getUserCompanies() async {
+  Future<List<Map<String, dynamic>>> getUserCompanies() async {
     if (!isConfigured) return [];
     try {
       final user = _client.auth.currentUser;
       if (user == null) return [];
 
-      // FIX #3: Only show companies where membership was properly established
       final memberships = await _client
           .from('company_members')
           .select('company_id, role, joined_at')
           .eq('user_id', user.id)
-          .not('joined_at', 'is', null); // Only properly joined memberships
+          .not('joined_at', 'is', null);
 
       if (memberships.isEmpty) return [];
 
@@ -313,12 +351,14 @@ Future<List<Map<String, dynamic>>> getUserCompanies() async {
         membershipMap[m['company_id'] as String] = m;
       }
 
-      return companiesData.map((c) => {
-            'id': c['id'],
-            'name': c['name'],
-            'role': membershipMap[c['id']]?['role'] ?? 'staff',
-            'joined_at': membershipMap[c['id']]?['joined_at'],
-          }).toList();
+      return companiesData
+          .map((c) => {
+                'id': c['id'],
+                'name': c['name'],
+                'role': membershipMap[c['id']]?['role'] ?? 'staff',
+                'joined_at': membershipMap[c['id']]?['joined_at'],
+              })
+          .toList();
     } catch (e) {
       debugPrint('Get user companies error: $e');
       return [];
@@ -327,12 +367,12 @@ Future<List<Map<String, dynamic>>> getUserCompanies() async {
 
   // ─── Members ──────────────────────────────────────────────────
 
-  Future<List<Map<String, dynamic>>> getCompanyMembers(String companyId) async {
+  Future<List<Map<String, dynamic>>> getCompanyMembers(
+      String companyId) async {
     if (!isConfigured) return [];
     try {
-      final data = await _client.rpc('get_company_members', params: {
-        'p_company_id': companyId,
-      });
+      final data = await _client.rpc('get_company_members',
+          params: {'p_company_id': companyId});
       if (data is List) return List<Map<String, dynamic>>.from(data);
       return [];
     } catch (e) {
@@ -344,10 +384,8 @@ Future<List<Map<String, dynamic>>> getUserCompanies() async {
   Future<bool> removeMember(String memberId, String companyId) async {
     if (!isConfigured) return false;
     try {
-      final result = await _client.rpc('remove_member', params: {
-        'p_member_id': memberId,
-        'p_company_id': companyId,
-      });
+      final result = await _client.rpc('remove_member',
+          params: {'p_member_id': memberId, 'p_company_id': companyId});
       if (result is Map) return result['success'] == true;
       return false;
     } catch (e) {
@@ -356,7 +394,8 @@ Future<List<Map<String, dynamic>>> getUserCompanies() async {
     }
   }
 
-  Future<bool> updateMemberRole(String memberId, String companyId, String newRole) async {
+  Future<bool> updateMemberRole(
+      String memberId, String companyId, String newRole) async {
     if (!isConfigured) return false;
     try {
       final result = await _client.rpc('update_member_role', params: {
@@ -390,9 +429,7 @@ Future<List<Map<String, dynamic>>> getUserCompanies() async {
         'p_role': role,
       });
 
-      if (result is Map) {
-        return Map<String, dynamic>.from(result);
-      }
+      if (result is Map) return Map<String, dynamic>.from(result);
       return null;
     } catch (e) {
       debugPrint('Create invitation error: $e');
@@ -400,7 +437,8 @@ Future<List<Map<String, dynamic>>> getUserCompanies() async {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getPendingInvitations(String companyId) async {
+  Future<List<Map<String, dynamic>>> getPendingInvitations(
+      String companyId) async {
     if (!isConfigured) return [];
     try {
       final data = await _client
@@ -419,13 +457,10 @@ Future<List<Map<String, dynamic>>> getUserCompanies() async {
   Future<bool> cancelInvitation(String invitationId) async {
     if (!isConfigured) return false;
     try {
-      await _client
-          .from('invitations')
-          .update({
-            'status': 'cancelled',
-            'updated_at': DateTime.now().toUtc().toIso8601String(),
-          })
-          .eq('id', invitationId);
+      await _client.from('invitations').update({
+        'status': 'cancelled',
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', invitationId);
       return true;
     } catch (e) {
       debugPrint('Cancel invitation error: $e');
@@ -436,9 +471,8 @@ Future<List<Map<String, dynamic>>> getUserCompanies() async {
   Future<Map<String, dynamic>?> acceptInvitation(String token) async {
     if (!isConfigured) return null;
     try {
-      final result = await _client.rpc('accept_invitation', params: {
-        'p_token': token.trim(),
-      });
+      final result = await _client
+          .rpc('accept_invitation', params: {'p_token': token.trim()});
       if (result is Map) return Map<String, dynamic>.from(result);
       return null;
     } catch (e) {
@@ -447,7 +481,7 @@ Future<List<Map<String, dynamic>>> getUserCompanies() async {
     }
   }
 
-  // ─── Query ────────────────────────────────────────────────────
+  // ─── Query helpers ────────────────────────────────────────────
 
   Future<List<Map<String, dynamic>>> queryWithRLS(
     String table, {
@@ -471,7 +505,8 @@ Future<List<Map<String, dynamic>>> getUserCompanies() async {
     }
   }
 
-  Future<bool> insertWithCompany(String table, Map<String, dynamic> data, String companyId) async {
+  Future<bool> insertWithCompany(
+      String table, Map<String, dynamic> data, String companyId) async {
     if (!isConfigured) return false;
     try {
       data['company_id'] = companyId;
@@ -485,7 +520,8 @@ Future<List<Map<String, dynamic>>> getUserCompanies() async {
     }
   }
 
-  Future<bool> update(String table, String id, Map<String, dynamic> data) async {
+  Future<bool> update(
+      String table, String id, Map<String, dynamic> data) async {
     if (!isConfigured) return false;
     try {
       data['updated_at'] = DateTime.now().toUtc().toIso8601String();
@@ -515,7 +551,7 @@ Future<List<Map<String, dynamic>>> getUserCompanies() async {
 class SupabaseNotInitializedException implements Exception {
   final String message;
   SupabaseNotInitializedException(this.message);
-  
+
   @override
   String toString() => 'SupabaseNotInitializedException: $message';
 }

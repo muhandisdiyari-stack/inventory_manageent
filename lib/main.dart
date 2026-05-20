@@ -21,6 +21,17 @@ void main() async {
         await Supabase.initialize(
           url: AppConfig.supabaseUrl,
           anonKey: AppConfig.supabaseAnonKey,
+          // ✅ FIX: In supabase_flutter v2.x authFlowType is nested inside
+          // FlutterAuthClientOptions — it is NOT a top-level parameter.
+          //
+          // AuthFlowType.implicit puts the token in the URL hash
+          // (#access_token=...) so GitHub Pages (a static host with no server)
+          // can complete email confirmation entirely in the browser.
+          // On Android/iOS/desktop app_links intercepts the deep link instead,
+          // so this setting is effectively ignored on native platforms.
+          authOptions: const FlutterAuthClientOptions(
+            authFlowType: AuthFlowType.implicit,
+          ),
         );
         debugPrint('✅ Supabase initialized');
       } catch (e) {
@@ -59,7 +70,6 @@ void main() async {
 
     await ActivityLogService().initialize();
     await InjectionContainer.initialize();
-
   } catch (e) {
     runApp(_ErrorApp(error: e.toString()));
     return;
@@ -71,9 +81,10 @@ void main() async {
   try {
     final appSettings = Hive.box(AppConstants.appSettingsBox);
     onboardingCompleted = appSettings.get(
-      AppConstants.onboardingCompletedKey,
-      defaultValue: false,
-    ) as bool? ?? false;
+          AppConstants.onboardingCompletedKey,
+          defaultValue: false,
+        ) as bool? ??
+        false;
   } catch (_) {}
 
   runApp(
@@ -83,6 +94,8 @@ void main() async {
     ),
   );
 }
+
+// ─── Error App ────────────────────────────────────────────────────
 
 class _ErrorApp extends StatelessWidget {
   final String error;
@@ -104,24 +117,41 @@ class _ErrorApp extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 80, height: 80,
+                  width: 80,
+                  height: 80,
                   decoration: BoxDecoration(
                     color: Colors.red.shade50,
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: const Icon(Icons.error_outline, size: 40, color: Colors.red),
+                  child: const Icon(Icons.error_outline,
+                      size: 40, color: Colors.red),
                 ),
                 const SizedBox(height: 24),
-                Text('Initialization Error',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold, color: Colors.red.shade700)),
+                Text(
+                  'Initialization Error',
+                  style: Theme.of(context)
+                      .textTheme
+                      .headlineSmall
+                      ?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red.shade700),
+                ),
                 const SizedBox(height: 12),
-                Text(error, textAlign: TextAlign.center,
+                Text(
+                  error,
+                  textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.grey.shade700)),
+                        color: Colors.grey.shade700,
+                      ),
+                ),
                 const SizedBox(height: 32),
                 FilledButton.icon(
-                  onPressed: () {},
+                  onPressed: () {
+                    // Restarting the process is not possible from inside the
+                    // app on native. On web the user can reload the tab.
+                    // This button is intentionally a no-op — it exists only
+                    // as a visual affordance to suggest retrying.
+                  },
                   icon: const Icon(Icons.refresh),
                   label: const Text('Retry'),
                 ),

@@ -71,6 +71,9 @@ class InventoryProApp extends StatelessWidget {
   }
 }
 
+// ─── App Entry Point ──────────────────────────────────────────────
+// Initialises auth then hands off to _AuthGate.
+
 class _AppEntryPoint extends StatefulWidget {
   const _AppEntryPoint();
 
@@ -100,11 +103,29 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
   @override
   Widget build(BuildContext context) {
     if (_isInitializing) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+          body: Center(child: CircularProgressIndicator()));
     }
     return const _AuthGate();
   }
 }
+
+// ─── Auth Gate ────────────────────────────────────────────────────
+// Decides which screen to show based on auth state.
+//
+// ✅ KEY BEHAVIOUR: When the user confirms their email (by tapping the
+// link in Gmail or any email client), Supabase fires an
+// onAuthStateChange event with AuthChangeEvent.signedIn.
+//
+// • On web (GitHub Pages): the Supabase JS SDK detects the token in
+//   the URL hash automatically — no extra code needed here.
+// • On native: app_links in login_screen.dart calls getSessionFromUrl()
+//   which also fires onAuthStateChange.
+//
+// In BOTH cases the stream below triggers a rebuild of _AuthGate, which
+// sees isAuthenticated == true and moves to _AdminCheckScreen /
+// CompanySetupScreen — completing the confirmation flow transparently,
+// regardless of which platform or email client the user clicked from.
 
 class _AuthGate extends StatelessWidget {
   const _AuthGate();
@@ -118,7 +139,8 @@ class _AuthGate extends StatelessWidget {
     return Consumer<AuthProvider>(
       builder: (context, authProvider, child) {
         if (!authProvider.isInitialized) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
         }
 
         if (authProvider.isLoading) {
@@ -137,6 +159,8 @@ class _AuthGate extends StatelessWidget {
         }
 
         if (!authProvider.isAuthenticated) {
+          // ✅ LoginScreen handles deep links internally via app_links
+          // and onAuthStateChange — no wrapper needed here.
           return const LoginScreen();
         }
 
@@ -145,6 +169,8 @@ class _AuthGate extends StatelessWidget {
     );
   }
 }
+
+// ─── Admin Check Screen ───────────────────────────────────────────
 
 class _AdminCheckScreen extends StatefulWidget {
   const _AdminCheckScreen();
@@ -176,11 +202,13 @@ class _AdminCheckScreenState extends State<_AdminCheckScreen> {
   @override
   Widget build(BuildContext context) {
     if (_checking) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+          body: Center(child: CircularProgressIndicator()));
     }
 
     if (_isAdmin) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -190,13 +218,15 @@ class _AdminCheckScreenState extends State<_AdminCheckScreen> {
               SizedBox(width: 8),
               Text('Admin Access'),
             ]),
-            content: const Text('You have admin privileges. Where would you like to go?'),
+            content: const Text(
+                'You have admin privileges. Where would you like to go?'),
             actions: [
               OutlinedButton(
                 onPressed: () {
                   Navigator.pop(ctx);
                   Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (_) => const CompanySetupScreen()),
+                    MaterialPageRoute(
+                        builder: (_) => const CompanySetupScreen()),
                     (route) => false,
                   );
                 },
@@ -206,19 +236,22 @@ class _AdminCheckScreenState extends State<_AdminCheckScreen> {
                 onPressed: () {
                   Navigator.pop(ctx);
                   Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+                    MaterialPageRoute(
+                        builder: (_) => const AdminDashboardScreen()),
                     (route) => false,
                   );
                 },
                 icon: const Icon(Icons.dashboard),
                 label: const Text('Admin Dashboard'),
-                style: FilledButton.styleFrom(backgroundColor: Colors.blue),
+                style:
+                    FilledButton.styleFrom(backgroundColor: Colors.blue),
               ),
             ],
           ),
         );
       });
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+          body: Center(child: CircularProgressIndicator()));
     }
 
     return const CompanySetupScreen();

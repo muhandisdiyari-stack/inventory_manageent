@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  permission_handler: ^11.3.1
+
   # State Management
   provider: ^6.1.2
 
@@ -24,6 +24,8 @@ dependencies:
   file_picker: ^8.0.0
   path_provider: ^2.1.0
 
+  # Permissions
+  permission_handler: ^11.3.1
 
   # UI Icons
   cupertino_icons: ^1.0.8
@@ -39,16 +41,28 @@ dependencies:
 
   # Image Picking for Barcode Scanning
   image_picker: ^1.0.7
+
+  # Supabase
   supabase_flutter: ^2.12.4
+
+  # Utilities
   uuid: ^4.5.3
+
+  # ✅ Deep link handling for Supabase email confirmation callback.
+  # Catches "inventory://auth/callback" on Android, iOS, Windows,
+  # macOS and Linux when the user taps the confirmation link in their
+  # email client (e.g. Gmail).  On web, supabase_flutter handles the
+  # token exchange automatically from the URL hash — app_links is not
+  # needed there but is a no-op so it's safe to include.
+  app_links: ^6.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-    
+
   # Linting
   flutter_lints: ^4.0.0
-  
+
   # Code Generation for Hive
   hive_generator: ^2.0.1
   build_runner: ^2.4.8

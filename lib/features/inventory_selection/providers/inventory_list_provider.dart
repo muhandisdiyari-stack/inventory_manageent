@@ -1,11 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/inventory_list_item.dart';
 import '../../inventory_management/services/inventory_service.dart';
 import '../../../core/services/activity_log_service.dart';
 import '../../../core/models/activity_log_entry.dart';
-import '../../../core/config/app_config.dart';
 import 'package:uuid/uuid.dart';
 
 const _uuid = Uuid();

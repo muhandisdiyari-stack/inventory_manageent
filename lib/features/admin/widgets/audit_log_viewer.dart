@@ -2,14 +2,15 @@ import 'package:flutter/material.dart';
 import '../../../core/services/admin_service.dart';
 
 class AuditLogViewer extends StatefulWidget {
-  const AuditLogViewer({super.key});
+  final AdminService adminService;
+
+  const AuditLogViewer({super.key, required this.adminService});
 
   @override
   State<AuditLogViewer> createState() => _AuditLogViewerState();
 }
 
 class _AuditLogViewerState extends State<AuditLogViewer> {
-  final AdminService _adminService = AdminService();
   List<Map<String, dynamic>> _logs = [];
   bool _isLoading = true;
 
@@ -20,10 +21,31 @@ class _AuditLogViewerState extends State<AuditLogViewer> {
   }
 
   Future<void> _loadLogs() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
-    _logs = await _adminService.getAuditLogs();
-    setState(() => _isLoading = false);
+
+    final logs = await widget.adminService.getAuditLogs();
+
+    if (!mounted) return;
+    setState(() {
+      _logs = logs;
+      _isLoading = false;
+    });
   }
+
+  /// Safely formats an ISO-8601 timestamp to "YYYY-MM-DD HH:mm:ss".
+  String _formatDateTime(String? raw) {
+    if (raw == null || raw.isEmpty) return '—';
+    try {
+      final dt = DateTime.parse(raw).toLocal();
+      return '${dt.year}-${_pad(dt.month)}-${_pad(dt.day)} '
+          '${_pad(dt.hour)}:${_pad(dt.minute)}:${_pad(dt.second)}';
+    } catch (_) {
+      return raw.length >= 19 ? raw.substring(0, 19) : raw;
+    }
+  }
+
+  String _pad(int n) => n.toString().padLeft(2, '0');
 
   String _formatAction(String action) {
     switch (action) {
@@ -31,8 +53,20 @@ class _AuditLogViewerState extends State<AuditLogViewer> {
         return 'Approved User';
       case 'deactivate_user':
         return 'Deactivated User';
+      case 'force_confirm_user':
+        return 'Force Confirmed User';
+      case 'create_user':
+        return 'Created User';
+      case 'update_user_role':
+        return 'Updated User Role';
       default:
-        return action.replaceAll('_', ' ').toUpperCase();
+        return action
+            .replaceAll('_', ' ')
+            .split(' ')
+            .map((w) => w.isNotEmpty
+                ? w[0].toUpperCase() + w.substring(1)
+                : w)
+            .join(' ');
     }
   }
 
@@ -42,8 +76,29 @@ class _AuditLogViewerState extends State<AuditLogViewer> {
         return Icons.check_circle;
       case 'deactivate_user':
         return Icons.cancel;
+      case 'force_confirm_user':
+        return Icons.verified_user;
+      case 'create_user':
+        return Icons.person_add;
+      case 'update_user_role':
+        return Icons.manage_accounts;
       default:
         return Icons.info;
+    }
+  }
+
+  Color _getActionColor(String action) {
+    switch (action) {
+      case 'approve_user':
+      case 'force_confirm_user':
+      case 'create_user':
+        return Colors.green;
+      case 'deactivate_user':
+        return Colors.red;
+      case 'update_user_role':
+        return Colors.blue;
+      default:
+        return Colors.grey;
     }
   }
 
@@ -53,16 +108,16 @@ class _AuditLogViewerState extends State<AuditLogViewer> {
       children: [
         Padding(
           padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Text('Audit Log', style: Theme.of(context).textTheme.titleLarge),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: _loadLogs,
-              ),
-            ],
-          ),
+          child: Row(children: [
+            Text('Audit Log',
+                style: Theme.of(context).textTheme.titleLarge),
+            const Spacer(),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _loadLogs,
+              tooltip: 'Refresh',
+            ),
+          ]),
         ),
         Expanded(
           child: _isLoading
@@ -70,24 +125,47 @@ class _AuditLogViewerState extends State<AuditLogViewer> {
               : _logs.isEmpty
                   ? const Center(child: Text('No audit logs yet'))
                   : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16),
                       itemCount: _logs.length,
                       itemBuilder: (_, i) {
                         final log = _logs[i];
-                        final action = log['action']?.toString() ?? '';
-                        final admin = log['admin']?['email']?.toString() ?? 'System';
-                        final targetEmail = log['details']?['email']?.toString() ?? '';
-                        final createdAt = log['created_at']?.toString() ?? '';
+                        final action =
+                            log['action']?.toString() ?? '';
+                        final adminEmail =
+                            log['admin']?['email']?.toString() ??
+                                'System';
+                        final targetEmail =
+                            log['details']?['email']
+                                    ?.toString() ??
+                                '';
+                        final timestamp = _formatDateTime(
+                            log['created_at']?.toString());
+                        final color = _getActionColor(action);
 
                         return Card(
-                          margin: const EdgeInsets.only(bottom: 8),
+                          margin:
+                              const EdgeInsets.only(bottom: 8),
                           child: ListTile(
                             leading: CircleAvatar(
-                              backgroundColor: Colors.grey.shade100,
-                              child: Icon(_getActionIcon(action), size: 20),
+                              backgroundColor:
+                                  color.withOpacity(0.12),
+                              child: Icon(
+                                _getActionIcon(action),
+                                size: 20,
+                                color: color,
+                              ),
                             ),
-                            title: Text(_formatAction(action), style: const TextStyle(fontWeight: FontWeight.w600)),
-                            subtitle: Text('By: $admin${targetEmail.isNotEmpty ? '\nTarget: $targetEmail' : ''}\n${createdAt.substring(0, 19)}'),
+                            title: Text(
+                              _formatAction(action),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600),
+                            ),
+                            subtitle: Text(
+                              'By: $adminEmail'
+                              '${targetEmail.isNotEmpty ? '\nTarget: $targetEmail' : ''}'
+                              '\n$timestamp',
+                            ),
                             isThreeLine: true,
                           ),
                         );
