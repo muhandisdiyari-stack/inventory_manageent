@@ -1,68 +1,29 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'core/theme/app_theme.dart';
 import 'core/constants/app_constants.dart';
-import 'core/providers/theme_provider.dart';
-import 'core/config/app_config.dart';
-import 'core/services/auth_service.dart';
-import 'core/services/admin_service.dart';
 import 'core/di/injection_container.dart';
-import 'features/auth/providers/auth_provider.dart';
+import 'features/theme/bloc/theme_bloc.dart';
+import 'features/auth/bloc/auth_bloc.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/company/screens/company_setup_screen.dart';
-import 'features/inventory_selection/providers/inventory_list_provider.dart';
-import 'features/inventory_management/services/inventory_service.dart' as service;
-import 'features/inventory_management/providers/inventory_provider.dart';
-import 'features/inventory_selection/screens/inventory_selection_screen.dart';
 import 'features/admin/screens/admin_dashboard_screen.dart';
 
 class InventoryProApp extends StatelessWidget {
-  final service.InventoryService inventoryService;
-  final bool showOnboarding;
-
-  const InventoryProApp({
-    super.key,
-    required this.inventoryService,
-    this.showOnboarding = false,
-  });
+  const InventoryProApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => ThemeProvider()),
-        ChangeNotifierProvider(create: (_) => InventoryListProvider()),
-        Provider<service.InventoryService>.value(value: inventoryService),
-        Provider<AuthService>.value(value: InjectionContainer.authService),
-        ...InjectionContainer.registerChangeNotifierProviders(),
-        ChangeNotifierProxyProvider<InventoryListProvider, InventoryProvider>(
-          create: (context) => InventoryProvider(
-            context.read<service.InventoryService>(),
-            context.read<InventoryListProvider>(),
-          ),
-          update: (context, listProvider, previous) {
-            if (previous == null) {
-              return InventoryProvider(
-                context.read<service.InventoryService>(),
-                listProvider,
-              );
-            }
-            final newId = listProvider.selectedInventoryId;
-            if (newId != null && newId != previous.currentInventoryId) {
-              Future.microtask(() => previous.selectInventory(newId));
-            }
-            return previous;
-          },
-        ),
-      ],
-      child: Consumer<ThemeProvider>(
-        builder: (context, themeProvider, child) {
+    return MultiBlocProvider(
+      providers: InjectionContainer.blocProviders,
+      child: BlocBuilder<ThemeBloc, ThemeState>(
+        builder: (context, themeState) {
           return MaterialApp(
             title: AppConstants.appName,
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
-            themeMode: themeProvider.themeMode,
+            themeMode: themeState.mode,
             home: const _AppEntryPoint(),
           );
         },
@@ -72,7 +33,7 @@ class InventoryProApp extends StatelessWidget {
 }
 
 // ─── App Entry Point ──────────────────────────────────────────────
-// Initialises auth then hands off to _AuthGate.
+// Dispatches AuthCheckRequested on init and routes based on auth state.
 
 class _AppEntryPoint extends StatefulWidget {
   const _AppEntryPoint();
@@ -82,178 +43,368 @@ class _AppEntryPoint extends StatefulWidget {
 }
 
 class _AppEntryPointState extends State<_AppEntryPoint> {
-  bool _isInitializing = true;
-
   @override
   void initState() {
     super.initState();
-    _initialize();
-  }
-
-  Future<void> _initialize() async {
-    try {
-      if (AppConfig.requiresAuth) {
-        final authProvider = context.read<AuthProvider>();
-        await authProvider.initialize();
+    // Dispatch auth check after first frame to ensure BLoC is available
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AuthBloc>().add(const AuthCheckRequested());
       }
-    } catch (_) {}
-    if (mounted) setState(() => _isInitializing = false);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isInitializing) {
-      return const Scaffold(
-          body: Center(child: CircularProgressIndicator()));
-    }
-    return const _AuthGate();
-  }
-}
-
-// ─── Auth Gate ────────────────────────────────────────────────────
-// Decides which screen to show based on auth state.
-//
-// ✅ KEY BEHAVIOUR: When the user confirms their email (by tapping the
-// link in Gmail or any email client), Supabase fires an
-// onAuthStateChange event with AuthChangeEvent.signedIn.
-//
-// • On web (GitHub Pages): the Supabase JS SDK detects the token in
-//   the URL hash automatically — no extra code needed here.
-// • On native: app_links in login_screen.dart calls getSessionFromUrl()
-//   which also fires onAuthStateChange.
-//
-// In BOTH cases the stream below triggers a rebuild of _AuthGate, which
-// sees isAuthenticated == true and moves to _AdminCheckScreen /
-// CompanySetupScreen — completing the confirmation flow transparently,
-// regardless of which platform or email client the user clicked from.
-
-class _AuthGate extends StatelessWidget {
-  const _AuthGate();
-
-  @override
-  Widget build(BuildContext context) {
-    if (!AppConfig.requiresAuth) {
-      return const InventorySelectionScreen();
-    }
-
-    return Consumer<AuthProvider>(
-      builder: (context, authProvider, child) {
-        if (!authProvider.isInitialized) {
-          return const Scaffold(
-              body: Center(child: CircularProgressIndicator()));
-        }
-
-        if (authProvider.isLoading) {
-          return const Scaffold(
-            body: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+    return BlocBuilder<AuthBloc, AuthState>(
+      builder: (context, state) {
+        return switch (state.status) {
+          AuthStatus.unknown ||
+          AuthStatus.initializing =>
+            const Scaffold(
+                body: Center(
+                    child: CircularProgressIndicator())),
+          AuthStatus.authenticating =>
+            const Scaffold(
+                body: Center(
+                    child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
                   Text('Please wait...'),
-                ],
-              ),
-            ),
-          );
-        }
-
-        if (!authProvider.isAuthenticated) {
-          // ✅ LoginScreen handles deep links internally via app_links
-          // and onAuthStateChange — no wrapper needed here.
-          return const LoginScreen();
-        }
-
-        return const _AdminCheckScreen();
+                ]))),
+          AuthStatus.unauthenticated =>
+            const LoginScreen(),
+          AuthStatus.authenticated =>
+            state.isAdmin
+                ? const _AdminGate()
+                : const CompanySetupScreen(),
+          AuthStatus.emailUnconfirmed =>
+            const _EmailConfirmationScreen(),
+          AuthStatus.emailConfirmed =>
+            const _EmailConfirmedScreen(),
+          AuthStatus.error =>
+            Scaffold(
+                body: Center(
+                    child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                  const Icon(Icons.error_outline,
+                      size: 64, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text(state.error ?? 'Unknown error'),
+                  const SizedBox(height: 24),
+                  FilledButton(
+                      onPressed: () => context
+                          .read<AuthBloc>()
+                          .add(const AuthCheckRequested()),
+                      child: const Text('Retry')),
+                ]))),
+        };
       },
     );
   }
 }
 
-// ─── Admin Check Screen ───────────────────────────────────────────
+// ─── Admin Gate ───────────────────────────────────────────────────
+// ✅ FIXED: Converted from StatelessWidget with fragile
+// addPostFrameCallback in build() to a proper StatefulWidget that
+// shows the admin navigation dialog in initState.
 
-class _AdminCheckScreen extends StatefulWidget {
-  const _AdminCheckScreen();
+class _AdminGate extends StatefulWidget {
+  const _AdminGate();
 
   @override
-  State<_AdminCheckScreen> createState() => _AdminCheckScreenState();
+  State<_AdminGate> createState() => _AdminGateState();
 }
 
-class _AdminCheckScreenState extends State<_AdminCheckScreen> {
-  bool _checking = true;
-  bool _isAdmin = false;
+class _AdminGateState extends State<_AdminGate> {
+  bool _dialogShown = false;
 
   @override
   void initState() {
     super.initState();
-    _checkAdmin();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showAdminDialog();
+    });
   }
 
-  Future<void> _checkAdmin() async {
-    try {
-      final adminService = AdminService();
-      _isAdmin = await adminService.isAdmin();
-    } catch (_) {
-      _isAdmin = false;
-    }
-    if (mounted) setState(() => _checking = false);
+  void _showAdminDialog() {
+    if (_dialogShown || !mounted) return;
+    _dialogShown = true;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.admin_panel_settings, color: Colors.blue),
+          SizedBox(width: 8),
+          Text('Admin Access'),
+        ]),
+        content: const Text(
+            'You have admin privileges. Where would you like to go?'),
+        actions: [
+          OutlinedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(
+                    builder: (_) =>
+                        const CompanySetupScreen()),
+                (route) => false,
+              );
+            },
+            child: const Text('User Dashboard'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(
+                    builder: (_) =>
+                        const AdminDashboardScreen()),
+                (route) => false,
+              );
+            },
+            icon: const Icon(Icons.dashboard),
+            label: const Text('Admin Dashboard'),
+            style: FilledButton.styleFrom(
+                backgroundColor: Colors.blue),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_checking) {
-      return const Scaffold(
-          body: Center(child: CircularProgressIndicator()));
-    }
+    return const Scaffold(
+        body: Center(child: CircularProgressIndicator()));
+  }
+}
 
-    if (_isAdmin) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            title: const Row(children: [
-              Icon(Icons.admin_panel_settings, color: Colors.blue),
-              SizedBox(width: 8),
-              Text('Admin Access'),
-            ]),
-            content: const Text(
-                'You have admin privileges. Where would you like to go?'),
-            actions: [
-              OutlinedButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(
-                        builder: (_) => const CompanySetupScreen()),
-                    (route) => false,
-                  );
-                },
-                child: const Text('User Dashboard'),
-              ),
-              FilledButton.icon(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(
-                        builder: (_) => const AdminDashboardScreen()),
-                    (route) => false,
-                  );
-                },
-                icon: const Icon(Icons.dashboard),
-                label: const Text('Admin Dashboard'),
-                style:
-                    FilledButton.styleFrom(backgroundColor: Colors.blue),
-              ),
+// ─── Email Confirmation Screen ────────────────────────────────────
+
+class _EmailConfirmationScreen extends StatelessWidget {
+  const _EmailConfirmationScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AuthBloc>().state;
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Theme.of(context).colorScheme.primary,
+              Theme.of(context)
+                  .colorScheme
+                  .primary
+                  .withValues(alpha: 0.8),
+              Theme.of(context).colorScheme.surface,
             ],
           ),
-        );
-      });
-      return const Scaffold(
-          body: Center(child: CircularProgressIndicator()));
-    }
+        ),
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius:
+                          BorderRadius.circular(25),
+                    ),
+                    child: Icon(Icons.email_rounded,
+                        size: 50,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary),
+                  ),
+                  const SizedBox(height: 32),
+                  Text(
+                    'Check Your Email',
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineSmall
+                        ?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'We sent a confirmation email to:\n${state.pendingEmail ?? ""}\n\n'
+                    'Tap the confirmation link in the email to verify your account. '
+                    'The app will open automatically and sign you in.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Colors.white
+                            .withValues(alpha: 0.85),
+                        fontSize: 15,
+                        height: 1.6),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white
+                          .withValues(alpha: 0.12),
+                      borderRadius:
+                          BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.info_outline,
+                            color: Colors.white
+                                .withValues(alpha: 0.8),
+                            size: 18),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'Clicking the link in Gmail will open this app directly.',
+                            style: TextStyle(
+                                color: Colors.white
+                                    .withValues(alpha: 0.8),
+                                fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: FilledButton(
+                      onPressed: () => context
+                          .read<AuthBloc>()
+                          .add(const AuthCheckRequested()),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Theme.of(context)
+                            .colorScheme
+                            .primary,
+                        shape: RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Back to Sign In',
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
-    return const CompanySetupScreen();
+// ─── Email Confirmed Screen ───────────────────────────────────────
+
+class _EmailConfirmedScreen extends StatelessWidget {
+  const _EmailConfirmedScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.green.shade700,
+              Colors.green.shade500,
+              Theme.of(context).colorScheme.surface,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius:
+                          BorderRadius.circular(25),
+                    ),
+                    child: const Icon(
+                        Icons.check_circle_rounded,
+                        size: 60,
+                        color: Colors.green),
+                  ),
+                  const SizedBox(height: 32),
+                  Text(
+                    'Email Confirmed!',
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineSmall
+                        ?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Your email has been successfully verified.\nYou can now sign in to your account.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Colors.white
+                            .withValues(alpha: 0.85),
+                        fontSize: 15,
+                        height: 1.6),
+                  ),
+                  const SizedBox(height: 40),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: FilledButton(
+                      onPressed: () {
+                        context
+                            .read<AuthBloc>()
+                            .add(const SignOutRequested());
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor:
+                            Colors.green.shade700,
+                        shape: RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Sign In Now',
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

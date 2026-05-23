@@ -1,5 +1,5 @@
 import '../../../core/constants/app_constants.dart';
-import '../../inventory_management/providers/inventory_provider.dart';
+import '../../inventory_management/models/inventory_item.dart';
 import 'report_utils.dart';
 
 class PreviewResult {
@@ -18,13 +18,14 @@ class PreviewResult {
 
 class ReportPreviewer {
   PreviewResult preview({
-    required InventoryProvider provider,
+    required List<InventoryItem> allItems,
     required String reportType,
     required Set<String> selectedFields,
     required String inventoryName,
   }) {
-    final filteredItems = ReportUtils.getFilteredItems(provider, reportType);
-    
+    final filteredItems =
+        ReportUtils.getFilteredItems(allItems, reportType);
+
     if (filteredItems.isEmpty) {
       return PreviewResult(
         data: null,
@@ -52,7 +53,8 @@ class ReportPreviewer {
 
     String? message;
     if (filteredItems.length > AppConstants.previewLimit) {
-      message = 'Showing first ${AppConstants.previewLimit} of $totalItems items';
+      message =
+          'Showing first ${AppConstants.previewLimit} of $totalItems items';
     }
 
     return PreviewResult(

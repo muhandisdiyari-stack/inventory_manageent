@@ -1,27 +1,21 @@
-import '../../inventory_management/providers/inventory_provider.dart';
 import '../../inventory_management/models/inventory_item.dart';
 import '../../../core/utils/date_utils.dart';
 
 class ReportUtils {
-  static List<InventoryItem> getFilteredItems(InventoryProvider provider, String reportType) {
-    final allItems = provider.getAllItems();
-    final items = <InventoryItem>[];
-    
-    for (var entry in allItems.entries) {
-      items.addAll(entry.value);
-    }
-    
+  static List<InventoryItem> getFilteredItems(
+      List<InventoryItem> allItems, String reportType) {
     switch (reportType) {
       case 'expiring':
-        return items.where((item) => item.isExpiringSoon).toList();
+        return allItems.where((item) => item.isExpiringSoon).toList();
       case 'expired':
-        return items.where((item) => item.isExpired).toList();
+        return allItems.where((item) => item.isExpired).toList();
       default:
-        return items;
+        return allItems;
     }
   }
 
-  static dynamic getFieldValue(InventoryItem item, String fieldName, String inventoryName) {
+  static dynamic getFieldValue(
+      InventoryItem item, String fieldName, String inventoryName) {
     switch (fieldName) {
       case 'Name':
         return item.name;
@@ -36,9 +30,13 @@ class ReportUtils {
       case 'Size':
         return item.size;
       case 'Production Date':
-        return item.productionDate != null ? formatDateOnly(item.productionDate) : '';
+        return item.productionDate != null
+            ? formatDateOnly(item.productionDate)
+            : '';
       case 'Expire Date':
-        return item.expireDate != null ? formatDateOnly(item.expireDate) : '';
+        return item.expireDate != null
+            ? formatDateOnly(item.expireDate)
+            : '';
       case 'Note':
         return item.note;
       case 'Quantity':
@@ -53,7 +51,8 @@ class ReportUtils {
   }
 
   static String sanitizeFileName(String name) {
-    return name.replaceAll(RegExp(r'[^\w\s-]'), '')
+    return name
+        .replaceAll(RegExp(r'[^\w\s-]'), '')
         .replaceAll(RegExp(r'\s+'), '_')
         .toLowerCase();
   }

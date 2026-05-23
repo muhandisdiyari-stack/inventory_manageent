@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../providers/inventory_list_provider.dart';
-import '../../inventory_management/services/inventory_service.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../bloc/inventory_list_bloc.dart';
+import '../../inventory_management/bloc/inventory_bloc.dart';
 import '../../inventory_management/screens/inventory_home_screen.dart';
 import '../../activity_log/screens/activity_log_screen.dart';
 import '../widgets/empty_state_widget.dart';
@@ -12,82 +12,45 @@ class InventorySelectionScreen extends StatefulWidget {
   const InventorySelectionScreen({super.key});
 
   @override
-  State<InventorySelectionScreen> createState() => _InventorySelectionScreenState();
+  State<InventorySelectionScreen> createState() =>
+      _InventorySelectionScreenState();
 }
 
 class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
-  bool _isInitializing = true;
-  String? _error;
-
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _initialize());
-  }
-
-  Future<void> _initialize() async {
-    if (!mounted) return;
-
-    setState(() {
-      _isInitializing = true;
-      _error = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<InventoryListBloc>().add(const LoadInventories());
     });
-
-    try {
-      final listProvider = context.read<InventoryListProvider>();
-      listProvider.initialize();
-      
-      if (!mounted) return;
-      setState(() => _isInitializing = false);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isInitializing = false;
-        _error = 'Failed to load inventories: ${e.toString()}';
-      });
-    }
   }
 
-  Future<void> _refreshInventories() async {
-    if (!mounted) return;
-
-    setState(() => _error = null);
-
-    try {
-      await context.read<InventoryListProvider>().refreshInventories();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = 'Failed to refresh: ${e.toString()}');
-    }
-  }
-
+  /// Opens an inventory by dispatching events to both BLoCs.
+  /// This ensures InventoryBloc is initialized before the home screen loads.
   void _openInventory(String id) {
-    if (!mounted) return;
+    // 1. Tell InventoryListBloc which inventory is selected
+    context.read<InventoryListBloc>().add(SelectInventory(id));
 
-    final listProvider = context.read<InventoryListProvider>();
-    context.read<InventoryService>();
-    
-    listProvider.selectInventory(id);
+    // 2. Tell InventoryBloc to initialize with this inventory ID
+    //    This replaces the old ChangeNotifierProxyProvider auto-sync behavior.
+    context.read<InventoryBloc>().add(InitializeInventory(id));
 
+    // 3. Navigate to the inventory home screen
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => const InventoryHomeScreen(),
       ),
     ).then((_) {
-      // Refresh list when returning
+      // Refresh inventory list when returning
       if (mounted) {
-        _refreshInventories();
+        context.read<InventoryListBloc>().add(const LoadInventories());
       }
     });
   }
 
   void _showCreateDialog() {
-    if (!mounted) return;
-    final listProvider = context.read<InventoryListProvider>();
-    final service = context.read<InventoryService>();
-
-    CreateInventoryDialog.show(context, listProvider, service);
+    CreateInventoryDialog.show(context);
   }
 
   void _openActivityLog() {
@@ -99,51 +62,56 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final listProvider = context.watch<InventoryListProvider>();
-    final service = context.read<InventoryService>();
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Inventory Pro'),
-        actions: [
-          IconButton(
-            tooltip: 'Activity Log',
-            icon: const Icon(Icons.history),
-            onPressed: _openActivityLog,
+    return BlocBuilder<InventoryListBloc, InventoryListState>(
+      builder: (context, state) {
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Inventory Pro'),
+            actions: [
+              IconButton(
+                tooltip: 'Activity Log',
+                icon: const Icon(Icons.history),
+                onPressed: _openActivityLog,
+              ),
+            ],
           ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showCreateDialog,
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('New Inventory'),
-        elevation: 4,
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      body: _isInitializing
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? _buildErrorState()
-              : RefreshIndicator(
-                  onRefresh: _refreshInventories,
-                  color: Theme.of(context).colorScheme.primary,
-                  backgroundColor: Theme.of(context).colorScheme.surface,
-                  displacement: 60,
-                  child: SafeArea(
-                    child: listProvider.inventories.isEmpty
-                        ? EmptyStateWidget(onCreateInventory: _showCreateDialog)
-                        : InventoryListWidget(
-                            inventories: listProvider.inventories,
-                            listProvider: listProvider,
-                            service: service,
-                            onOpenInventory: _openInventory,
-                          ),
-                  ),
-                ),
+          floatingActionButton: FloatingActionButton.extended(
+            onPressed: _showCreateDialog,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('New Inventory'),
+            elevation: 4,
+          ),
+          floatingActionButtonLocation:
+              FloatingActionButtonLocation.centerFloat,
+          body: state.isLoading && state.inventories.isEmpty
+              ? const Center(child: CircularProgressIndicator())
+              : state.error != null && state.inventories.isEmpty
+                  ? _buildErrorState(state.error!)
+                  : RefreshIndicator(
+                      onRefresh: () async {
+                        context
+                            .read<InventoryListBloc>()
+                            .add(const LoadInventories());
+                      },
+                      color: Theme.of(context).colorScheme.primary,
+                      backgroundColor: Theme.of(context).colorScheme.surface,
+                      displacement: 60,
+                      child: SafeArea(
+                        child: state.inventories.isEmpty
+                            ? EmptyStateWidget(
+                                onCreateInventory: _showCreateDialog)
+                            : InventoryListWidget(
+                                inventories: state.inventories,
+                                onOpenInventory: _openInventory,
+                              ),
+                      ),
+                    ),
+        );
+      },
     );
   }
 
-  Widget _buildErrorState() {
+  Widget _buildErrorState(String error) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -153,13 +121,14 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
             Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
             const SizedBox(height: 16),
             Text(
-              _error!,
+              error,
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.red[700]),
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
-              onPressed: _refreshInventories,
+              onPressed: () =>
+                  context.read<InventoryListBloc>().add(const LoadInventories()),
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
             ),

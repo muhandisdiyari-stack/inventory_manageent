@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import '../models/inventory_item.dart';
-import '../providers/inventory_provider.dart';
-import '../services/inventory_service.dart';
+import '../bloc/inventory_bloc.dart';
 import '../widgets/add_item_sheet.dart';
 import '../widgets/label_list_widget.dart';
 import '../widgets/items_list_widget.dart';
@@ -11,11 +10,9 @@ import '../../reports/screens/reports_screen.dart';
 import '../../settings/screens/settings_screen.dart';
 import '../../activity_log/screens/activity_log_screen.dart';
 import '../../import/screens/bulk_import_screen.dart';
-import '../../../core/constants/app_constants.dart';
-import '../../../core/services/activity_log_service.dart';
-import '../../../core/models/activity_log_entry.dart';
 import '../../company/screens/company_settings_screen.dart';
-
+import '../../../core/constants/app_constants.dart';
+import '../../../core/di/injection_container.dart';
 
 class InventoryHomeScreen extends StatefulWidget {
   const InventoryHomeScreen({super.key});
@@ -25,21 +22,15 @@ class InventoryHomeScreen extends StatefulWidget {
 }
 
 class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
-  String? _currentLabel;
   final _labelSearchController = TextEditingController();
   final _itemSearchController = TextEditingController();
   bool _showItemsView = false;
-  LabelSortType _labelSortType = LabelSortType.nameAsc;
-  bool _isRefreshing = false;
-  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeInventory();
-    });
-    
+    // Note: InventoryBloc is already initialized by InventorySelectionScreen
+    // before this screen is pushed. We listen to search controllers here.
     _labelSearchController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -55,98 +46,38 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     super.dispose();
   }
 
-  Future<void> _initializeInventory() async {
-    if (!mounted) return;
-    
-    setState(() {
-      _isRefreshing = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final provider = context.read<InventoryProvider>();
-      await provider.initializeCurrentInventory();
-
-      if (!mounted) return;
-
-      setState(() {
-        if (provider.hasLabels && _currentLabel == null) {
-          _currentLabel = provider.labels.first;
-        }
-        _isRefreshing = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isRefreshing = false;
-        _errorMessage = 'Failed to load inventory: ${e.toString()}';
-      });
-    }
-  }
-
-  Future<void> _refreshInventory() async {
-    if (!mounted) return;
-    
-    setState(() {
-      _isRefreshing = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final provider = context.read<InventoryProvider>();
-      await provider.initializeCurrentInventory();
-
-      if (!mounted) return;
-
-      setState(() {
-        if (_currentLabel != null && !provider.hasLabel(_currentLabel!)) {
-          _currentLabel = provider.hasLabels ? provider.labels.first : null;
-        }
-        _isRefreshing = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isRefreshing = false;
-        _errorMessage = 'Failed to refresh: ${e.toString()}';
-      });
-    }
-  }
-
   void _selectLabel(String label) {
+    context.read<InventoryBloc>().add(SelectLabel(label));
     setState(() {
-      _currentLabel = label;
       _showItemsView = true;
       _itemSearchController.clear();
-      _errorMessage = null;
     });
-  }
-
-  void _onSortChanged(LabelSortType sortType) {
-    setState(() => _labelSortType = sortType);
   }
 
   void _bulkImport() {
-    final provider = context.read<InventoryProvider>();
-    final inventoryId = provider.currentInventoryId;
-    
+    final state = context.read<InventoryBloc>().state;
+    final inventoryId = state.inventoryId;
+
     if (inventoryId == null) {
       _showSnackBar('No inventory selected');
       return;
     }
-    
+
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => BulkImportScreen(
           inventoryId: inventoryId,
-          inventoryName: provider.currentInventoryName ?? 'Inventory',
+          inventoryName: state.inventoryName ?? 'Inventory',
         ),
       ),
     ).then((_) {
       if (mounted) {
-        context.read<InventoryProvider>().initializeCurrentInventory();
-        setState(() {});
+        // Refresh inventory data after bulk import
+        final currentId = context.read<InventoryBloc>().state.inventoryId;
+        if (currentId != null) {
+          context.read<InventoryBloc>().add(InitializeInventory(currentId));
+        }
       }
     });
   }
@@ -166,22 +97,18 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
         submitLabel: 'Save',
         controller: controller,
         onSubmit: (name) async {
-          final provider = context.read<InventoryProvider>();
-          if (provider.hasLabel(name)) {
+          final state = context.read<InventoryBloc>().state;
+          if (state.labels.contains(name)) {
             _showSnackBar('"$name" already exists', isError: true);
             return false;
           }
-          
+
           try {
-            await provider.createLabel(name);
-            if (!mounted) return false;
-            
-            setState(() => _currentLabel = name);
+            context.read<InventoryBloc>().add(CreateLabel(name));
             _labelSearchController.clear();
             _showSnackBar('✅ "$name" created');
             return true;
           } catch (e) {
-            if (!mounted) return false;
             _showSnackBar('Error creating label: $e', isError: true);
             return false;
           }
@@ -206,25 +133,21 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
         controller: controller,
         onSubmit: (newName) async {
           if (newName == oldLabel) return true;
-          
-          final provider = context.read<InventoryProvider>();
-          if (provider.hasLabel(newName)) {
+
+          final state = context.read<InventoryBloc>().state;
+          if (state.labels.contains(newName)) {
             _showSnackBar('"$newName" already exists', isError: true);
             return false;
           }
-          
+
           try {
-            await provider.renameLabel(oldLabel, newName);
-            if (!mounted) return false;
-            
-            setState(() {
-              if (_currentLabel == oldLabel) _currentLabel = newName;
-            });
+            context
+                .read<InventoryBloc>()
+                .add(RenameLabel(oldLabel, newName));
             _labelSearchController.clear();
             _showSnackBar('Renamed to "$newName"');
             return true;
           } catch (e) {
-            if (!mounted) return false;
             _showSnackBar('Error renaming label: $e', isError: true);
             return false;
           }
@@ -238,35 +161,25 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Label'),
-        content: Text('Delete "$label" and all its items?\n\nThis cannot be undone.'),
+        content: Text(
+            'Delete "$label" and all its items?\n\nThis cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () async {
+            onPressed: () {
+              final bloc = context.read<InventoryBloc>();
               Navigator.pop(ctx);
-              
-              try {
-                final provider = context.read<InventoryProvider>();
-                await provider.deleteLabel(label);
-
-                if (!mounted) return;
-
-                setState(() {
-                  if (_currentLabel == label) {
-                    _currentLabel = provider.hasLabels ? provider.labels.first : null;
-                  }
-                });
-                _labelSearchController.clear();
-                _showSnackBar('🗑️ "$label" deleted');
-              } catch (e) {
-                if (!mounted) return;
-                _showSnackBar('Error deleting label: $e', isError: true);
-              }
+              bloc.add(DeleteLabel(label));
+              _labelSearchController.clear();
+              // Reset items view when the selected label is deleted
+              setState(() => _showItemsView = false);
+              _showSnackBar('🗑️ "$label" deleted');
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child:
+                const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -274,33 +187,21 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
   }
 
   void _showAddItemDialog({InventoryItem? existingItem}) {
-    if (_currentLabel == null) {
+    final state = context.read<InventoryBloc>().state;
+    if (state.selectedLabel == null) {
       _showSnackBar('Select a label first');
       return;
     }
 
-    final provider = context.read<InventoryProvider>();
-
     AddItemSheet.show(
       context,
-      label: _currentLabel!,
-      settings: provider.currentSettings,
+      label: state.selectedLabel!,
+      settings: state.settings,
       existingItem: existingItem,
-      inventoryName: provider.currentInventoryName,
-      inventoryId: provider.currentInventoryId,
+      inventoryName: state.inventoryName,
+      inventoryId: state.inventoryId,
       onSave: (item) async {
-        try {
-          if (provider.currentInventoryId == null) {
-            _showSnackBar('No inventory selected — please select one first', isError: true);
-            return;
-          }
-          await provider.saveItem(item);
-          if (!mounted) return;
-          setState(() {});
-        } catch (e) {
-          if (!mounted) return;
-          _showSnackBar('Error saving item: $e', isError: true);
-        }
+        context.read<InventoryBloc>().add(SaveItem(item));
       },
     );
   }
@@ -309,54 +210,19 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     _showAddItemDialog(existingItem: item);
   }
 
-  Future<void> _adjustQuantity(InventoryItem item, int delta) async {
-    try {
-      final oldQuantity = item.quantity;
-      final newQuantity = (item.quantity + delta).clamp(0, InventoryItem.maxQuantity);
-      
-      if (oldQuantity == newQuantity) return;
-      
-      item.quantity = newQuantity;
-      item.modified = DateTime.now();
-      await item.save();
-
-      if (!mounted) return;
-
-      final provider = context.read<InventoryProvider>();
-      final logEntry = ActivityLogEntry(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        timestamp: DateTime.now(),
-        action: 'modified',
-        entityType: 'item',
-        entityName: item.displayName,
-        inventoryId: provider.currentInventoryId,
-        inventoryName: provider.currentInventoryName,
-        labelName: item.label,
-        details: 'Quantity adjusted',
-        changes: {
-          'quantity': FieldChange(
-            oldValue: oldQuantity.toString(),
-            newValue: item.quantity.toString(),
-          ),
-        },
-      );
-      await ActivityLogService().addLog(logEntry);
-
-      setState(() {});
-    } catch (e) {
-      if (!mounted) return;
-      _showSnackBar('Error updating quantity: $e', isError: true);
-    }
+  void _adjustQuantity(InventoryItem item, int delta) {
+    context.read<InventoryBloc>().add(AdjustQuantity(item, delta));
   }
 
   Future<void> _deleteItem(InventoryItem item) async {
     final itemName = item.displayName;
+    final bloc = context.read<InventoryBloc>();
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Remove Item'),
-        content: Text('Remove "$itemName" from ${_currentLabel ?? "label"}?'),
+        content: Text('Remove "$itemName" from ${item.label}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -364,38 +230,16 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove', style: TextStyle(color: Colors.red)),
+            child:
+                const Text('Remove', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
 
-    if (confirmed != true || !mounted) return;
-
-    try {
-      final provider = context.read<InventoryProvider>();
-
-      await item.delete();
-
-      final logEntry = ActivityLogEntry(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        timestamp: DateTime.now(),
-        action: 'deleted',
-        entityType: 'item',
-        entityName: itemName,
-        inventoryId: provider.currentInventoryId,
-        inventoryName: provider.currentInventoryName,
-        labelName: item.label,
-        details: 'Item deleted: "$itemName"',
-      );
-      await ActivityLogService().addLog(logEntry);
-
-      if (!mounted) return;
-      setState(() {});
+    if (confirmed == true) {
+      bloc.add(DeleteItem(item));
       _showSnackBar('Removed "$itemName"');
-    } catch (e) {
-      if (!mounted) return;
-      _showSnackBar('Error removing item: $e', isError: true);
     }
   }
 
@@ -409,353 +253,363 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
           backgroundColor: isError ? Colors.red : null,
           duration: AppConstants.snackbarDuration,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(40)),
           margin: const EdgeInsets.all(20),
         ),
       );
   }
 
-  // ─── Build Method ──────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<InventoryProvider>();
-    final service = context.read<InventoryService>();
     final width = MediaQuery.of(context).size.width;
     final isMobile = width < AppConstants.mobileBreakpoint;
 
-    final sortedLabels = service.getSortedLabels(sortType: _labelSortType);
-
-    return PopScope(
-      canPop: !_showItemsView || !isMobile,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && _showItemsView && isMobile) {
-          setState(() => _showItemsView = false);
+    return BlocBuilder<InventoryBloc, InventoryState>(
+      builder: (context, state) {
+        // Guard: if selectedLabel was cleared externally (e.g. label deleted
+        // from another session), snap back to labels view on mobile.
+        if (_showItemsView && state.selectedLabel == null) {
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => setState(() => _showItemsView = false),
+          );
         }
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: Icon(
-              (_showItemsView && isMobile) ? Icons.arrow_back : Icons.arrow_back,
-            ),
-            onPressed: () {
-              if (_showItemsView && isMobile) {
-                setState(() => _showItemsView = false);
-              } else {
-                Navigator.pop(context);
-              }
-            },
-          ),
-          title: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _showItemsView && _currentLabel != null
-                    ? _currentLabel!
-                    : provider.currentInventoryName ?? 'Inventory',
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-              ),
-              if (_showItemsView && _currentLabel != null)
-                Text(
-                  provider.currentInventoryName ?? '',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
+
+        // Show loading only during initial load, not during subsequent
+        // refreshes that already have data.
+        if (state.isLoading && !state.isInitialized) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        // Show error state only when we have no data at all
+        if (state.error != null && !state.isInitialized) {
+          return Scaffold(
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.error_outline,
+                        size: 64, color: Colors.red[300]),
+                    const SizedBox(height: 16),
+                    Text(state.error!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.red[700])),
+                    const SizedBox(height: 24),
+                    FilledButton.icon(
+                      onPressed: () {
+                        final currentId = state.inventoryId;
+                        if (currentId != null) {
+                          context.read<InventoryBloc>().add(
+                                InitializeInventory(currentId),
+                              );
+                        }
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
                 ),
-            ],
-          ),
-          actions: [
-            // Only show actions when not in mobile items view
-            if (!isMobile || !_showItemsView) ...[
-              IconButton(
-                tooltip: 'Members & Permissions',
-                icon: const Icon(Icons.people),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CompanySettingsScreen(
-                      inventoryId: provider.currentInventoryId ?? 'default',
-                      inventoryName: provider.currentInventoryName ?? 'Inventory',
+              ),
+            ),
+          );
+        }
+
+        return PopScope(
+          canPop: !_showItemsView || !isMobile,
+          onPopInvokedWithResult: (didPop, result) {
+            if (!didPop && _showItemsView && isMobile) {
+              setState(() => _showItemsView = false);
+            }
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () {
+                  if (_showItemsView && isMobile) {
+                    setState(() => _showItemsView = false);
+                  } else {
+                    Navigator.pop(context);
+                  }
+                },
+              ),
+              title: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _showItemsView && state.selectedLabel != null
+                        ? state.selectedLabel!
+                        : state.inventoryName ?? 'Inventory',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w800, fontSize: 16),
+                  ),
+                  if (_showItemsView && state.selectedLabel != null)
+                    Text(
+                      state.inventoryName ?? '',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                ],
+              ),
+              actions: [
+                if (!isMobile || !_showItemsView) ...[
+                  IconButton(
+                    tooltip: 'Members & Permissions',
+                    icon: const Icon(Icons.people),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => CompanySettingsScreen(
+                          inventoryId: state.inventoryId ?? 'default',
+                          inventoryName:
+                              state.inventoryName ?? 'Inventory',
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
-              IconButton(
-                tooltip: 'Bulk Import',
-                icon: const Icon(Icons.cloud_upload),
-                onPressed: _bulkImport,
-              ),
-              IconButton(
-                tooltip: 'Activity Log',
-                icon: const Icon(Icons.history),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ActivityLogScreen()),
-                ),
-              ),
-              IconButton(
-                tooltip: 'Search',
-                icon: const Icon(Icons.search),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SearchScreen()),
-                ),
-              ),
-              IconButton(
-                tooltip: 'Reports',
-                icon: const Icon(Icons.assessment),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ReportsScreen()),
-                ),
-              ),
-              IconButton(
-                tooltip: 'Settings',
-                icon: const Icon(Icons.settings),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                ),
-              ),
-            ],
-          ],
-        ),
-        body: _isRefreshing
-            ? const Center(child: CircularProgressIndicator())
-            : RefreshIndicator(
-                onRefresh: _refreshInventory,
-                color: Theme.of(context).colorScheme.primary,
-                backgroundColor: Theme.of(context).colorScheme.surface,
-                displacement: 60,
-                child: SafeArea(
-                  child: _errorMessage != null
-                      ? _buildErrorState()
-                      : isMobile
-                          ? _buildMobileLayout(provider, sortedLabels, service)
-                          : _buildDesktopLayout(provider, width, sortedLabels, service),
-                ),
-              ),
-      ),
+                  IconButton(
+                    tooltip: 'Bulk Import',
+                    icon: const Icon(Icons.cloud_upload),
+                    onPressed: _bulkImport,
+                  ),
+                  IconButton(
+                    tooltip: 'Activity Log',
+                    icon: const Icon(Icons.history),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const ActivityLogScreen()),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Search',
+                    icon: const Icon(Icons.search),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const SearchScreen()),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Reports',
+                    icon: const Icon(Icons.assessment),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const ReportsScreen()),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Settings',
+                    icon: const Icon(Icons.settings),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const SettingsScreen()),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            body: SafeArea(
+              child: isMobile
+                  ? _buildMobileLayout(state)
+                  : _buildDesktopLayout(state, width),
+            ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildErrorState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
-            const SizedBox(height: 16),
-            Text(
-              _errorMessage!,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.red[700]),
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _refreshInventory,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDesktopLayout(
-    InventoryProvider provider,
-    double width,
-    List<String> sortedLabels,
-    InventoryService service,
-  ) {
-    final sidebarWidth = (width * AppConstants.sidebarWidthRatio).clamp(250.0, 400.0);
+  Widget _buildDesktopLayout(InventoryState state, double width) {
+    final sidebarWidth =
+        (width * AppConstants.sidebarWidthRatio).clamp(250.0, 400.0);
 
     return Row(
       children: [
         SizedBox(
           width: sidebarWidth,
-          child: SafeArea(
-            child: Stack(
-              children: [
-                Column(
-                  children: [
-                    // Search bar
-                    Padding(
-                      padding: const EdgeInsets.all(10.0),
-                      child: TextField(
-                        controller: _labelSearchController,
-                        decoration: InputDecoration(
-                          hintText: 'Search labels…',
-                          prefixIcon: const Icon(Icons.search, size: 16),
-                          suffixIcon: _labelSearchController.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.clear, size: 16),
-                                  onPressed: () => _labelSearchController.clear(),
-                                )
-                              : null,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
-                          filled: true,
-                          fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                        ),
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(10.0),
+                    child: TextField(
+                      controller: _labelSearchController,
+                      decoration: InputDecoration(
+                        hintText: 'Search labels…',
+                        prefixIcon: const Icon(Icons.search, size: 16),
+                        suffixIcon: _labelSearchController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 16),
+                                onPressed: () =>
+                                    _labelSearchController.clear(),
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(40)),
+                        filled: true,
+                        fillColor: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                       ),
                     ),
-                    // Labels list
-                    Expanded(
-                      child: LabelListWidget(
-                        labels: sortedLabels,
-                        currentLabel: _currentLabel,
-                        searchController: _labelSearchController,
-                        onSelectLabel: _selectLabel,
-                        onRenameLabel: _showRenameDialog,
-                        onDeleteLabel: _deleteLabel,
-                        sortType: _labelSortType,
-                        onSortChanged: _onSortChanged,
-                        inventoryService: service,
-                      ),
+                  ),
+                  Expanded(
+                    child: LabelListWidget(
+                      labels: state.labels,
+                      currentLabel: state.selectedLabel,
+                      searchController: _labelSearchController,
+                      onSelectLabel: _selectLabel,
+                      onRenameLabel: _showRenameDialog,
+                      onDeleteLabel: _deleteLabel,
+                      sortType: state.sortType,
+                      onSortChanged: (sortType) {
+                        context
+                            .read<InventoryBloc>()
+                            .add(SetLabelSortType(sortType));
+                      },
+                      inventoryService: InjectionContainer.inventoryService,
                     ),
-                  ],
+                  ),
+                ],
+              ),
+              Positioned(
+                bottom: 24,
+                right: 24,
+                child: FloatingActionButton(
+                  heroTag: 'add_label_desktop',
+                  tooltip: 'New label',
+                  onPressed: _showCreateLabelDialog,
+                  child: const Icon(Icons.add),
                 ),
-                // Add label FAB
+              ),
+            ],
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        Expanded(
+          child: Stack(
+            children: [
+              state.selectedLabel == null
+                  ? _buildEmptyState()
+                  : ItemsListWidget(
+                      items: state.currentItems,
+                      label: state.selectedLabel!,
+                      searchController: _itemSearchController,
+                      onAdjustQuantity: _adjustQuantity,
+                      onDeleteItem: _deleteItem,
+                      onAddItem: () => _showAddItemDialog(),
+                      onEditItem: _editItem,
+                    ),
+              if (state.selectedLabel != null)
                 Positioned(
                   bottom: 24,
                   right: 24,
                   child: FloatingActionButton(
-                    heroTag: 'add_label_desktop',
-                    tooltip: 'New label',
-                    onPressed: _showCreateLabelDialog,
-                    child: const Icon(Icons.add),
+                    heroTag: 'add_item_desktop',
+                    tooltip: 'Add item',
+                    onPressed: () => _showAddItemDialog(),
+                    child: const Icon(Icons.add_box),
                   ),
                 ),
-              ],
-            ),
-          ),
-        ),
-        const VerticalDivider(width: 1),
-        // Items panel
-        Expanded(
-          child: SafeArea(
-            child: Stack(
-              children: [
-                _currentLabel == null
-                    ? _buildEmptyState()
-                    : ItemsListWidget(
-                        items: provider.getItems(_currentLabel!),
-                        label: _currentLabel!,
-                        searchController: _itemSearchController,
-                        onAdjustQuantity: _adjustQuantity,
-                        onDeleteItem: _deleteItem,
-                        onAddItem: () => _showAddItemDialog(),
-                        onEditItem: _editItem,
-                      ),
-                if (_currentLabel != null)
-                  Positioned(
-                    bottom: 24,
-                    right: 24,
-                    child: FloatingActionButton(
-                      heroTag: 'add_item_desktop',
-                      tooltip: 'Add item',
-                      onPressed: () => _showAddItemDialog(),
-                      child: const Icon(Icons.add_box),
-                    ),
-                  ),
-              ],
-            ),
+            ],
           ),
         ),
       ],
     );
   }
 
-  Widget _buildMobileLayout(
-    InventoryProvider provider,
-    List<String> sortedLabels,
-    InventoryService service,
-  ) {
-    if (_showItemsView && _currentLabel != null) {
-      return SafeArea(
-        child: Stack(
-          children: [
-            ItemsListWidget(
-              items: provider.getItems(_currentLabel!),
-              label: _currentLabel!,
-              searchController: _itemSearchController,
-              onAdjustQuantity: _adjustQuantity,
-              onDeleteItem: _deleteItem,
-              onAddItem: () => _showAddItemDialog(),
-              onEditItem: _editItem,
-            ),
-            Positioned(
-              bottom: AppConstants.fabBottomMargin,
-              right: AppConstants.fabRightMargin,
-              child: FloatingActionButton(
-                heroTag: 'add_item_mobile',
-                tooltip: 'Add item',
-                onPressed: () => _showAddItemDialog(),
-                child: const Icon(Icons.add_box),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return SafeArea(
-      child: Stack(
+  Widget _buildMobileLayout(InventoryState state) {
+    if (_showItemsView && state.selectedLabel != null) {
+      return Stack(
         children: [
-          Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(10.0),
-                child: TextField(
-                  controller: _labelSearchController,
-                  decoration: InputDecoration(
-                    hintText: 'Search labels…',
-                    prefixIcon: const Icon(Icons.search, size: 16),
-                    suffixIcon: _labelSearchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear, size: 16),
-                            onPressed: () => _labelSearchController.clear(),
-                          )
-                        : null,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
-                    filled: true,
-                    fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: LabelListWidget(
-                  labels: sortedLabels,
-                  currentLabel: _currentLabel,
-                  searchController: _labelSearchController,
-                  onSelectLabel: _selectLabel,
-                  onRenameLabel: _showRenameDialog,
-                  onDeleteLabel: _deleteLabel,
-                  sortType: _labelSortType,
-                  onSortChanged: _onSortChanged,
-                  inventoryService: service,
-                ),
-              ),
-            ],
+          ItemsListWidget(
+            items: state.currentItems,
+            label: state.selectedLabel!,
+            searchController: _itemSearchController,
+            onAdjustQuantity: _adjustQuantity,
+            onDeleteItem: _deleteItem,
+            onAddItem: () => _showAddItemDialog(),
+            onEditItem: _editItem,
           ),
           Positioned(
             bottom: AppConstants.fabBottomMargin,
             right: AppConstants.fabRightMargin,
             child: FloatingActionButton(
-              heroTag: 'add_label_mobile',
-              tooltip: 'New label',
-              onPressed: _showCreateLabelDialog,
-              child: const Icon(Icons.add),
+              heroTag: 'add_item_mobile',
+              tooltip: 'Add item',
+              onPressed: () => _showAddItemDialog(),
+              child: const Icon(Icons.add_box),
             ),
           ),
         ],
-      ),
+      );
+    }
+
+    return Stack(
+      children: [
+        Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(10.0),
+              child: TextField(
+                controller: _labelSearchController,
+                decoration: InputDecoration(
+                  hintText: 'Search labels…',
+                  prefixIcon: const Icon(Icons.search, size: 16),
+                  suffixIcon: _labelSearchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 16),
+                          onPressed: () => _labelSearchController.clear(),
+                        )
+                      : null,
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(40)),
+                  filled: true,
+                  fillColor: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest,
+                ),
+              ),
+            ),
+            Expanded(
+              child: LabelListWidget(
+                labels: state.labels,
+                currentLabel: state.selectedLabel,
+                searchController: _labelSearchController,
+                onSelectLabel: _selectLabel,
+                onRenameLabel: _showRenameDialog,
+                onDeleteLabel: _deleteLabel,
+                sortType: state.sortType,
+                onSortChanged: (sortType) {
+                  context.read<InventoryBloc>().add(SetLabelSortType(sortType));
+                },
+                inventoryService: InjectionContainer.inventoryService,
+              ),
+            ),
+          ],
+        ),
+        Positioned(
+          bottom: AppConstants.fabBottomMargin,
+          right: AppConstants.fabRightMargin,
+          child: FloatingActionButton(
+            heroTag: 'add_label_mobile',
+            tooltip: 'New label',
+            onPressed: _showCreateLabelDialog,
+            child: const Icon(Icons.add),
+          ),
+        ),
+      ],
     );
   }
 
@@ -771,7 +625,8 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
               color: Colors.grey[200],
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Icon(Icons.folder_open, size: 28, color: Colors.grey),
+            child:
+                const Icon(Icons.folder_open, size: 28, color: Colors.grey),
           ),
           const SizedBox(height: 16),
           const Text(
@@ -787,7 +642,10 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
           Text(
             'Pull down to refresh',
             style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.4),
               fontSize: 12,
             ),
           ),
@@ -869,7 +727,6 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Drag handle
           Center(
             child: Container(
               width: 40,
@@ -883,9 +740,10 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
           const SizedBox(height: 18),
           Text(
             widget.title,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
+            style: Theme.of(context)
+                .textTheme
+                .headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 16),
           TextField(
@@ -894,7 +752,8 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
             textCapitalization: TextCapitalization.words,
             decoration: InputDecoration(
               hintText: widget.hint,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14)),
               filled: true,
               errorText: _error,
             ),
@@ -909,7 +768,8 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
                   onPressed: _saving ? null : () => Navigator.pop(context),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(40)),
                   ),
                   child: const Text('Cancel'),
                 ),
@@ -920,13 +780,15 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
                   onPressed: _saving ? null : _submit,
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(40)),
                   ),
                   child: _saving
                       ? const SizedBox(
                           height: 18,
                           width: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child:
+                              CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Text(
                           widget.submitLabel,

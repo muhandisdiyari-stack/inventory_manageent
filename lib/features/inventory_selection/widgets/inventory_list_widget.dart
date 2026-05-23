@@ -2,21 +2,14 @@ import 'package:flutter/material.dart';
 import '../../search/screens/search_screen.dart';
 import 'inventory_card.dart';
 import '../models/inventory_list_item.dart';
-import '../providers/inventory_list_provider.dart';
-import '../../inventory_management/services/inventory_service.dart';
 
 class InventoryListWidget extends StatelessWidget {
   final List<InventoryListItem> inventories;
-  final InventoryListProvider listProvider;
-  final InventoryService service;
-  // Fixed: Simplified callback signature
   final void Function(String) onOpenInventory;
 
   const InventoryListWidget({
     super.key,
     required this.inventories,
-    required this.listProvider,
-    required this.service,
     required this.onOpenInventory,
   });
 
@@ -96,8 +89,6 @@ class InventoryListWidget extends StatelessWidget {
             final inventory = inventories[index];
             return InventoryCard(
               inventory: inventory,
-              listProvider: listProvider,
-              service: service,
               onOpenInventory: onOpenInventory,
             );
           },

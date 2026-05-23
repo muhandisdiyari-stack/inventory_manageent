@@ -32,13 +32,16 @@ class LabelListWidget extends StatelessWidget {
 
     final filteredLabels = searchQuery.isEmpty
         ? labels
-        : labels.where((l) => l.toLowerCase().contains(searchQuery)).toList();
+        : labels
+            .where((l) => l.toLowerCase().contains(searchQuery))
+            .toList();
 
     return Column(
       children: [
         // Sort dropdown
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             children: [
               Icon(Icons.sort, size: 16, color: Colors.grey[600]),
@@ -50,7 +53,8 @@ class LabelListWidget extends StatelessWidget {
                     isDense: true,
                     style: TextStyle(
                       fontSize: 13,
-                      color: Theme.of(context).colorScheme.onSurface,
+                      color:
+                          Theme.of(context).colorScheme.onSurface,
                     ),
                     items: const [
                       DropdownMenuItem(
@@ -96,7 +100,7 @@ class LabelListWidget extends StatelessWidget {
             ],
           ),
         ),
-        
+
         // Labels list
         Expanded(
           child: labels.isEmpty
@@ -106,17 +110,21 @@ class LabelListWidget extends StatelessWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
+                          Icon(Icons.search_off,
+                              size: 48,
+                              color: Colors.grey[400]),
                           const SizedBox(height: 12),
                           Text(
                             'No labels match "$searchQuery"',
-                            style: TextStyle(color: Colors.grey[600]),
+                            style: TextStyle(
+                                color: Colors.grey[600]),
                           ),
                         ],
                       ),
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 4),
                       itemCount: filteredLabels.length,
                       itemBuilder: (context, index) {
                         final label = filteredLabels[index];
@@ -134,14 +142,17 @@ class LabelListWidget extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      margin:
+          const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       color: isSelected ? colorScheme.primaryContainer : null,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () => onSelectLabel(label),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 12, vertical: 10),
           child: Row(
             children: [
               // Label icon
@@ -157,11 +168,14 @@ class LabelListWidget extends StatelessWidget {
                 child: Icon(
                   Icons.label,
                   size: 20,
-                  color: isSelected ? colorScheme.primary : colorScheme.onSurface.withValues(alpha: 0.5),
+                  color: isSelected
+                      ? colorScheme.primary
+                      : colorScheme.onSurface
+                          .withValues(alpha: 0.5),
                 ),
               ),
               const SizedBox(width: 12),
-              
+
               // Label info
               Expanded(
                 child: Column(
@@ -170,7 +184,9 @@ class LabelListWidget extends StatelessWidget {
                     Text(
                       label,
                       style: TextStyle(
-                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: isSelected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                         fontSize: 14,
                         color: isSelected
                             ? colorScheme.onPrimaryContainer
@@ -185,14 +201,15 @@ class LabelListWidget extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 11,
                           color: isSelected
-                              ? colorScheme.onPrimaryContainer.withValues(alpha: 0.6)
+                              ? colorScheme.onPrimaryContainer
+                                  .withValues(alpha: 0.6)
                               : Colors.grey[500],
                         ),
                       ),
                   ],
                 ),
               ),
-              
+
               // Popup menu
               PopupMenuButton<String>(
                 onSelected: (value) {
@@ -209,7 +226,8 @@ class LabelListWidget extends StatelessWidget {
                   Icons.more_vert,
                   size: 18,
                   color: isSelected
-                      ? colorScheme.onPrimaryContainer.withValues(alpha: 0.6)
+                      ? colorScheme.onPrimaryContainer
+                          .withValues(alpha: 0.6)
                       : Colors.grey[500],
                 ),
                 itemBuilder: (context) => [
@@ -227,9 +245,12 @@ class LabelListWidget extends StatelessWidget {
                     value: 'delete',
                     child: Row(
                       children: [
-                        Icon(Icons.delete, size: 18, color: Colors.red),
+                        Icon(Icons.delete,
+                            size: 18, color: Colors.red),
                         SizedBox(width: 8),
-                        Text('Delete', style: TextStyle(color: Colors.red)),
+                        Text('Delete',
+                            style:
+                                TextStyle(color: Colors.red)),
                       ],
                     ),
                   ),
@@ -247,7 +268,8 @@ class LabelListWidget extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.label_off, size: 48, color: Colors.grey[400]),
+          Icon(Icons.label_off,
+              size: 48, color: Colors.grey[400]),
           const SizedBox(height: 12),
           Text(
             'No labels yet',

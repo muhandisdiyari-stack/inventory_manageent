@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
-import '../../inventory_management/providers/inventory_provider.dart';
-import '../services/csv_service.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../inventory_management/bloc/inventory_bloc.dart';
+import '../../inventory_management/models/inventory_item.dart';
+import '../bloc/reports_bloc.dart';
 import '../widgets/report_type_card.dart';
 import '../widgets/field_selector_card.dart';
 import '../widgets/action_buttons.dart';
 import '../widgets/generated_report_card.dart';
 import '../widgets/preview_card.dart';
 import '../widgets/progress_view.dart';
-import '../features/report_generator.dart';
-import '../features/report_previewer.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -20,262 +18,78 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  final Set<String> _selectedFields = {'Name', 'Code', 'Label', 'Quantity', 'Inventory'};
-  String _reportType = 'all';
-  bool _isGenerating = false;
-  double _progress = 0;
-  String? _statusMessage;
-  List<List<dynamic>>? _previewData;
-  String? _lastGeneratedCsv;
-  String? _lastFileName;
-  int _totalItems = 0;
-  String? _cachedInventoryName;
-  String? _errorMessage;
-
-  late final CsvService _csvService;
-  late final ReportGenerator _reportGenerator;
-  late final ReportPreviewer _reportPreviewer;
-
   @override
   void initState() {
     super.initState();
-    _csvService = CsvService();
-    _reportGenerator = ReportGenerator(csvService: _csvService);
-    _reportPreviewer = ReportPreviewer();
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeFromProvider();
-    });
-  }
+      context.read<ReportsBloc>().add(const InitializeReportFields());
+      final inventoryState = context.read<InventoryBloc>().state;
 
-  void _initializeFromProvider() {
-    if (!mounted) return;
-    try {
-      final provider = context.read<InventoryProvider>();
-      _cachedInventoryName = provider.currentInventoryName;
-      final settings = provider.currentSettings;
-      if (settings != null) {
-        for (var field in settings.activeFields) {
-          _selectedFields.add(field.fieldName);
-        }
-      }
-      _selectedFields.add('Inventory');
-      setState(() {});
-    } catch (e) {
-      debugPrint('Error initializing report fields: $e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final provider = context.watch<InventoryProvider>();
-    final availableFields = _getAvailableFields(provider);
-    _cachedInventoryName = provider.currentInventoryName;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Generate Report', style: TextStyle(fontSize: 16)),
-            Text(
-              _cachedInventoryName ?? '',
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.primary,
+      final settings = inventoryState.settings;
+      if (settings != null && settings.customFieldNames.isNotEmpty) {
+        context.read<ReportsBloc>().add(
+              UpdateAvailableFields(
+                customFieldNames: settings.customFieldNames,
               ),
-            ),
-          ],
-        ),
-      ),
-      body: _isGenerating
-          ? ProgressView(
-              progress: _progress,
-              statusMessage: _statusMessage,
-            )
-          : _buildMainContent(availableFields, provider),
-    );
-  }
-
-  Widget _buildMainContent(List<String> availableFields, InventoryProvider provider) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        // Error message
-        if (_errorMessage != null)
-          Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.red.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.error_outline, color: Colors.red, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _errorMessage!,
-                    style: const TextStyle(color: Colors.red, fontSize: 13),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 16),
-                  onPressed: () => setState(() => _errorMessage = null),
-                ),
-              ],
-            ),
-          ),
-        
-        ReportTypeCard(
-          selectedType: _reportType,
-          onTypeChanged: (type) => setState(() => _reportType = type),
-        ),
-        const SizedBox(height: 16),
-        FieldSelectorCard(
-          availableFields: availableFields,
-          selectedFields: _selectedFields,
-          onSelectionChanged: () => setState(() {}),
-        ),
-        const SizedBox(height: 24),
-        ActionButtons(
-          hasSelection: _selectedFields.isNotEmpty,
-          onPreview: () => _previewReport(provider),
-          onDownload: () => _generateAndSaveReport(provider),
-        ),
-        if (_lastGeneratedCsv != null) ...[
-          const SizedBox(height: 16),
-          GeneratedReportCard(
-            fileName: _lastFileName,
-            totalItems: _totalItems,
-            csvData: _lastGeneratedCsv,
-            onDownloadAgain: _downloadAgain,
-            onCopyToClipboard: _copyToClipboard,
-            csvService: _csvService,
-          ),
-        ],
-        if (_previewData != null && _previewData!.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          PreviewCard(
-            previewData: _previewData!,
-            totalItems: _totalItems,
-            onClear: () => setState(() => _previewData = null),
-          ),
-        ],
-      ],
-    );
-  }
-
-  List<String> _getAvailableFields(InventoryProvider provider) {
-    final fields = [
-      'Name', 'Code', 'Barcode', 'Color', 'Material', 'Size',
-      'Production Date', 'Expire Date', 'Note', 'Quantity', 'Label', 'Inventory',
-    ];
-    final settings = provider.currentSettings;
-    if (settings != null) {
-      fields.addAll(settings.customFieldNames);
-    }
-    return fields;
-  }
-
-  void _previewReport(InventoryProvider provider) {
-    setState(() => _errorMessage = null);
-
-    try {
-      final result = _reportPreviewer.preview(
-        provider: provider,
-        reportType: _reportType,
-        selectedFields: _selectedFields,
-        inventoryName: _cachedInventoryName ?? 'Unknown',
-      );
-
-      if (result.error != null) {
-        setState(() => _errorMessage = result.error);
-        return;
+            );
       }
 
-      setState(() {
-        _previewData = result.data;
-        _totalItems = result.totalItems;
-      });
-
-      if (result.message != null && mounted) {
-        _showSnackBar(result.message!);
+      if (inventoryState.inventoryId != null) {
+        context.read<InventoryBloc>().add(
+              LoadAllItems(inventoryState.inventoryId!),
+            );
       }
-    } catch (e) {
-      setState(() => _errorMessage = 'Preview failed: ${e.toString()}');
-    }
-  }
-
-  Future<void> _generateAndSaveReport(InventoryProvider provider) async {
-    setState(() {
-      _isGenerating = true;
-      _progress = 0;
-      _statusMessage = 'Preparing data...';
-      _errorMessage = null;
     });
+  }
 
-    try {
-      final result = await _reportGenerator.generateReport(
-        provider: provider,
-        reportType: _reportType,
-        selectedFields: _selectedFields,
-        inventoryName: _cachedInventoryName ?? 'Unknown',
-        onProgress: (progress, message) {
-          if (mounted) {
-            setState(() {
-              _progress = progress;
-              _statusMessage = message;
-            });
-          }
-        },
-      );
+  List<InventoryItem> _getAllItems(InventoryState state) {
+    if (state.allItems.isNotEmpty) {
+      return state.allItems;
+    }
 
-      if (mounted) {
-        setState(() {
-          _lastGeneratedCsv = result.csvData;
-          _lastFileName = result.fileName;
-          _totalItems = result.totalItems;
-          _previewData = null;
-          _isGenerating = false;
-        });
+    final allItems = <InventoryItem>[];
+    allItems.addAll(state.currentItems);
 
-        if (result.filePath != null) {
-          _showSnackBar('📊 Report saved: ${result.fileName}', duration: 4);
-        } else {
-          _showSnackBar('Report generated successfully');
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isGenerating = false;
-          _errorMessage = 'Failed to generate report: ${e.toString()}';
-        });
+    final searchResults = state.searchResults;
+    for (final result in searchResults) {
+      final item = result['item'];
+      if (item is InventoryItem && !allItems.contains(item)) {
+        allItems.add(item);
       }
     }
+
+    return allItems;
+  }
+
+  void _previewReport(
+      InventoryState inventoryState, ReportsState reportsState) {
+    final allItems = _getAllItems(inventoryState);
+    context.read<ReportsBloc>().add(PreviewReport(
+          allItems: allItems,
+          inventoryName: inventoryState.inventoryName ?? 'Unknown',
+        ));
+  }
+
+  void _generateAndSaveReport(
+      InventoryState inventoryState, ReportsState reportsState) {
+    final allItems = _getAllItems(inventoryState);
+    context.read<ReportsBloc>().add(GenerateReport(
+          allItems: allItems,
+          settings: inventoryState.settings,
+          inventoryName: inventoryState.inventoryName ?? 'Unknown',
+        ));
   }
 
   void _downloadAgain() {
-    if (_lastGeneratedCsv != null && _lastFileName != null) {
-      try {
-        _csvService.saveFile(_lastGeneratedCsv!, _lastFileName!);
-        _showSnackBar('File downloaded again');
-      } catch (e) {
-        _showSnackBar('Download failed: ${e.toString()}', isError: true);
-      }
-    }
+    context.read<ReportsBloc>().add(const DownloadAgain());
   }
 
   void _copyToClipboard() {
-    if (_lastGeneratedCsv == null) return;
-    Clipboard.setData(ClipboardData(text: _lastGeneratedCsv!));
-    _showSnackBar('CSV data copied to clipboard');
+    context.read<ReportsBloc>().add(const CopyToClipboard());
   }
 
-  void _showSnackBar(String message, {int duration = 3, bool isError = false}) {
+  void _showSnackBar(String message,
+      {int duration = 3, bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
@@ -284,10 +98,191 @@ class _ReportsScreenState extends State<ReportsScreen> {
           content: Text(message),
           backgroundColor: isError ? Colors.red : null,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(40)),
           margin: const EdgeInsets.all(20),
           duration: Duration(seconds: duration),
         ),
       );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<InventoryBloc, InventoryState>(
+      builder: (context, inventoryState) {
+        final inventoryName = inventoryState.inventoryName ?? '';
+
+        return BlocListener<ReportsBloc, ReportsState>(
+          listener: (context, reportsState) {
+            if (reportsState.successMessage != null) {
+              _showSnackBar(reportsState.successMessage!);
+              context
+                  .read<ReportsBloc>()
+                  .add(const ClearReportMessages());
+            }
+            if (reportsState.error != null &&
+                reportsState.generatedCsv == null &&
+                reportsState.previewData == null) {
+              _showSnackBar(reportsState.error!, isError: true);
+              context
+                  .read<ReportsBloc>()
+                  .add(const ClearReportMessages());
+            }
+          },
+          child:
+              BlocBuilder<ReportsBloc, ReportsState>(
+            builder: (context, reportsState) {
+              if (reportsState.isGenerating) {
+                return Scaffold(
+                  appBar: AppBar(
+                    title: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Generate Report',
+                            style: TextStyle(fontSize: 16)),
+                        Text(
+                          inventoryName,
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .primary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  body: ProgressView(
+                    progress: reportsState.progress,
+                    statusMessage: reportsState.statusMessage,
+                  ),
+                );
+              }
+
+              return Scaffold(
+                appBar: AppBar(
+                  title: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Generate Report',
+                          style: TextStyle(fontSize: 16)),
+                      Text(
+                        inventoryName,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary),
+                      ),
+                    ],
+                  ),
+                ),
+                body: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    if (reportsState.error != null &&
+                        reportsState.generatedCsv == null)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color:
+                                  Colors.red.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline,
+                                color: Colors.red, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(reportsState.error!,
+                                  style: const TextStyle(
+                                      color: Colors.red,
+                                      fontSize: 13)),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    ReportTypeCard(
+                      selectedType: reportsState.reportType,
+                      onTypeChanged: (type) => context
+                          .read<ReportsBloc>()
+                          .add(SetReportType(type)),
+                    ),
+                    const SizedBox(height: 16),
+
+                    FieldSelectorCard(
+                      availableFields:
+                          reportsState.availableFields,
+                      selectedFields:
+                          reportsState.selectedFields,
+                      onSelectionChanged: () {
+                        context
+                            .read<ReportsBloc>()
+                            .add(const ClearReportMessages());
+                      },
+                      onToggleField: (fieldName) {
+                        context
+                            .read<ReportsBloc>()
+                            .add(ToggleField(fieldName));
+                      },
+                      onResetFields: () {
+                        context
+                            .read<ReportsBloc>()
+                            .add(const ResetFields());
+                      },
+                      onSelectAllFields: () {
+                        context
+                            .read<ReportsBloc>()
+                            .add(const SelectAllFields());
+                      },
+                    ),
+                    const SizedBox(height: 24),
+
+                    ActionButtons(
+                      hasSelection:
+                          reportsState.selectedFields.isNotEmpty,
+                      onPreview: () => _previewReport(
+                          inventoryState, reportsState),
+                      onDownload: () => _generateAndSaveReport(
+                          inventoryState, reportsState),
+                    ),
+
+                    if (reportsState.generatedCsv != null) ...[
+                      const SizedBox(height: 16),
+                      GeneratedReportCard(
+                        fileName: reportsState.fileName,
+                        totalItems: reportsState.totalItems,
+                        csvData: reportsState.generatedCsv,
+                        onDownloadAgain: _downloadAgain,
+                        onCopyToClipboard: _copyToClipboard,
+                        csvService: null,
+                      ),
+                    ],
+
+                    if (reportsState.previewData != null &&
+                        reportsState.previewData!.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      PreviewCard(
+                        previewData: reportsState.previewData!,
+                        totalItems: reportsState.totalItems,
+                        onClear: () {
+                          context
+                              .read<ReportsBloc>()
+                              .add(const ClearReportMessages());
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
   }
 }

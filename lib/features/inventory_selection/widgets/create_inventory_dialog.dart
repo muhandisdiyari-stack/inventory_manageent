@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
-import '../providers/inventory_list_provider.dart';
-import '../../inventory_management/services/inventory_service.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../bloc/inventory_list_bloc.dart';
+import '../../inventory_management/bloc/inventory_bloc.dart';
 
 class CreateInventoryDialog {
-  static void show(
-    BuildContext context,
-    InventoryListProvider listProvider,
-    InventoryService service,
-  ) {
+  static void show(BuildContext context) {
     final controller = TextEditingController();
 
     showModalBottomSheet(
@@ -41,20 +38,17 @@ class CreateInventoryDialog {
               decoration: InputDecoration(
                 hintText: 'e.g., Warehouse A, Storage Room 1',
                 prefixIcon: const Icon(Icons.inventory_2_rounded),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16)),
                 filled: true,
-                fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                fillColor: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest,
               ),
-              onSubmitted: (value) async {
+              onSubmitted: (value) {
                 if (value.trim().isNotEmpty) {
-                  await _createInventory(
-                    dialogContext,
-                    context,
-                    value.trim(),
-                    listProvider,
-                    service,
-                    controller,
-                  );
+                  _createInventory(
+                      dialogContext, context, value.trim(), controller);
                 }
               },
             ),
@@ -76,17 +70,11 @@ class CreateInventoryDialog {
                 const SizedBox(width: 12),
                 Expanded(
                   child: FilledButton(
-                    onPressed: () async {
+                    onPressed: () {
                       final name = controller.text.trim();
                       if (name.isNotEmpty) {
-                        await _createInventory(
-                          dialogContext,
-                          context,
-                          name,
-                          listProvider,
-                          service,
-                          controller,
-                        );
+                        _createInventory(
+                            dialogContext, context, name, controller);
                       }
                     },
                     style: FilledButton.styleFrom(
@@ -109,34 +97,42 @@ class CreateInventoryDialog {
     );
   }
 
-  // Fixed: Added proper async error handling
-  static Future<void> _createInventory(
+  static void _createInventory(
     BuildContext dialogContext,
     BuildContext screenContext,
     String name,
-    InventoryListProvider listProvider,
-    InventoryService service,
     TextEditingController controller,
-  ) async {
+  ) {
     try {
-      await listProvider.createInventory(name, service);
+      // Dispatch to InventoryListBloc to create the inventory
+      // The bloc handles initializing InventoryService automatically
+      screenContext.read<InventoryListBloc>().add(CreateInventory(name));
+
+      // After creation, initialize InventoryBloc with the new inventory
+      // by reading the selected ID from the list bloc's state
+      final listState = screenContext.read<InventoryListBloc>().state;
+      if (listState.selectedInventoryId != null) {
+        screenContext.read<InventoryBloc>().add(
+              InitializeInventory(listState.selectedInventoryId!),
+            );
+      }
+
       if (dialogContext.mounted) {
         Navigator.pop(dialogContext);
       }
     } catch (e) {
-      // Show error in the dialog context if still mounted
       if (dialogContext.mounted) {
         ScaffoldMessenger.of(dialogContext).showSnackBar(
           SnackBar(
             content: Text('Error: ${e.toString()}'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(40)),
             margin: const EdgeInsets.all(20),
           ),
         );
       }
-      // Re-enable the text field
       controller.clear();
     }
   }
@@ -172,9 +168,10 @@ class CreateInventoryDialog {
         const SizedBox(width: 12),
         Text(
           'Create New Inventory',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.w800),
         ),
       ],
     );
@@ -184,7 +181,8 @@ class CreateInventoryDialog {
     return Text(
       'Give your inventory a descriptive name',
       style: TextStyle(
-        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+        color:
+            Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
         fontSize: 14,
       ),
     );

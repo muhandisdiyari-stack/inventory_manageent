@@ -1,22 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/utils/inventory_date_formatter.dart';
 import '../models/inventory_list_item.dart';
-import '../providers/inventory_list_provider.dart';
-import '../../inventory_management/services/inventory_service.dart';
-import 'rename_inventory_dialog.dart';
-import 'delete_inventory_dialog.dart';
+import '../bloc/inventory_list_bloc.dart';
 
 class InventoryCard extends StatelessWidget {
   final InventoryListItem inventory;
-  final InventoryListProvider listProvider;
-  final InventoryService service;
   final void Function(String) onOpenInventory;
 
   const InventoryCard({
     super.key,
     required this.inventory,
-    required this.listProvider,
-    required this.service,
     required this.onOpenInventory,
   });
 
@@ -155,22 +149,171 @@ class InventoryCard extends StatelessWidget {
   void _handleMenuAction(BuildContext context, String value) {
     switch (value) {
       case 'rename':
-        RenameInventoryDialog.show(
-          context,
-          inventory.id,
-          inventory.name,
-          listProvider,
-        );
+        _showRenameDialog(context);
         break;
       case 'delete':
-        DeleteInventoryDialog.show(
-          context,
-          inventory.id,
-          inventory.name,
-          listProvider,
-          service,
-        );
+        _showDeleteDialog(context);
         break;
     }
+  }
+
+  void _showRenameDialog(BuildContext context) {
+    final controller = TextEditingController(text: inventory.name);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (dialogContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(dialogContext).viewInsets.bottom + 28,
+          left: 20,
+          right: 20,
+          top: 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.edit_rounded,
+                    color: Theme.of(context).colorScheme.secondary,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Rename Inventory',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Current name: ${inventory.name}',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(
+                hintText: 'New name',
+                prefixIcon: const Icon(Icons.inventory_2_rounded),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+              ),
+              onSubmitted: (value) {
+                if (value.trim().isNotEmpty && value.trim() != inventory.name) {
+                  context.read<InventoryListBloc>().add(
+                        RenameInventory(inventory.id, value.trim()),
+                      );
+                  Navigator.pop(dialogContext);
+                }
+              },
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () {
+                      final name = controller.text.trim();
+                      if (name.isNotEmpty && name != inventory.name) {
+                        context.read<InventoryListBloc>().add(
+                              RenameInventory(inventory.id, name),
+                            );
+                        Navigator.pop(dialogContext);
+                      }
+                    },
+                    child: const Text('Rename', style: TextStyle(fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDeleteDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        icon: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.errorContainer,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Icon(
+            Icons.delete_rounded,
+            color: Theme.of(context).colorScheme.error,
+            size: 28,
+          ),
+        ),
+        title: const Text('Delete Inventory'),
+        content: Text(
+          'Are you sure you want to delete "${inventory.name}"?\n\nThis action cannot be undone. All items and data in this inventory will be permanently lost.',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.read<InventoryListBloc>().add(DeleteInventory(inventory.id));
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
   }
 }

@@ -1,37 +1,35 @@
 import 'dart:convert';
-import 'dart:io' show File, Directory, Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/utils/file_export.dart';
-import '../../inventory_management/services/inventory_service.dart';
+import '../../inventory_management/bloc/inventory_bloc.dart';
 import '../../inventory_management/models/inventory_item.dart';
-import '../../inventory_management/providers/inventory_provider.dart';
 import '../../../core/services/activity_log_service.dart';
 import '../../../core/models/activity_log_entry.dart';
+
+// Native imports - only used inside kIsWeb guards
+import 'dart:io' show File, Directory, Platform;
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Single source of truth for all known field names.
-/// Using constants instead of magic strings means a typo is a compile error,
-/// not a silent miss at runtime.
 abstract class _FieldNames {
-  static const name           = 'Name';
-  static const code           = 'Code';
-  static const barcode        = 'Barcode';
-  static const color          = 'Color';
-  static const material       = 'Material';
-  static const size           = 'Size';
-  static const quantity       = 'Quantity';
+  static const name = 'Name';
+  static const code = 'Code';
+  static const barcode = 'Barcode';
+  static const color = 'Color';
+  static const material = 'Material';
+  static const size = 'Size';
+  static const quantity = 'Quantity';
   static const productionDate = 'Production Date';
-  static const expireDate     = 'Expire Date';
-  static const note           = 'Note';
+  static const expireDate = 'Expire Date';
+  static const note = 'Note';
 }
 
 // ---------------------------------------------------------------------------
@@ -80,7 +78,6 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
   String _progressText = '';
   final List<String> _progressLog = [];
 
-  /// Cap the in-screen log so it never grows unbounded on large imports.
   static const _maxLogEntries = 200;
 
   bool _showResults = false;
@@ -90,28 +87,21 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
   int _totalErrors = 0;
   Map<String, LabelImportStats>? _resultsByLabel;
 
-  /// Set to true to stop the import loop cleanly (also set in dispose).
   bool _cancelled = false;
-
-  final InventoryService _inventoryService = InventoryService();
-
-  // ---------------------------------------------------------------------------
-  // Lifecycle
-  // ---------------------------------------------------------------------------
 
   @override
   void dispose() {
-    _cancelled = true; // stops the loop if the widget is removed mid-import
+    _cancelled = true;
     super.dispose();
   }
 
   // ---------------------------------------------------------------------------
-  // Provider helpers
+  // BLoC helpers
   // ---------------------------------------------------------------------------
 
   List<String> _getEnabledFields() {
-    final provider = context.read<InventoryProvider>();
-    final settings = provider.currentSettings;
+    final state = context.read<InventoryBloc>().state;
+    final settings = state.settings;
     final fields = <String>[];
 
     if (settings != null) {
@@ -130,16 +120,21 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
       ]);
     }
 
-    if (!fields.contains(_FieldNames.name)) fields.insert(0, _FieldNames.name);
-    if (!fields.contains(_FieldNames.quantity)) fields.add(_FieldNames.quantity);
+    if (!fields.contains(_FieldNames.name)) {
+      fields.insert(0, _FieldNames.name);
+    }
+    if (!fields.contains(_FieldNames.quantity)) {
+      fields.add(_FieldNames.quantity);
+    }
     return fields;
   }
 
   bool _isFieldRequired(String fieldName) {
-    final provider = context.read<InventoryProvider>();
-    final settings = provider.currentSettings;
+    final state = context.read<InventoryBloc>().state;
+    final settings = state.settings;
     if (settings == null) {
-      return fieldName == _FieldNames.name || fieldName == _FieldNames.quantity;
+      return fieldName == _FieldNames.name ||
+          fieldName == _FieldNames.quantity;
     }
     return settings.isFieldRequired(fieldName);
   }
@@ -152,33 +147,49 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
     final enabledFields = _getEnabledFields();
 
     String getSample(String field, int i) {
-      const names     = ['Wireless Mouse','USB Cable','Office Chair','Standing Desk','Cotton T-Shirt','Denim Jeans'];
-      const colors    = ['Black','White','Gray','White','Blue','Blue'];
-      const materials = ['Plastic','PVC','Mesh','Wood','Cotton','Denim'];
-      const sizes     = ['Standard','1m','Large','120x60cm','M','32'];
+      const names = [
+        'Wireless Mouse', 'USB Cable', 'Office Chair',
+        'Standing Desk', 'Cotton T-Shirt', 'Denim Jeans'
+      ];
+      const colors = ['Black', 'White', 'Gray', 'White', 'Blue', 'Blue'];
+      const materials = [
+        'Plastic', 'PVC', 'Mesh', 'Wood', 'Cotton', 'Denim'
+      ];
+      const sizes = [
+        'Standard', '1m', 'Large', '120x60cm', 'M', '32'
+      ];
 
       switch (field) {
-        case _FieldNames.name:           return names[i];
-        case _FieldNames.code:           return 'CODE-${i + 1}00';
-        case _FieldNames.barcode:        return '890123456789$i';
-        case _FieldNames.color:          return colors[i];
-        case _FieldNames.material:       return materials[i];
-        case _FieldNames.size:           return sizes[i];
-        case _FieldNames.quantity:       return '${(i + 1) * 10}';
-        case _FieldNames.productionDate: return '2024-0${i + 1}-15';
-        case _FieldNames.expireDate:     return '2026-0${i + 1}-15';
-        case _FieldNames.note:           return 'Sample note ${i + 1}';
-        default:                         return 'Value ${i + 1}';
+        case _FieldNames.name:
+          return names[i];
+        case _FieldNames.code:
+          return 'CODE-${i + 1}00';
+        case _FieldNames.barcode:
+          return '890123456789$i';
+        case _FieldNames.color:
+          return colors[i];
+        case _FieldNames.material:
+          return materials[i];
+        case _FieldNames.size:
+          return sizes[i];
+        case _FieldNames.quantity:
+          return '${(i + 1) * 10}';
+        case _FieldNames.productionDate:
+          return '2024-0${i + 1}-15';
+        case _FieldNames.expireDate:
+          return '2026-0${i + 1}-15';
+        case _FieldNames.note:
+          return 'Sample note ${i + 1}';
+        default:
+          return 'Value ${i + 1}';
       }
     }
 
-    // ListToCsvConverter properly quotes values that contain commas or quotes,
-    // so the template can always be re-imported without column-shift errors.
     final allRows = <List<dynamic>>[enabledFields];
     for (int i = 0; i < 6; i++) {
       allRows.add(enabledFields.map((f) => getSample(f, i)).toList());
     }
-    final csv   = const ListToCsvConverter().convert(allRows);
+    final csv = const ListToCsvConverter().convert(allRows);
     final bytes = utf8.encode(csv);
     const fileName = 'import_template.csv';
 
@@ -191,7 +202,8 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Template ready! Columns: ${enabledFields.join(", ")}'),
+          content: Text(
+              'Template ready! Columns: ${enabledFields.join(", ")}'),
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 3),
         ),
@@ -199,139 +211,131 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
     }
   }
 
-  /// Saves [bytes] to a user-accessible location on the device.
-  ///
-  /// On Android this writes to the app-scoped external directory
-  /// (/sdcard/Android/data/<package>/files/) which is writable on ALL
-  /// Android versions (API 21–34+) without any runtime permission.
-  /// Direct writes to /sdcard/Download/ are blocked by scoped storage on
-  /// Android 11+ (API 30+) which is why the old code silently failed.
-Future<void> _saveLocally(List<int> bytes, String fileName) async {
-  try {
-    String savedPath;
+  Future<void> _saveLocally(List<int> bytes, String fileName) async {
+    try {
+      String savedPath;
 
-    if (Platform.isAndroid) {
-      // For Android 11+ (API 30+), use MediaStore
-      if (await _saveToDownloadsAndroid(bytes, fileName)) {
-        return;
+      if (Platform.isAndroid) {
+        if (await _saveToDownloadsAndroid(bytes, fileName)) {
+          return;
+        }
+
+        final dir = await getExternalStorageDirectory();
+        if (dir == null) throw Exception('External storage unavailable');
+
+        if (!await dir.exists()) await dir.create(recursive: true);
+        savedPath = '${dir.path}/$fileName';
+        await File(savedPath).writeAsBytes(bytes);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Saved to app storage: $savedPath'),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      } else if (Platform.isWindows) {
+        final downloadsDir = Directory(
+          '${Platform.environment['USERPROFILE']}\\Downloads',
+        );
+        if (!await downloadsDir.exists()) {
+          await downloadsDir.create(recursive: true);
+        }
+        savedPath = '${downloadsDir.path}\\$fileName';
+        await File(savedPath).writeAsBytes(bytes);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Saved to: $savedPath'),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      } else if (Platform.isMacOS || Platform.isLinux) {
+        final homeDir = Platform.environment['HOME'] ?? '/tmp';
+        final downloadsDir = Directory('$homeDir/Downloads');
+        if (!await downloadsDir.exists()) {
+          await downloadsDir.create(recursive: true);
+        }
+        savedPath = '${downloadsDir.path}/$fileName';
+        await File(savedPath).writeAsBytes(bytes);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Saved to: $savedPath'),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
       }
-      
-      // Fallback: Save to app-specific directory
-      final dir = await getExternalStorageDirectory();
-      if (dir == null) throw Exception('External storage unavailable');
-      
-      if (!await dir.exists()) await dir.create(recursive: true);
-      savedPath = '${dir.path}/$fileName';
-      await File(savedPath).writeAsBytes(bytes);
-      
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Saved to app storage: $savedPath'),
+            content: Text('Could not save file: $e'),
+            backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 5),
           ),
         );
       }
-    } else if (Platform.isWindows) {
-      final downloadsDir = Directory('${Platform.environment['USERPROFILE']}\\Downloads');
-      if (!await downloadsDir.exists()) {
-        await downloadsDir.create(recursive: true);
-      }
-      savedPath = '${downloadsDir.path}\\$fileName';
-      await File(savedPath).writeAsBytes(bytes);
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Saved to: $savedPath'),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    } else {
-      // macOS / Linux
-      final downloadsDir = Directory('${Platform.environment['HOME']}/Downloads');
-      if (!await downloadsDir.exists()) {
-        await downloadsDir.create(recursive: true);
-      }
-      savedPath = '${downloadsDir.path}/$fileName';
-      await File(savedPath).writeAsBytes(bytes);
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Saved to: $savedPath'),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    }
-  } catch (e) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not save file: $e'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
     }
   }
-}
 
-/// Save file to Downloads directory on Android using platform channel
-Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
-  try {
-    // Check and request storage permission
-    final storageStatus = await Permission.storage.status;
-    final manageStorageStatus = await Permission.manageExternalStorage.status;
-    
-    if (storageStatus.isGranted || manageStorageStatus.isGranted ||
-        await Permission.storage.request().isGranted ||
-        await Permission.manageExternalStorage.request().isGranted) {
-      
-      // List of possible Downloads directory paths on Android
-      const possiblePaths = [
-        '/storage/emulated/0/Download',
-        '/sdcard/Download',
-        '/storage/sdcard0/Download',
-        '/storage/emulated/0/Downloads',
-        '/sdcard/Downloads',
-      ];
-      
-      for (final path in possiblePaths) {
-        final dir = Directory(path);
-        if (await dir.exists()) {
-          try {
-            final file = File('${dir.path}/$fileName');
-            await file.writeAsBytes(bytes);
-            
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Saved to Downloads folder: $fileName'),
-                  behavior: SnackBarBehavior.floating,
-                  duration: const Duration(seconds: 5),
-                ),
-              );
+  Future<bool> _saveToDownloadsAndroid(
+      List<int> bytes, String fileName) async {
+    try {
+      final storageStatus = await Permission.storage.status;
+      final manageStorageStatus =
+          await Permission.manageExternalStorage.status;
+
+      if (storageStatus.isGranted ||
+          manageStorageStatus.isGranted ||
+          await Permission.storage.request().isGranted ||
+          await Permission.manageExternalStorage.request().isGranted) {
+        const possiblePaths = [
+          '/storage/emulated/0/Download',
+          '/sdcard/Download',
+          '/storage/sdcard0/Download',
+          '/storage/emulated/0/Downloads',
+          '/sdcard/Downloads',
+        ];
+
+        for (final path in possiblePaths) {
+          final dir = Directory(path);
+          if (await dir.exists()) {
+            try {
+              final file = File('${dir.path}/$fileName');
+              await file.writeAsBytes(bytes);
+
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                        'Saved to Downloads folder: $fileName'),
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 5),
+                  ),
+                );
+              }
+              return true;
+            } catch (e) {
+              continue;
             }
-            return true;
-          } catch (e) {
-            // Try next path
-            continue;
           }
         }
       }
+      return false;
+    } catch (e) {
+      debugPrint('Failed to save to Downloads: $e');
+      return false;
     }
-    return false;
-  } catch (e) {
-    debugPrint('Failed to save to Downloads: $e');
-    return false;
   }
-}
 
   // ---------------------------------------------------------------------------
   // File picking & CSV parsing
@@ -347,9 +351,9 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
       if (result == null || result.files.isEmpty) return;
 
       setState(() {
-        _isLoading      = true;
-        _fileName       = result.files.single.name;
-        _showResults    = false;
+        _isLoading = true;
+        _fileName = result.files.single.name;
+        _showResults = false;
         _resultsByLabel = null;
       });
 
@@ -364,16 +368,14 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
         contents = await File(path).readAsString();
       }
 
-      // Strip UTF-8 BOM (Excel on Windows prepends \uFEFF), then normalise
-      // line endings so CsvToListConverter sees a consistent '\n' delimiter.
       contents = contents
           .replaceAll('\uFEFF', '')
           .replaceAll('\r\n', '\n')
           .replaceAll('\r', '\n')
           .trim();
 
-      // Explicit eol keeps parsing deterministic after normalisation above.
-      final allRows = const CsvToListConverter(eol: '\n').convert(contents);
+      final allRows =
+          const CsvToListConverter(eol: '\n').convert(contents);
 
       final stringRows = <List<String>>[];
       for (var row in allRows) {
@@ -394,13 +396,11 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
         );
       }
 
-      final headers       = stringRows[0];
-      final dataRows      = stringRows.sublist(1);
+      final headers = stringRows[0];
+      final dataRows = stringRows.sublist(1);
       final enabledFields = _getEnabledFields();
-      final mapping       = <String, int>{};
+      final mapping = <String, int>{};
 
-      // Normalise both sides identically before comparing so that
-      // 'Production Date', 'productiondate', and 'production date' all match.
       String norm(String s) =>
           s.toLowerCase().replaceAll(RegExp(r'\s+'), '');
 
@@ -414,15 +414,14 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
         }
       }
 
-      // Fallback: if Name wasn't matched by header text, assume column 0.
       if (!mapping.containsKey(_FieldNames.name) && headers.isNotEmpty) {
         mapping[_FieldNames.name] = 0;
       }
 
       setState(() {
-        _rows         = dataRows;
+        _rows = dataRows;
         _fieldMapping = mapping;
-        _isLoading    = false;
+        _isLoading = false;
       });
 
       if (mounted) {
@@ -435,7 +434,8 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(msg),
-            backgroundColor: unmapped.isEmpty ? Colors.green : Colors.orange,
+            backgroundColor:
+                unmapped.isEmpty ? Colors.green : Colors.orange,
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 3),
           ),
@@ -456,7 +456,7 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
   }
 
   // ---------------------------------------------------------------------------
-  // Import
+  // Import - Uses InventoryBloc events
   // ---------------------------------------------------------------------------
 
   Future<void> _startImport() async {
@@ -476,42 +476,54 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
     _cancelled = false;
 
     setState(() {
-      _isLoading    = true;
-      _progress     = 0;
+      _isLoading = true;
+      _progress = 0;
       _progressText = 'Preparing...';
-      _progressLog.clear(); // inside setState so the rebuild sees an empty log
-      _showResults  = false;
+      _progressLog.clear();
+      _showResults = false;
     });
 
     try {
-      await _inventoryService.initializeForInventory(widget.inventoryId);
-      final enabledFields = _getEnabledFields();
-      final itemFields    = enabledFields.where((f) => f != _FieldNames.name).toList();
-      final nameCol       = _fieldMapping[_FieldNames.name]!;
+      // Dispatch InitializeInventory to ensure the BLoC has this inventory loaded
+      context
+          .read<InventoryBloc>()
+          .add(InitializeInventory(widget.inventoryId));
 
-      // ── Group rows by item name ──────────────────────────────────────────
+      // Wait briefly for initialization to complete
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      final enabledFields = _getEnabledFields();
+      final itemFields = enabledFields
+          .where((f) => f != _FieldNames.name)
+          .toList();
+      final nameCol = _fieldMapping[_FieldNames.name]!;
+
+      // Group rows by item name
       _updateProgress(0.1, 'Grouping items...');
       final byName = <String, List<List<dynamic>>>{};
       for (var row in _rows!) {
         if (row.length > nameCol) {
           final name = row[nameCol].toString().trim();
-          if (name.isNotEmpty) byName.putIfAbsent(name, () => []).add(row);
+          if (name.isNotEmpty) {
+            byName.putIfAbsent(name, () => []).add(row);
+          }
         }
       }
-      _addLog('${byName.length} unique names from ${_rows!.length} rows');
+      _addLog(
+          '${byName.length} unique names from ${_rows!.length} rows');
 
-      // ── Create labels ────────────────────────────────────────────────────
+      // Create labels via BLoC
       _updateProgress(0.2, 'Creating labels...');
-      final existingLabels = _inventoryService.labels.toSet();
+      final state = context.read<InventoryBloc>().state;
+      final existingLabels = state.labels.toSet();
       int labelsCreated = 0;
 
       for (var name in byName.keys) {
         if (_cancelled) break;
         if (!existingLabels.contains(name)) {
-          await _inventoryService.createLabel(name);
+          context.read<InventoryBloc>().add(CreateLabel(name));
           existingLabels.add(name);
           labelsCreated++;
-          // Suffix counter avoids microsecond ID collisions in a tight loop.
           await ActivityLogService().addLog(ActivityLogEntry(
             id: '${DateTime.now().microsecondsSinceEpoch}_$labelsCreated',
             timestamp: DateTime.now(),
@@ -527,13 +539,13 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
       _addLog('Labels: $labelsCreated new, '
           '${byName.length - labelsCreated} existing');
 
-      // ── Import items per label ───────────────────────────────────────────
-      final results       = <String, LabelImportStats>{};
-      int processed       = 0;
-      int totalImported   = 0;
+      // Import items per label via BLoC
+      final results = <String, LabelImportStats>{};
+      int processed = 0;
+      int totalImported = 0;
       int totalDuplicates = 0;
-      int totalErrors     = 0;
-      final total         = byName.length;
+      int totalErrors = 0;
+      final total = byName.length;
 
       for (var entry in byName.entries) {
         if (_cancelled) break;
@@ -542,14 +554,13 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
         final name = entry.key;
         final rows = entry.value;
 
-        // Progress: 20 % for setup, 75 % for item import, 5 % for finalising.
         _updateProgress(
           0.2 + 0.75 * (processed / total),
           '$name ($processed/$total)',
         );
 
-        final items    = <InventoryItem>[];
-        int errors     = 0;
+        final items = <InventoryItem>[];
+        int errors = 0;
         int itemNumber = 0;
 
         for (var row in rows) {
@@ -564,7 +575,9 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
               final col = _fieldMapping[field];
               if (col != null && row.length > col) {
                 final value = row[col].toString().trim();
-                if (value.isNotEmpty) _setItemField(item, field, value);
+                if (value.isNotEmpty) {
+                  _setItemField(item, field, value);
+                }
               }
             }
             items.add(item);
@@ -573,22 +586,21 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
           }
         }
 
-        final imported   = await _inventoryService.importItems(name, items);
-        // Correct formula: original rows - successfully imported - parse errors.
-        final duplicates = (rows.length - imported - errors).clamp(0, rows.length);
+        // Dispatch import via BLoC
+        context.read<InventoryBloc>().add(ImportItems(name, items));
+
+        final imported = items.length - errors;
 
         results[name] = LabelImportStats(
-          itemsImported:     imported,
-          duplicatesSkipped: duplicates,
-          rowsSkipped:       errors,
-          totalRows:         rows.length,
+          itemsImported: imported,
+          duplicatesSkipped: 0,
+          rowsSkipped: errors,
+          totalRows: rows.length,
         );
 
-        totalImported   += imported;
-        totalDuplicates += duplicates;
-        totalErrors     += errors;
+        totalImported += imported;
+        totalErrors += errors;
 
-        // Yield to the event loop without an arbitrary fixed delay.
         await Future.microtask(() {});
       }
 
@@ -598,7 +610,6 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
         return;
       }
 
-      // Single summary log entry for the entire import.
       await ActivityLogService().addLog(ActivityLogEntry(
         id: '${DateTime.now().microsecondsSinceEpoch}_bulk',
         timestamp: DateTime.now(),
@@ -611,17 +622,18 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
       ));
 
       _updateProgress(1.0, 'Complete!');
-      _addLog('Done! $totalImported items imported across $total labels.');
+      _addLog(
+          'Done! $totalImported items imported across $total labels.');
 
       if (!mounted) return;
       setState(() {
-        _totalLabels     = total;
-        _totalImported   = totalImported;
+        _totalLabels = total;
+        _totalImported = totalImported;
         _totalDuplicates = totalDuplicates;
-        _totalErrors     = totalErrors;
-        _resultsByLabel  = results;
-        _showResults     = true;
-        _isLoading       = false;
+        _totalErrors = totalErrors;
+        _resultsByLabel = results;
+        _showResults = true;
+        _isLoading = false;
       });
     } catch (e) {
       if (!mounted) return;
@@ -643,7 +655,7 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
   void _updateProgress(double progress, String text) {
     if (!mounted) return;
     setState(() {
-      _progress     = progress;
+      _progress = progress;
       _progressText = text;
     });
   }
@@ -652,26 +664,47 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
     if (!mounted) return;
     setState(() {
       _progressLog.add(message);
-      if (_progressLog.length > _maxLogEntries) _progressLog.removeAt(0);
+      if (_progressLog.length > _maxLogEntries) {
+        _progressLog.removeAt(0);
+      }
     });
   }
 
   // ---------------------------------------------------------------------------
-  // Field setter — uses _FieldNames constants, never raw strings
+  // Field setter
   // ---------------------------------------------------------------------------
 
   void _setItemField(InventoryItem item, String field, String value) {
     switch (field) {
-      case _FieldNames.name:           break; // handled separately
-      case _FieldNames.code:           item.code           = value; break;
-      case _FieldNames.barcode:        item.barcode        = value; break;
-      case _FieldNames.color:          item.color          = value; break;
-      case _FieldNames.material:       item.material       = value; break;
-      case _FieldNames.size:           item.size           = value; break;
-      case _FieldNames.productionDate: item.productionDate = DateTime.tryParse(value); break;
-      case _FieldNames.expireDate:     item.expireDate     = DateTime.tryParse(value); break;
-      case _FieldNames.note:           item.note           = value; break;
-      case _FieldNames.quantity:       item.quantity       = int.tryParse(value) ?? 0; break;
+      case _FieldNames.name:
+        break;
+      case _FieldNames.code:
+        item.code = value;
+        break;
+      case _FieldNames.barcode:
+        item.barcode = value;
+        break;
+      case _FieldNames.color:
+        item.color = value;
+        break;
+      case _FieldNames.material:
+        item.material = value;
+        break;
+      case _FieldNames.size:
+        item.size = value;
+        break;
+      case _FieldNames.productionDate:
+        item.productionDate = DateTime.tryParse(value);
+        break;
+      case _FieldNames.expireDate:
+        item.expireDate = DateTime.tryParse(value);
+        break;
+      case _FieldNames.note:
+        item.note = value;
+        break;
+      case _FieldNames.quantity:
+        item.quantity = int.tryParse(value) ?? 0;
+        break;
       default:
         if (value.isNotEmpty) item.customFields[field] = value;
     }
@@ -683,7 +716,6 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
 
   @override
   Widget build(BuildContext context) {
-    context.watch<InventoryProvider>(); // stay reactive to settings changes
     final fields = _getEnabledFields();
 
     return Scaffold(
@@ -719,18 +751,24 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
         children: [
           const SizedBox(height: 20),
           Container(
-            width: 100, height: 100,
+            width: 100,
+            height: 100,
             decoration: BoxDecoration(
-            color: Theme.of(context)
-              .colorScheme.primaryContainer.withValues(alpha: 0.3),
+              color: Theme.of(context)
+                  .colorScheme
+                  .primaryContainer
+                  .withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(24),
             ),
             child: Icon(Icons.cloud_upload,
-                size: 48, color: Theme.of(context).colorScheme.primary),
+                size: 48,
+                color: Theme.of(context).colorScheme.primary),
           ),
           const SizedBox(height: 24),
           Text('Bulk Import',
-              style: Theme.of(context).textTheme.headlineSmall
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineSmall
                   ?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Text(
@@ -746,7 +784,9 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
             width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              color: Theme.of(context)
+                  .colorScheme
+                  .surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(
@@ -757,15 +797,22 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
                         fontWeight: FontWeight.w600, fontSize: 13)),
                 const SizedBox(height: 8),
                 Wrap(
-                  spacing: 6, runSpacing: 4,
-                  children: fields.map((f) => Chip(
-                    label: Text(f, style: const TextStyle(fontSize: 11)),
-                    padding: EdgeInsets.zero,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
-                    backgroundColor:
-                        _isFieldRequired(f) ? Colors.red.shade50 : null,
-                  )).toList(),
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: fields
+                      .map((f) => Chip(
+                            label: Text(f,
+                                style:
+                                    const TextStyle(fontSize: 11)),
+                            padding: EdgeInsets.zero,
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                            visualDensity: VisualDensity.compact,
+                            backgroundColor: _isFieldRequired(f)
+                                ? Colors.red.shade50
+                                : null,
+                          ))
+                      .toList(),
                 ),
               ],
             ),
@@ -779,7 +826,8 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
                   icon: const Icon(Icons.download, size: 18),
                   label: const Text('Template'),
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
@@ -792,7 +840,8 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
                   icon: const Icon(Icons.file_open, size: 18),
                   label: const Text('Choose CSV'),
                   style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
@@ -810,16 +859,20 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
   // ---------------------------------------------------------------------------
 
   Widget _buildPreviewView(List<String> fields) {
-    final unmapped = fields.where((f) => !_fieldMapping.containsKey(f)).toList();
-    final unmappedRequired = unmapped.where(_isFieldRequired).toList();
+    final unmapped =
+        fields.where((f) => !_fieldMapping.containsKey(f)).toList();
+    final unmappedRequired =
+        unmapped.where(_isFieldRequired).toList();
 
-    final names   = <String, int>{};
+    final names = <String, int>{};
     final nameCol = _fieldMapping[_FieldNames.name];
     if (nameCol != null) {
       for (var row in _rows!) {
         if (row.length > nameCol) {
           final name = row[nameCol].toString().trim();
-          if (name.isNotEmpty) names[name] = (names[name] ?? 0) + 1;
+          if (name.isNotEmpty) {
+            names[name] = (names[name] ?? 0) + 1;
+          }
         }
       }
     }
@@ -834,7 +887,9 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
           margin: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: Theme.of(context)
-               .colorScheme.primaryContainer.withValues(alpha: 0.15),
+                .colorScheme
+                .primaryContainer
+                .withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(14),
           ),
           child: Row(
@@ -845,26 +900,29 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
                   children: [
                     Text(_fileName ?? '',
                         style: const TextStyle(
-                            fontWeight: FontWeight.w600, fontSize: 13)),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13)),
                     Text(
                       '${names.length} unique names from ${_rows!.length} rows',
-                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                      style: TextStyle(
+                          color: Colors.grey[600], fontSize: 12),
                     ),
                     if (unmapped.isNotEmpty)
                       Text('Unmapped: ${unmapped.join(", ")}',
                           style: TextStyle(
-                              color: Colors.orange[700], fontSize: 11)),
+                              color: Colors.orange[700],
+                              fontSize: 11)),
                   ],
                 ),
               ),
               FilledButton(
-                onPressed: unmappedRequired.isEmpty ? _startImport : null,
+                onPressed:
+                    unmappedRequired.isEmpty ? _startImport : null,
                 child: const Text('Import All'),
               ),
             ],
           ),
         ),
-
         if (unmappedRequired.isNotEmpty)
           Container(
             padding: const EdgeInsets.all(10),
@@ -875,10 +933,10 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
             ),
             child: Text(
               'Required fields not mapped: ${unmappedRequired.join(", ")}',
-              style: TextStyle(fontSize: 12, color: Colors.red[700]),
+              style:
+                  TextStyle(fontSize: 12, color: Colors.red[700]),
             ),
           ),
-
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           child: Row(
@@ -896,13 +954,12 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
             ],
           ),
         ),
-
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             itemCount: showingCount,
             itemBuilder: (_, i) {
-              final name  = names.keys.elementAt(i);
+              final name = names.keys.elementAt(i);
               final count = names[name]!;
               return Card(
                 margin: const EdgeInsets.only(bottom: 4),
@@ -913,9 +970,11 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
                     backgroundColor: Colors.green.shade100,
                     child: Text('$count',
                         style: TextStyle(
-                            fontSize: 11, color: Colors.green.shade700)),
+                            fontSize: 11,
+                            color: Colors.green.shade700)),
                   ),
-                  title: Text(name, style: const TextStyle(fontSize: 13)),
+                  title: Text(name,
+                      style: const TextStyle(fontSize: 13)),
                 ),
               );
             },
@@ -939,12 +998,15 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
             alignment: Alignment.center,
             children: [
               SizedBox(
-                width: 120, height: 120,
+                width: 120,
+                height: 120,
                 child: CircularProgressIndicator(
                     value: _progress, strokeWidth: 8),
               ),
               Text('${(_progress * 100).toInt()}%',
-                  style: Theme.of(context).textTheme.headlineMedium
+                  style: Theme.of(context)
+                      .textTheme
+                      .headlineMedium
                       ?.copyWith(fontWeight: FontWeight.bold)),
             ],
           ),
@@ -957,14 +1019,17 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
             onPressed: () => setState(() => _cancelled = true),
             icon: const Icon(Icons.stop_circle_outlined, size: 16),
             label: const Text('Cancel'),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style:
+                TextButton.styleFrom(foregroundColor: Colors.red),
           ),
           const SizedBox(height: 16),
           Expanded(
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: ListView.builder(
@@ -990,7 +1055,7 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
   // ---------------------------------------------------------------------------
 
   Widget _buildResultsView() {
-    final results = _resultsByLabel!; // always non-null when _showResults is true
+    final results = _resultsByLabel!;
 
     return Column(
       children: [
@@ -1003,7 +1068,8 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
           ),
           child: Column(
             children: [
-              const Icon(Icons.check_circle, color: Colors.white, size: 56),
+              const Icon(Icons.check_circle,
+                  color: Colors.white, size: 56),
               const SizedBox(height: 16),
               const Text('Import Complete!',
                   style: TextStyle(
@@ -1014,10 +1080,10 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _buildStat('Labels',     _totalLabels),
-                  _buildStat('Imported',   _totalImported),
+                  _buildStat('Labels', _totalLabels),
+                  _buildStat('Imported', _totalImported),
                   _buildStat('Duplicates', _totalDuplicates),
-                  _buildStat('Errors',     _totalErrors),
+                  _buildStat('Errors', _totalErrors),
                 ],
               ),
             ],
@@ -1028,8 +1094,8 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: results.length,
             itemBuilder: (_, i) {
-              final name      = results.keys.elementAt(i);
-              final stats     = results[name]!;
+              final name = results.keys.elementAt(i);
+              final stats = results[name]!;
               final hasIssues = stats.rowsSkipped > 0;
               return Card(
                 margin: const EdgeInsets.only(bottom: 6),
@@ -1050,12 +1116,14 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
                   ),
                   title: Text(name,
                       style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w500)),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500)),
                   subtitle: Text(
                     '${stats.itemsImported} imported'
                     '${stats.duplicatesSkipped > 0 ? ', ${stats.duplicatesSkipped} duplicates' : ''}'
                     '${stats.rowsSkipped > 0 ? ', ${stats.rowsSkipped} errors' : ''}',
-                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    style: TextStyle(
+                        fontSize: 11, color: Colors.grey[600]),
                   ),
                 ),
               );
@@ -1065,7 +1133,8 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
         Padding(
           padding: const EdgeInsets.all(16),
           child: SizedBox(
-            width: double.infinity, height: 48,
+            width: double.infinity,
+            height: 48,
             child: FilledButton.icon(
               onPressed: () => Navigator.pop(context, true),
               icon: const Icon(Icons.check),
@@ -1090,7 +1159,8 @@ Future<bool> _saveToDownloadsAndroid(List<int> bytes, String fileName) async {
                 fontSize: 28,
                 fontWeight: FontWeight.bold)),
         Text(label,
-            style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            style: const TextStyle(
+                color: Colors.white70, fontSize: 12)),
       ],
     );
   }

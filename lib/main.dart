@@ -87,12 +87,7 @@ void main() async {
         false;
   } catch (_) {}
 
-  runApp(
-    InventoryProApp(
-      inventoryService: inventoryService,
-      showOnboarding: !onboardingCompleted,
-    ),
-  );
+runApp(const InventoryProApp());
 }
 
 // ─── Error App ────────────────────────────────────────────────────
