@@ -320,9 +320,20 @@ class SupabaseClientService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getUserCompanies() async {
+Future<List<Map<String, dynamic>>> getUserCompanies() async {
     if (!isConfigured) return [];
     try {
+      // Use the RPC function which handles all joins and RLS
+      final data = await _client.rpc('get_user_companies');
+
+      if (data is List) {
+        return data.map((item) {
+          final map = Map<String, dynamic>.from(item as Map);
+          return map;
+        }).toList();
+      }
+
+      // Fallback: manual query if RPC fails
       final user = _client.auth.currentUser;
       if (user == null) return [];
 
