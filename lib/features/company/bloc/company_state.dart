@@ -8,7 +8,6 @@ class CompanyState {
   final bool isLoading;
   final String? error;
   final String? successMessage;
-  final String? invitationToken;
 
   const CompanyState({
     this.companies = const [],
@@ -18,7 +17,6 @@ class CompanyState {
     this.isLoading = false,
     this.error,
     this.successMessage,
-    this.invitationToken,
   });
 
   CompanyState copyWith({
@@ -29,7 +27,6 @@ class CompanyState {
     bool? isLoading,
     String? error,
     String? successMessage,
-    String? invitationToken,
   }) {
     return CompanyState(
       companies: companies ?? this.companies,
@@ -39,7 +36,6 @@ class CompanyState {
       isLoading: isLoading ?? this.isLoading,
       error: error,
       successMessage: successMessage,
-      invitationToken: invitationToken ?? this.invitationToken,
     );
   }
 }

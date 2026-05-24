@@ -246,31 +246,36 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
         role: event.role,
       );
 
+      debugPrint('createInvitation result: $result');
+
       if (result == null) {
         emit(state.copyWith(
             isLoading: false,
-            error: 'Failed to create invitation'));
+            error:
+                'Failed to send invitation. Please try again.'));
         return;
       }
 
       final success = result['success'];
-      if (success == true) {
+      final isSuccess =
+          success == true || success?.toString() == 'true';
+
+      if (isSuccess) {
         emit(state.copyWith(
           isLoading: false,
-          invitationToken:
-              result['token']?.toString(),
           successMessage:
-              'Invitation sent to ${event.email}',
+              'Invitation sent to ${event.email}. They will see the company automatically when they sign in.',
         ));
         add(const LoadCompanies());
       } else {
         final message =
             result['message']?.toString() ??
-                'Failed to create invitation';
+                'Failed to send invitation';
         emit(state.copyWith(
             isLoading: false, error: message));
       }
     } catch (e) {
+      debugPrint('Create invitation error: $e');
       emit(state.copyWith(
           isLoading: false, error: 'Error: ${e.toString()}'));
     }
@@ -319,7 +324,6 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
     emit(state.copyWith(
       error: null,
       successMessage: null,
-      invitationToken: null,
     ));
   }
 

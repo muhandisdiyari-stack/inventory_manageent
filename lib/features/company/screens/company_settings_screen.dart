@@ -25,7 +25,6 @@ class _CompanySettingsScreenState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Force reload to ensure we have latest data
       context.read<CompanyBloc>().add(const LoadCompanies());
     });
   }
@@ -36,38 +35,24 @@ class _CompanySettingsScreenState
     super.dispose();
   }
 
-  /// Checks if the current user can manage members.
-  /// Returns true for owners and admins of the selected company.
   bool get _canManageMembers {
     final state = context.read<CompanyBloc>().state;
     final company = state.selectedCompany;
+    if (company == null) return false;
 
-    if (company == null) {
-      debugPrint(
-          'CompanySettingsScreen: selectedCompany is null');
-      return false;
-    }
-
-    // The role can be at the top level of the company map
-    // or nested differently depending on the API response
     final role = (company['role'] ?? company['user_role'] ??
             company['membership_role'])
         .toString()
         .toLowerCase();
 
-    debugPrint(
-        'CompanySettingsScreen: company=${company['name']}, role=$role');
-
     return role == 'owner' || role == 'admin';
   }
 
-  /// Gets the company ID from the selected company.
   String? get _selectedCompanyId {
     final state = context.read<CompanyBloc>().state;
     final company = state.selectedCompany;
     if (company == null) return null;
 
-    // Try multiple possible key names for the company ID
     return (company['id'] ?? company['company_id'] ?? '')
         .toString();
   }
@@ -93,9 +78,6 @@ class _CompanySettingsScreenState
       );
       return;
     }
-
-    debugPrint(
-        'CompanySettingsScreen: Inviting $email to company $companyId');
 
     context.read<CompanyBloc>().add(CreateInvitation(
           companyId: companyId,
@@ -178,57 +160,6 @@ class _CompanySettingsScreenState
     }
   }
 
-  void _showTokenDialog(String email, String token) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Invitation Created'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Sent to: $email'),
-            const SizedBox(height: 16),
-            const Text('Share this token:'),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SelectableText(
-                  token,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Clipboard.setData(
-                  ClipboardData(text: token));
-              Navigator.pop(ctx);
-            },
-            child: const Text('Copy'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Done'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -241,17 +172,6 @@ class _CompanySettingsScreenState
               content: Text(state.successMessage!),
               behavior: SnackBarBehavior.floating,
             ),
-          );
-          context
-              .read<CompanyBloc>()
-              .add(const ClearMessages());
-        }
-        if (state.invitationToken != null) {
-          _showTokenDialog(
-            _emailController.text.trim().isEmpty
-                ? 'the user'
-                : _emailController.text.trim(),
-            state.invitationToken!,
           );
           context
               .read<CompanyBloc>()
@@ -471,7 +391,7 @@ class _CompanySettingsScreenState
                     ),
                   ),
 
-                  // Invite Member Card
+                  // ✅ Invite Member Card - simplified, no token
                   if (_canManageMembers) ...[
                     const SizedBox(height: 16),
                     Card(
@@ -487,13 +407,27 @@ class _CompanySettingsScreenState
                                     color: Colors.blue),
                                 const SizedBox(width: 8),
                                 Expanded(
-                                  child: Text(
-                                    'Invite Member',
-                                    style: theme
-                                        .textTheme.titleMedium
-                                        ?.copyWith(
-                                            fontWeight:
-                                                FontWeight.bold),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Invite Member',
+                                        style: theme
+                                            .textTheme
+                                            .titleMedium
+                                            ?.copyWith(
+                                                fontWeight: FontWeight
+                                                    .bold),
+                                      ),
+                                      Text(
+                                        'They will automatically join when they sign in with this email',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors
+                                                .grey[600]),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
@@ -550,7 +484,7 @@ class _CompanySettingsScreenState
                                     color: Colors.orange),
                                 const SizedBox(width: 8),
                                 Text(
-                                  'Pending (${state.invitations.length})',
+                                  'Pending Invitations (${state.invitations.length})',
                                   style: theme
                                       .textTheme.titleMedium
                                       ?.copyWith(
@@ -568,15 +502,20 @@ class _CompanySettingsScreenState
                               final status =
                                   (inv['status'] ?? 'pending')
                                       .toString();
+                              final createdAt =
+                                  inv['created_at']
+                                          ?.toString() ??
+                                      '';
 
                               return ListTile(
                                 leading: CircleAvatar(
-                                  child: Text(
-                                    email.isNotEmpty
-                                        ? email[0]
-                                            .toUpperCase()
-                                        : '?',
-                                  ),
+                                  backgroundColor: Colors
+                                      .orange
+                                      .withValues(alpha: 0.1),
+                                  child: const Icon(
+                                      Icons.person_outline,
+                                      color: Colors.orange,
+                                      size: 20),
                                 ),
                                 title: Text(email),
                                 subtitle: Text(
@@ -589,6 +528,8 @@ class _CompanySettingsScreenState
                                         onPressed: () =>
                                             _cancelInvitation(
                                                 invId),
+                                        tooltip:
+                                            'Cancel invitation',
                                       )
                                     : null,
                               );
