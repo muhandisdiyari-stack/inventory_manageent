@@ -77,31 +77,189 @@ class _CompanySetupScreenState
       return;
     }
 
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Company'),
-        content: Text(
-            'Delete "$companyName" and ALL its data?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete',
-                style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true || !mounted) return;
+    // ✅ Show confirmation dialog with name typing
+    final confirmed = await _showDeleteConfirmationDialog(
+        companyName);
+    if (confirmed != true || !mounted) return;
 
     context
         .read<CompanyBloc>()
         .add(DeleteCompany(companyId, companyName));
+  }
+
+  /// Shows a confirmation dialog that requires typing the company name
+  Future<bool?> _showDeleteConfirmationDialog(
+      String companyName) async {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool canDelete = false;
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20)),
+          icon: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context)
+                  .colorScheme
+                  .errorContainer,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              Icons.delete_forever_rounded,
+              color:
+                  Theme.of(context).colorScheme.error,
+              size: 32,
+            ),
+          ),
+          title: const Text('Delete Company'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                RichText(
+                  text: TextSpan(
+                    style: TextStyle(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.7),
+                      fontSize: 14,
+                    ),
+                    children: [
+                      const TextSpan(
+                        text:
+                            'This action is ',
+                      ),
+                      TextSpan(
+                        text:
+                            'permanent and irreversible',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .error,
+                        ),
+                      ),
+                      const TextSpan(
+                        text:
+                            '. All data related to this company will be permanently deleted:\n\n',
+                      ),
+                      const TextSpan(
+                        text:
+                            '• All inventories\n',
+                      ),
+                      const TextSpan(
+                        text:
+                            '• All items and labels\n',
+                      ),
+                      const TextSpan(
+                        text:
+                            '• All member data\n',
+                      ),
+                      const TextSpan(
+                        text:
+                            '• All pending invitations\n',
+                      ),
+                      const TextSpan(
+                        text:
+                            '• Activity logs\n',
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'To confirm, type "$companyName" below:',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: 'Type company name',
+                    border: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    prefixIcon: const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Colors.red),
+                  ),
+                  validator: (value) {
+                    if (value == null ||
+                        value.trim() !=
+                            companyName) {
+                      return 'Company name does not match';
+                    }
+                    return null;
+                  },
+                  onChanged: (value) {
+                    setDialogState(() {
+                      canDelete =
+                          value.trim() == companyName;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.pop(ctx, false),
+              style: TextButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text('Cancel'),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: canDelete
+                  ? () {
+                      if (formKey.currentState!
+                          .validate()) {
+                        Navigator.pop(ctx, true);
+                      }
+                    }
+                  : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: canDelete
+                    ? Theme.of(context)
+                        .colorScheme
+                        .error
+                    : Colors.grey,
+                shape: RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'Delete Everything',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _leaveCompany(
@@ -220,7 +378,6 @@ class _CompanySetupScreenState
                                     color: Colors.red)),
                           ),
 
-                        // ✅ Info banner for invited users
                         if (state.companies.isEmpty &&
                             !_showCreateForm)
                           Container(
@@ -301,16 +458,40 @@ class _CompanySetupScreenState
                                   if (isOwner)
                                     const PopupMenuItem(
                                       value: 'delete',
-                                      child: Text('Delete',
-                                          style: TextStyle(
-                                              color:
-                                                  Colors.red)),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons
+                                                .delete_forever,
+                                            size: 18,
+                                            color:
+                                                Colors.red,
+                                          ),
+                                          SizedBox(
+                                              width: 8),
+                                          Text('Delete',
+                                              style: TextStyle(
+                                                  color: Colors
+                                                      .red)),
+                                        ],
+                                      ),
                                     ),
                                   if (!isOwner)
                                     const PopupMenuItem(
                                       value: 'leave',
-                                      child: Text(
-                                          'Leave Company'),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons
+                                                .exit_to_app,
+                                            size: 18,
+                                          ),
+                                          SizedBox(
+                                              width: 8),
+                                          Text(
+                                              'Leave Company'),
+                                        ],
+                                      ),
                                     ),
                                 ],
                               ),
@@ -408,7 +589,6 @@ class _CompanySetupScreenState
                             ),
                           ),
 
-                        // ✅ Keep join form for backward compatibility (optional)
                         if (_showJoinForm)
                           Card(
                             child: Padding(
@@ -504,7 +684,6 @@ class _CompanySetupScreenState
                                           vertical: 14)),
                             ),
                           ),
-                          // ✅ Keep Join button but make it secondary
                           const SizedBox(height: 8),
                           SizedBox(
                             width: double.infinity,
