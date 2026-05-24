@@ -25,6 +25,7 @@ class _CompanySettingsScreenState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Force reload to ensure we have latest data
       context.read<CompanyBloc>().add(const LoadCompanies());
     });
   }
@@ -35,11 +36,40 @@ class _CompanySettingsScreenState
     super.dispose();
   }
 
+  /// Checks if the current user can manage members.
+  /// Returns true for owners and admins of the selected company.
   bool get _canManageMembers {
-    final company =
-        context.read<CompanyBloc>().state.selectedCompany;
-    final role = company?['role']?.toString();
+    final state = context.read<CompanyBloc>().state;
+    final company = state.selectedCompany;
+
+    if (company == null) {
+      debugPrint(
+          'CompanySettingsScreen: selectedCompany is null');
+      return false;
+    }
+
+    // The role can be at the top level of the company map
+    // or nested differently depending on the API response
+    final role = (company['role'] ?? company['user_role'] ??
+            company['membership_role'])
+        .toString()
+        .toLowerCase();
+
+    debugPrint(
+        'CompanySettingsScreen: company=${company['name']}, role=$role');
+
     return role == 'owner' || role == 'admin';
+  }
+
+  /// Gets the company ID from the selected company.
+  String? get _selectedCompanyId {
+    final state = context.read<CompanyBloc>().state;
+    final company = state.selectedCompany;
+    if (company == null) return null;
+
+    // Try multiple possible key names for the company ID
+    return (company['id'] ?? company['company_id'] ?? '')
+        .toString();
   }
 
   void _inviteUser() {
@@ -51,25 +81,21 @@ class _CompanySettingsScreenState
       return;
     }
 
-    final state = context.read<CompanyBloc>().state;
-    final companyData = state.selectedCompany?['company'];
-    if (companyData is! Map) {
+    final companyId = _selectedCompanyId;
+    if (companyId == null || companyId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('No company selected'),
-            backgroundColor: Colors.orange),
+          content: Text(
+              'No company selected. Please go back and select a company first.'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 4),
+        ),
       );
       return;
     }
-    final companyId = companyData['id']?.toString() ?? '';
-    if (companyId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Invalid company'),
-            backgroundColor: Colors.orange),
-      );
-      return;
-    }
+
+    debugPrint(
+        'CompanySettingsScreen: Inviting $email to company $companyId');
 
     context.read<CompanyBloc>().add(CreateInvitation(
           companyId: companyId,
@@ -86,6 +112,9 @@ class _CompanySettingsScreenState
 
   void _removeMember(
       String memberId, String memberName) async {
+    final companyId = _selectedCompanyId;
+    if (companyId == null || companyId.isEmpty) return;
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -106,12 +135,6 @@ class _CompanySettingsScreenState
     );
 
     if (confirm == true) {
-      final state = context.read<CompanyBloc>().state;
-      final companyData = state.selectedCompany?['company'];
-      if (companyData is! Map) return;
-      final companyId = companyData['id']?.toString() ?? '';
-      if (companyId.isEmpty) return;
-
       context.read<CompanyBloc>().add(RemoveMember(
             memberId: memberId,
             companyId: companyId,
@@ -122,11 +145,8 @@ class _CompanySettingsScreenState
 
   void _changeRole(
       String memberId, String currentRole) async {
-    final state = context.read<CompanyBloc>().state;
-    final companyData = state.selectedCompany?['company'];
-    if (companyData is! Map) return;
-    final companyId = companyData['id']?.toString() ?? '';
-    if (companyId.isEmpty) return;
+    final companyId = _selectedCompanyId;
+    if (companyId == null || companyId.isEmpty) return;
 
     final newRole = await showDialog<String>(
       context: context,
@@ -267,9 +287,33 @@ class _CompanySettingsScreenState
             return Scaffold(
               appBar: AppBar(
                   title: const Text('Company Settings')),
-              body: const Center(
-                  child: Text('No company found. '
-                      'Please create or join a company first.')),
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.business_outlined,
+                          size: 64,
+                          color: Colors.grey[400]),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No company selected',
+                        style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Please go back and select a company first.',
+                        style: TextStyle(
+                            color: Colors.grey),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             );
           }
 
@@ -288,6 +332,39 @@ class _CompanySettingsScreenState
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  // Company info card
+                  if (state.selectedCompany != null)
+                    Card(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primaryContainer
+                          .withValues(alpha: 0.3),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            Icon(Icons.business,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Company: ${state.selectedCompany!['name'] ?? 'Unknown'}',
+                                style: TextStyle(
+                                    fontWeight:
+                                        FontWeight.w600,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onPrimaryContainer),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+
                   // Members Card
                   Card(
                     child: Padding(
@@ -333,7 +410,8 @@ class _CompanySettingsScreenState
                                       'staff')
                                   .toString();
                               final memberId =
-                                  member['id']?.toString() ?? '';
+                                  member['id']?.toString() ??
+                                      '';
                               final isOwner = role == 'owner';
 
                               return ListTile(
@@ -348,7 +426,8 @@ class _CompanySettingsScreenState
                                 subtitle: Text(
                                     'Role: ${role.toUpperCase()}'),
                                 trailing:
-                                    _canManageMembers && !isOwner
+                                    _canManageMembers &&
+                                            !isOwner
                                         ? PopupMenuButton<
                                             String>(
                                             onSelected:

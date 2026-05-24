@@ -1,5 +1,5 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-// FIX 3: Removed unused import 'package:flutter/services.dart'.
 import '../../../core/services/auth_service.dart';
 
 part 'company_event.dart';
@@ -24,8 +24,6 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
     on<ClearMessages>(_onClearMessages);
   }
 
-  /// Loads all companies for the current user.
-  /// If companies exist, also loads members and invitations for the first company.
   Future<void> _onLoadCompanies(
       LoadCompanies event, Emitter<CompanyState> emit) async {
     emit(state.copyWith(isLoading: true, error: null));
@@ -43,38 +41,37 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
         return;
       }
 
-      // Keep the currently selected company if it still exists in the list,
-      // otherwise default to the first company.
-      final currentSelectedId = state.selectedCompany?['company']?['id']?.toString();
+      final currentSelectedId =
+          state.selectedCompany?['id']?.toString();
       Map<String, dynamic>? targetCompany;
 
       if (currentSelectedId != null) {
-        targetCompany = companies.cast<Map<String, dynamic>?>().firstWhere(
-              (c) => c?['id']?.toString() == currentSelectedId,
-              orElse: () => companies.first,
-            );
-      } else {
-        targetCompany = companies.first;
+        for (final c in companies) {
+          if (c['id']?.toString() == currentSelectedId) {
+            targetCompany = c;
+            break;
+          }
+        }
       }
 
-      // Load members and invitations for the selected company
+      targetCompany ??= companies.first;
+
       List<Map<String, dynamic>> members = [];
       List<Map<String, dynamic>> invitations = [];
 
-      if (targetCompany != null) {
-        final companyId = targetCompany['id']?.toString();
-        if (companyId != null && companyId.isNotEmpty) {
-          try {
-            members = await _authService.getCompanyMembers(companyId);
-          } catch (e) {
-            // Members load failed - continue with empty list
-          }
-          try {
-            invitations =
-                await _authService.getPendingInvitations(companyId);
-          } catch (e) {
-            // Invitations load failed - continue with empty list
-          }
+      final companyId = targetCompany['id']?.toString();
+      if (companyId != null && companyId.isNotEmpty) {
+        try {
+          members =
+              await _authService.getCompanyMembers(companyId);
+        } catch (e) {
+          debugPrint('Failed to load members: $e');
+        }
+        try {
+          invitations = await _authService
+              .getPendingInvitations(companyId);
+        } catch (e) {
+          debugPrint('Failed to load invitations: $e');
         }
       }
 
@@ -87,37 +84,45 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
       ));
     } catch (e) {
       emit(state.copyWith(
-          isLoading: false, error: 'Failed to load companies: $e'));
+          isLoading: false,
+          error: 'Failed to load companies: $e'));
     }
   }
 
-  /// Selects a company and loads its members and invitations.
   Future<void> _onSelectCompany(
       SelectCompany event, Emitter<CompanyState> emit) async {
+    if (state.selectedCompany?['id']?.toString() ==
+            event.companyId &&
+        state.members.isNotEmpty) {
+      return;
+    }
+
     emit(state.copyWith(isLoading: true, error: null));
     try {
-      final targetCompany = state.companies.cast<Map<String, dynamic>?>().firstWhere(
-            (c) => c?['id']?.toString() == event.companyId,
-            orElse: () => null,
-          );
+      Map<String, dynamic>? targetCompany;
+      for (final c in state.companies) {
+        if (c['id']?.toString() == event.companyId) {
+          targetCompany = c;
+          break;
+        }
+      }
 
       if (targetCompany == null) {
         emit(state.copyWith(
-            isLoading: false,
-            error: 'Company not found'));
+            isLoading: false, error: 'Company not found'));
         return;
       }
 
-      // Load members and invitations for this company
       List<Map<String, dynamic>> members = [];
       List<Map<String, dynamic>> invitations = [];
 
       try {
-        members = await _authService.getCompanyMembers(event.companyId);
+        members = await _authService
+            .getCompanyMembers(event.companyId);
       } catch (_) {}
       try {
-        invitations =
-            await _authService.getPendingInvitations(event.companyId);
+        invitations = await _authService
+            .getPendingInvitations(event.companyId);
       } catch (_) {}
 
       emit(state.copyWith(
@@ -128,7 +133,8 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
       ));
     } catch (e) {
       emit(state.copyWith(
-          isLoading: false, error: 'Failed to select company: $e'));
+          isLoading: false,
+          error: 'Failed to select company: $e'));
     }
   }
 
@@ -136,17 +142,18 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
       CreateCompany event, Emitter<CompanyState> emit) async {
     emit(state.copyWith(isLoading: true, error: null));
     try {
-      final result = await _authService.createCompany(event.name);
+      final result =
+          await _authService.createCompany(event.name);
       if (result != null) {
         emit(state.copyWith(
           successMessage: 'Company "${event.name}" created!',
           isLoading: false,
         ));
-        // Reload companies list and select the newly created one
         add(const LoadCompanies());
       } else {
         emit(state.copyWith(
-            isLoading: false, error: 'Failed to create company'));
+            isLoading: false,
+            error: 'Failed to create company'));
       }
     } catch (e) {
       emit(state.copyWith(
@@ -156,14 +163,11 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
 
   Future<void> _onDeleteCompany(
       DeleteCompany event, Emitter<CompanyState> emit) async {
-    // Check if user is owner before attempting delete
-    final company = state.companies.cast<Map<String, dynamic>?>().firstWhere(
-          (c) => c?['id']?.toString() == event.companyId,
-          orElse: () => null,
-        );
+    final company = _findCompany(event.companyId);
     final role = company?['role']?.toString() ?? 'staff';
     if (role != 'owner') {
-      emit(state.copyWith(error: 'Only owners can delete a company'));
+      emit(state.copyWith(
+          error: 'Only owners can delete a company'));
       return;
     }
 
@@ -201,20 +205,30 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
       JoinCompany event, Emitter<CompanyState> emit) async {
     emit(state.copyWith(isLoading: true, error: null));
     try {
-      final result = await _authService.acceptInvitation(event.token);
-      // FIX 1: `result` can be null — use ?[] (null-aware index) so the
-      // `[]` operator is never called on a null receiver.
-      if (result != null && result['success'] == true) {
+      final result =
+          await _authService.acceptInvitation(event.token);
+
+      if (result == null) {
+        emit(state.copyWith(
+            isLoading: false,
+            error:
+                'Invalid or expired invitation token'));
+        return;
+      }
+
+      final success = result['success'];
+      if (success == true) {
         emit(state.copyWith(
           successMessage: 'Company joined successfully!',
           isLoading: false,
         ));
         add(const LoadCompanies());
       } else {
-        final message = result is Map<String, dynamic>
-            ? (result['message']?.toString() ?? 'Invalid or expired invitation token')
-            : 'Invalid or expired invitation token';
-        emit(state.copyWith(isLoading: false, error: message));
+        final message =
+            result['message']?.toString() ??
+                'Invalid or expired invitation token';
+        emit(state.copyWith(
+            isLoading: false, error: message));
       }
     } catch (e) {
       emit(state.copyWith(
@@ -231,22 +245,30 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
         email: event.email,
         role: event.role,
       );
-      // FIX 2: Same pattern — `result` can be null. The `is Map<String, dynamic>`
-      // type-test both promotes the type AND acts as the null check, so `[]`
-      // is only called after Dart knows `result` is a non-null map.
-      if (result is Map<String, dynamic> && result['success'] == true) {
+
+      if (result == null) {
+        emit(state.copyWith(
+            isLoading: false,
+            error: 'Failed to create invitation'));
+        return;
+      }
+
+      final success = result['success'];
+      if (success == true) {
         emit(state.copyWith(
           isLoading: false,
-          invitationToken: result['token']?.toString(),
-          successMessage: 'Invitation sent to ${event.email}',
+          invitationToken:
+              result['token']?.toString(),
+          successMessage:
+              'Invitation sent to ${event.email}',
         ));
-        // Reload to get updated invitations list
         add(const LoadCompanies());
       } else {
-        final message = result is Map<String, dynamic>
-            ? (result['message']?.toString() ?? 'Failed to create invitation')
-            : 'Failed to create invitation';
-        emit(state.copyWith(isLoading: false, error: message));
+        final message =
+            result['message']?.toString() ??
+                'Failed to create invitation';
+        emit(state.copyWith(
+            isLoading: false, error: message));
       }
     } catch (e) {
       emit(state.copyWith(
@@ -257,8 +279,10 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
   Future<void> _onCancelInvitation(
       CancelInvitation event, Emitter<CompanyState> emit) async {
     try {
-      await _authService.cancelInvitation(event.invitationId);
-      emit(state.copyWith(successMessage: 'Invitation cancelled'));
+      await _authService.cancelInvitation(
+          event.invitationId);
+      emit(state.copyWith(
+          successMessage: 'Invitation cancelled'));
       add(const LoadCompanies());
     } catch (e) {
       emit(state.copyWith(error: 'Error: ${e.toString()}'));
@@ -268,7 +292,8 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
   Future<void> _onRemoveMember(
       RemoveMember event, Emitter<CompanyState> emit) async {
     try {
-      await _authService.removeMember(event.memberId, event.companyId);
+      await _authService.removeMember(
+          event.memberId, event.companyId);
       emit(state.copyWith(
           successMessage: '${event.memberName} removed'));
       add(const LoadCompanies());
@@ -289,8 +314,6 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
     }
   }
 
-  /// Clears success messages, errors, and invitation tokens from state.
-  /// Call this after displaying a message to prevent repeated displays.
   void _onClearMessages(
       ClearMessages event, Emitter<CompanyState> emit) {
     emit(state.copyWith(
@@ -298,5 +321,14 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
       successMessage: null,
       invitationToken: null,
     ));
+  }
+
+  Map<String, dynamic>? _findCompany(String companyId) {
+    for (final c in state.companies) {
+      if (c['id']?.toString() == companyId) {
+        return c;
+      }
+    }
+    return null;
   }
 }
