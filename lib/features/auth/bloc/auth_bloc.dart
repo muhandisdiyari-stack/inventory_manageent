@@ -43,6 +43,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             add(const EmailConfirmationReceived());
           }
         }
+        // When user signs out, reset to unauthenticated
+        if (data.event == AuthChangeEvent.signedOut) {
+          add(const AuthCheckRequested());
+        }
       },
     );
   }
@@ -55,6 +59,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
 
     try {
+      // Offline / no-auth mode
       if (!AppConfig.requiresAuth) {
         emit(state.copyWith(
             status: AuthStatus.authenticated, isAdmin: false));
@@ -74,16 +79,26 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           return;
         }
 
-        final isAdmin = await _adminService.isAdmin();
+        // Try to check admin status, but don't fail if offline
+        bool isAdmin = false;
+        try {
+          isAdmin = await _adminService.isAdmin();
+        } catch (_) {
+          // Offline - use cached value or default to false
+          isAdmin = false;
+        }
+
         emit(state.copyWith(
           status: AuthStatus.authenticated,
           user: user,
           isAdmin: isAdmin,
         ));
       } else {
+        // Not authenticated — show login screen
         emit(const AuthState(status: AuthStatus.unauthenticated));
       }
     } catch (e) {
+      // If initialization fails completely, show login
       emit(const AuthState(status: AuthStatus.unauthenticated));
     }
   }
@@ -109,7 +124,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           return;
         }
 
-        final isAdmin = await _adminService.isAdmin();
+        bool isAdmin = false;
+        try {
+          isAdmin = await _adminService.isAdmin();
+        } catch (_) {
+          isAdmin = false;
+        }
+
         emit(state.copyWith(
           status: AuthStatus.authenticated,
           user: user,
@@ -124,7 +145,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     } catch (e) {
       emit(state.copyWith(
         status: AuthStatus.unauthenticated,
-        error: 'Sign in failed. Please check your credentials.',
+        error: 'Sign in failed. Please check your credentials and internet connection.',
       ));
     }
   }
@@ -160,7 +181,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     } catch (e) {
       emit(state.copyWith(
         status: AuthStatus.unauthenticated,
-        error: 'Registration failed. Please try again.',
+        error: 'Registration failed. Please check your internet connection.',
       ));
     }
   }
@@ -191,23 +212,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   Future<void> _onDeepLink(
       DeepLinkReceived event, Emitter<AuthState> emit) async {
-    // Only process deep links that look like auth callbacks
     final uriString = event.uri.toString();
     if (!uriString.contains('auth/callback') &&
         !uriString.contains('access_token') &&
         !uriString.contains('refresh_token')) {
-      // Not an auth-related deep link - ignore it silently
       return;
     }
 
     try {
       await Supabase.instance.client.auth
           .getSessionFromUrl(event.uri);
-      // _setupAuthListener will handle the state change
     } catch (e) {
       debugPrint('Deep link handling error: $e');
-      // Don't emit error for deep link failures on initial load
-      // Only emit error if the user is actively waiting for confirmation
       if (state.status == AuthStatus.emailUnconfirmed) {
         emit(state.copyWith(
           status: AuthStatus.unauthenticated,

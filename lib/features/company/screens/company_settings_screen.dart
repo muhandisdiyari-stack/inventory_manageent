@@ -17,7 +17,8 @@ class CompanySettingsScreen extends StatefulWidget {
       _CompanySettingsScreenState();
 }
 
-class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
+class _CompanySettingsScreenState
+    extends State<CompanySettingsScreen> {
   final _emailController = TextEditingController();
 
   @override
@@ -61,7 +62,14 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
       return;
     }
     final companyId = companyData['id']?.toString() ?? '';
-    if (companyId.isEmpty) return;
+    if (companyId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Invalid company'),
+            backgroundColor: Colors.orange),
+      );
+      return;
+    }
 
     context.read<CompanyBloc>().add(CreateInvitation(
           companyId: companyId,
@@ -76,7 +84,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
         .add(CancelInvitation(invitationId));
   }
 
-  void _removeMember(String memberId, String memberName) async {
+  void _removeMember(
+      String memberId, String memberName) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -111,7 +120,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
     }
   }
 
-  void _changeRole(String memberId, String currentRole) async {
+  void _changeRole(
+      String memberId, String currentRole) async {
     final state = context.read<CompanyBloc>().state;
     final companyData = state.selectedCompany?['company'];
     if (companyData is! Map) return;
@@ -184,7 +194,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
         actions: [
           TextButton(
             onPressed: () {
-              Clipboard.setData(ClipboardData(text: token));
+              Clipboard.setData(
+                  ClipboardData(text: token));
               Navigator.pop(ctx);
             },
             child: const Text('Copy'),
@@ -211,8 +222,9 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
               behavior: SnackBarBehavior.floating,
             ),
           );
-          // Clear the message so it doesn't show again on rebuild
-          context.read<CompanyBloc>().add(const ClearMessages());
+          context
+              .read<CompanyBloc>()
+              .add(const ClearMessages());
         }
         if (state.invitationToken != null) {
           _showTokenDialog(
@@ -221,8 +233,9 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                 : _emailController.text.trim(),
             state.invitationToken!,
           );
-          // Clear the token so dialog doesn't show again
-          context.read<CompanyBloc>().add(const ClearMessages());
+          context
+              .read<CompanyBloc>()
+              .add(const ClearMessages());
         }
         if (state.error != null) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -232,30 +245,31 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
               behavior: SnackBarBehavior.floating,
             ),
           );
-          // Clear the error after displaying
-          context.read<CompanyBloc>().add(const ClearMessages());
+          context
+              .read<CompanyBloc>()
+              .add(const ClearMessages());
         }
       },
-      child: BlocBuilder<CompanyBloc, CompanyState>(
+      child:
+          BlocBuilder<CompanyBloc, CompanyState>(
         builder: (context, state) {
-          // Show loading only on initial load
           if (state.isLoading && state.companies.isEmpty) {
             return Scaffold(
-              appBar:
-                  AppBar(title: const Text('Company Settings')),
-              body:
-                  const Center(child: CircularProgressIndicator()),
+              appBar: AppBar(
+                  title: const Text('Company Settings')),
+              body: const Center(
+                  child: CircularProgressIndicator()),
             );
           }
 
-          // Show empty state
           if (state.selectedCompany == null &&
               !state.isLoading) {
             return Scaffold(
-              appBar:
-                  AppBar(title: const Text('Company Settings')),
+              appBar: AppBar(
+                  title: const Text('Company Settings')),
               body: const Center(
-                  child: Text('No company found.')),
+                  child: Text('No company found. '
+                      'Please create or join a company first.')),
             );
           }
 
@@ -335,21 +349,27 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                     'Role: ${role.toUpperCase()}'),
                                 trailing:
                                     _canManageMembers && !isOwner
-                                        ? PopupMenuButton<String>(
-                                            onSelected: (action) {
+                                        ? PopupMenuButton<
+                                            String>(
+                                            onSelected:
+                                                (action) {
                                               if (action ==
                                                   'change_role') {
                                                 _changeRole(
-                                                    memberId, role);
+                                                    memberId,
+                                                    role);
                                               } else if (action ==
                                                   'remove') {
                                                 _removeMember(
-                                                    memberId, name);
+                                                    memberId,
+                                                    name);
                                               }
                                             },
-                                            itemBuilder: (ctx) => [
+                                            itemBuilder:
+                                                (ctx) => [
                                               const PopupMenuItem(
-                                                value: 'change_role',
+                                                value:
+                                                    'change_role',
                                                 child: Text(
                                                     'Change Role'),
                                               ),
@@ -358,8 +378,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                                 child: Text(
                                                   'Remove',
                                                   style: TextStyle(
-                                                      color:
-                                                          Colors.red),
+                                                      color: Colors
+                                                          .red),
                                                 ),
                                               ),
                                             ],
@@ -405,12 +425,14 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                               keyboardType:
                                   TextInputType.emailAddress,
                               decoration: InputDecoration(
-                                hintText: 'Enter email address',
-                                prefixIcon:
-                                    const Icon(Icons.email),
+                                hintText:
+                                    'Enter email address',
+                                prefixIcon: const Icon(
+                                    Icons.email),
                                 border: OutlineInputBorder(
                                   borderRadius:
-                                      BorderRadius.circular(12),
+                                      BorderRadius.circular(
+                                          12),
                                 ),
                                 filled: true,
                               ),
@@ -420,7 +442,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                               width: double.infinity,
                               child: FilledButton.icon(
                                 onPressed: _inviteUser,
-                                icon: const Icon(Icons.send),
+                                icon:
+                                    const Icon(Icons.send),
                                 label: const Text(
                                     'Send Invitation'),
                               ),
@@ -443,7 +466,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                           children: [
                             Row(
                               children: [
-                                const Icon(Icons.pending_actions,
+                                const Icon(
+                                    Icons.pending_actions,
                                     color: Colors.orange),
                                 const SizedBox(width: 8),
                                 Text(
@@ -476,8 +500,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                   ),
                                 ),
                                 title: Text(email),
-                                subtitle:
-                                    Text('Status: $status'),
+                                subtitle: Text(
+                                    'Status: $status'),
                                 trailing: _canManageMembers
                                     ? IconButton(
                                         icon: const Icon(

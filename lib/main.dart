@@ -3,11 +3,13 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'features/inventory_management/models/inventory_item.dart';
 import 'features/inventory_management/models/inventory_settings.dart';
-import 'features/inventory_management/services/inventory_service.dart';
 import 'core/constants/app_constants.dart';
 import 'core/config/app_config.dart';
 import 'core/services/activity_log_service.dart';
 import 'core/di/injection_container.dart';
+import 'features/onboarding/screens/onboarding_screen.dart';
+import 'features/onboarding/screens/splash_screen.dart';
+import 'features/inventory_selection/screens/inventory_selection_screen.dart';
 import 'app.dart';
 
 void main() async {
@@ -21,14 +23,6 @@ void main() async {
         await Supabase.initialize(
           url: AppConfig.supabaseUrl,
           anonKey: AppConfig.supabaseAnonKey,
-          // ✅ FIX: In supabase_flutter v2.x authFlowType is nested inside
-          // FlutterAuthClientOptions — it is NOT a top-level parameter.
-          //
-          // AuthFlowType.implicit puts the token in the URL hash
-          // (#access_token=...) so GitHub Pages (a static host with no server)
-          // can complete email confirmation entirely in the browser.
-          // On Android/iOS/desktop app_links intercepts the deep link instead,
-          // so this setting is effectively ignored on native platforms.
           authOptions: const FlutterAuthClientOptions(
             authFlowType: AuthFlowType.implicit,
           ),
@@ -37,7 +31,8 @@ void main() async {
       } catch (e) {
         debugPrint('⚠️ Supabase initialization failed: $e');
         if (AppConfig.isProduction) {
-          runApp(_ErrorApp(error: 'Failed to connect to server: $e'));
+          runApp(_ErrorApp(
+              error: 'Failed to connect to server: $e'));
           return;
         }
       }
@@ -62,7 +57,8 @@ void main() async {
           await Hive.deleteBoxFromDisk(boxName);
           await Hive.openBox(boxName);
         } catch (e2) {
-          runApp(_ErrorApp(error: 'Storage initialization failed: $e2'));
+          runApp(_ErrorApp(
+              error: 'Storage initialization failed: $e2'));
           return;
         }
       }
@@ -75,8 +71,7 @@ void main() async {
     return;
   }
 
-  final inventoryService = InventoryService();
-
+  // Check if onboarding has been completed
   bool onboardingCompleted = false;
   try {
     final appSettings = Hive.box(AppConstants.appSettingsBox);
@@ -87,7 +82,23 @@ void main() async {
         false;
   } catch (_) {}
 
-runApp(const InventoryProApp());
+  // Build the appropriate starting widget based on onboarding status
+  final Widget homeWidget = onboardingCompleted
+      ? const InventoryProApp()
+      : SplashScreen(
+          nextScreen: const OnboardingScreen(),
+        );
+
+  runApp(
+    MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+      ),
+      home: homeWidget,
+    ),
+  );
 }
 
 // ─── Error App ────────────────────────────────────────────────────
@@ -135,18 +146,16 @@ class _ErrorApp extends StatelessWidget {
                 Text(
                   error,
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(
                         color: Colors.grey.shade700,
                       ),
                 ),
                 const SizedBox(height: 32),
                 FilledButton.icon(
-                  onPressed: () {
-                    // Restarting the process is not possible from inside the
-                    // app on native. On web the user can reload the tab.
-                    // This button is intentionally a no-op — it exists only
-                    // as a visual affordance to suggest retrying.
-                  },
+                  onPressed: () {},
                   icon: const Icon(Icons.refresh),
                   label: const Text('Retry'),
                 ),
