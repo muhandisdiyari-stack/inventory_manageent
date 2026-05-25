@@ -6,6 +6,7 @@ class InventoryListState {
   final String? selectedInventoryName;
   final bool isLoading;
   final bool isInitialized;
+  final bool isOffline;
   final String? error;
 
   const InventoryListState({
@@ -14,6 +15,7 @@ class InventoryListState {
     this.selectedInventoryName,
     this.isLoading = false,
     this.isInitialized = false,
+    this.isOffline = false,
     this.error,
   });
 
@@ -23,6 +25,7 @@ class InventoryListState {
     String? selectedInventoryName,
     bool? isLoading,
     bool? isInitialized,
+    bool? isOffline,
     String? error,
   }) {
     return InventoryListState(
@@ -33,6 +36,7 @@ class InventoryListState {
           selectedInventoryName ?? this.selectedInventoryName,
       isLoading: isLoading ?? this.isLoading,
       isInitialized: isInitialized ?? this.isInitialized,
+      isOffline: isOffline ?? this.isOffline,
       error: error,
     );
   }

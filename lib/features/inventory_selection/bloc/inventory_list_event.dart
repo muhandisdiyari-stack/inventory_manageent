@@ -8,6 +8,10 @@ class LoadInventories extends InventoryListEvent {
   const LoadInventories();
 }
 
+class RefreshInventories extends InventoryListEvent {
+  const RefreshInventories();
+}
+
 class CreateInventory extends InventoryListEvent {
   final String name;
   const CreateInventory(this.name);
