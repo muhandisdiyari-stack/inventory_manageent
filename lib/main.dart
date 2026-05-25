@@ -85,9 +85,17 @@ void main() async {
   // Build the appropriate starting widget based on onboarding status
   final Widget homeWidget = onboardingCompleted
       ? const InventoryProApp()
-      : SplashScreen(
-          nextScreen: const OnboardingScreen(),
+      : const SplashScreen(
+          nextScreen: OnboardingScreen(),
         );
+
+await Hive.deleteBoxFromDisk('inventories_list');
+await Hive.deleteBoxFromDisk('app_settings');
+await Hive.deleteBoxFromDisk('activity_logs');
+// Reopen boxes
+await Hive.openBox('inventories_list');
+await Hive.openBox('app_settings');
+await Hive.openBox('activity_logs');
 
   runApp(
     MaterialApp(

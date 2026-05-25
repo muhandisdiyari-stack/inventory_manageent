@@ -13,8 +13,7 @@ import '../../../core/config/app_config.dart';
 part 'inventory_list_event.dart';
 part 'inventory_list_state.dart';
 
-class InventoryListBloc
-    extends Bloc<InventoryListEvent, InventoryListState> {
+class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
   final InventoryService _inventoryService;
   final ActivityLogService _logService;
   final Box _inventoriesBox;
@@ -25,8 +24,7 @@ class InventoryListBloc
     required ActivityLogService logService,
   })  : _inventoryService = inventoryService,
         _logService = logService,
-        _inventoriesBox =
-            Hive.box(AppConstants.inventoriesListBox),
+        _inventoriesBox = Hive.box(AppConstants.inventoriesListBox),
         super(const InventoryListState()) {
     on<LoadInventories>(_onLoad);
     on<CreateInventory>(_onCreate);
@@ -35,166 +33,112 @@ class InventoryListBloc
     on<SelectInventory>(_onSelect);
   }
 
-  List<InventoryListItem> _loadFromBox() {
-    final items = <InventoryListItem>[];
-    for (var key in _inventoriesBox.keys) {
-      final value = _inventoriesBox.get(key);
-      if (value is Map) {
-        final typedMap = <String, dynamic>{};
-        value
-            .forEach((k, v) => typedMap[k.toString()] = v);
-        final name = typedMap['name'] as String? ?? '';
-        if (name.isNotEmpty) {
-          items.add(InventoryListItem.fromMap(
-              key.toString(), typedMap));
-        }
-      }
+  /// Get the current user's active company ID from Supabase
+  Future<String?> _getCurrentCompanyId() async {
+    if (!AppConfig.useSupabase) return null;
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return null;
+      
+      final memberships = await Supabase.instance.client
+          .from('company_members')
+          .select('company_id')
+          .eq('user_id', user.id)
+          .limit(1)
+          .maybeSingle();
+      
+      return memberships?['company_id']?.toString();
+    } catch (e) {
+      debugPrint('Failed to get company ID: $e');
+      return null;
     }
-    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return items;
   }
 
   Future<void> _onLoad(
-      LoadInventories event,
-      Emitter<InventoryListState> emit) async {
+      LoadInventories event, Emitter<InventoryListState> emit) async {
     emit(state.copyWith(isLoading: true, error: null));
 
     try {
-      // Try to sync from Supabase first
-      if (AppConfig.useSupabase) {
+      final companyId = await _getCurrentCompanyId();
+      
+      // Clear old local cache that doesn't belong to this company
+      if (companyId != null) {
+        final keysToRemove = <String>[];
+        for (var key in _inventoriesBox.keys) {
+          final value = _inventoriesBox.get(key);
+          if (value is Map) {
+            final storedCompanyId = value['company_id']?.toString() ?? '';
+            if (storedCompanyId.isNotEmpty && storedCompanyId != companyId) {
+              keysToRemove.add(key.toString());
+            }
+          }
+        }
+        for (var key in keysToRemove) {
+          await _inventoriesBox.delete(key);
+        }
+      }
+
+      // Sync from Supabase
+      if (AppConfig.useSupabase && companyId != null) {
         try {
-          final supabaseClient =
-              Supabase.instance.client;
-          final user = supabaseClient.auth.currentUser;
+          final inventories = await Supabase.instance.client
+              .rpc('get_company_inventories', params: {'p_company_id': companyId});
 
-          if (user != null) {
-            // Get user's company memberships
-            final memberships = await supabaseClient
-                .from('company_members')
-                .select('company_id')
-                .eq('user_id', user.id);
-
-            if (memberships is List &&
-                memberships.isNotEmpty) {
-              for (final membership in memberships) {
-                final companyId =
-                    membership['company_id']
-                            ?.toString() ??
-                        '';
-
-                if (companyId.isNotEmpty) {
-                  // Fetch inventories for this company
-                  final inventories =
-                      await supabaseClient.rpc(
-                          'get_company_inventories',
-                          params: {
-                        'p_company_id': companyId,
-                      });
-
-                  if (inventories is List) {
-                    for (final inv
-                        in inventories) {
-                      final invMap = Map<String,
-                          dynamic>.from(
-                          inv as Map);
-                      final invId =
-                          invMap['id']
-                                  ?.toString() ??
-                              '';
-
-                      if (invId.isNotEmpty) {
-                        // Store in local Hive
-                        await _inventoriesBox
-                            .put(invId, {
-                          'name': invMap['name']
-                                  ?.toString() ??
-                              'Inventory',
-                          'created':
-                              invMap['created_at']
-                                      ?.toString() ??
-                                  DateTime.now()
-                                      .toIso8601String(),
-                          'modified':
-                              invMap['updated_at']
-                                      ?.toString() ??
-                                  DateTime.now()
-                                      .toIso8601String(),
-                          'company_id':
-                              companyId,
-                        });
-
-                        // Initialize inventory service
-                        await _inventoryService
-                            .initializeForInventory(
-                                invId);
-                      }
-                    }
-                  }
-                }
+          if (inventories is List) {
+            for (final inv in inventories) {
+              final invMap = Map<String, dynamic>.from(inv as Map);
+              final invId = invMap['id']?.toString() ?? '';
+              if (invId.isNotEmpty) {
+                await _inventoriesBox.put(invId, {
+                  'name': invMap['name']?.toString() ?? 'Inventory',
+                  'created': invMap['created_at']?.toString() ?? DateTime.now().toIso8601String(),
+                  'modified': invMap['updated_at']?.toString() ?? DateTime.now().toIso8601String(),
+                  'company_id': companyId,
+                });
+                await _inventoryService.initializeForInventory(invId);
               }
             }
           }
         } catch (e) {
-          debugPrint(
-              'Failed to sync inventories from Supabase: $e');
+          debugPrint('Failed to sync inventories: $e');
         }
       }
 
-      // Load from local Hive
-      final inventories = _loadFromBox();
-
-      // Filter out any orphaned inventories (no company_id)
-      final validInventories = inventories
-          .where((inv) => _inventoriesBox
-                  .get(inv.id)?['company_id'] !=
-              null)
-          .toList();
+      // Load from Hive (only this company's inventories)
+      final allItems = <InventoryListItem>[];
+      for (var key in _inventoriesBox.keys) {
+        final value = _inventoriesBox.get(key);
+        if (value is Map) {
+          final itemCompanyId = value['company_id']?.toString() ?? '';
+          if (companyId == null || itemCompanyId == companyId || itemCompanyId.isEmpty) {
+            final name = value['name']?.toString() ?? '';
+            if (name.isNotEmpty) {
+              allItems.add(InventoryListItem.fromMap(key.toString(), Map<String, dynamic>.from(value)));
+            }
+          }
+        }
+      }
+      allItems.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
       emit(state.copyWith(
-        inventories: validInventories,
+        inventories: allItems,
         isLoading: false,
         isInitialized: true,
       ));
     } catch (e) {
-      emit(state.copyWith(
-        isLoading: false,
-        error: 'Failed to load inventories: $e',
-      ));
+      emit(state.copyWith(isLoading: false, error: 'Failed to load: $e'));
     }
   }
 
   Future<void> _onCreate(
-      CreateInventory event,
-      Emitter<InventoryListState> emit) async {
+      CreateInventory event, Emitter<InventoryListState> emit) async {
     emit(state.copyWith(isLoading: true, error: null));
     try {
       final id = _uuid.v4();
       final timestamp = DateTime.now();
       final name = event.name.trim();
+      final companyId = await _getCurrentCompanyId();
 
-      // Get current user's company
-      String? companyId;
-      if (AppConfig.useSupabase) {
-        try {
-          final supabaseClient =
-              Supabase.instance.client;
-          final user = supabaseClient.auth.currentUser;
-
-          if (user != null) {
-            final memberships = await supabaseClient
-                .from('company_members')
-                .select('company_id')
-                .eq('user_id', user.id)
-                .limit(1)
-                .maybeSingle();
-
-            companyId =
-                memberships?['company_id']?.toString();
-          }
-        } catch (_) {}
-      }
-
-      // Store locally
       await _inventoriesBox.put(id, {
         'name': name,
         'created': timestamp.toIso8601String(),
@@ -202,189 +146,112 @@ class InventoryListBloc
         'company_id': companyId ?? '',
       });
 
-      // Initialize inventory service
       await _inventoryService.initializeForInventory(id);
 
-      // Sync to Supabase
-      if (AppConfig.useSupabase &&
-          companyId != null &&
-          companyId.isNotEmpty) {
+      if (AppConfig.useSupabase && companyId != null) {
         try {
-          await Supabase.instance.client
-              .from('inventories')
-              .insert({
+          final user = Supabase.instance.client.auth.currentUser;
+          await Supabase.instance.client.from('inventories').insert({
             'id': id,
             'company_id': companyId,
             'name': name,
-            'created_by': Supabase
-                .instance.client.auth.currentUser?.id,
-            'created_by_name': Supabase
-                    .instance
-                    .client
-                    .auth
-                    .currentUser
-                    ?.userMetadata?['display_name'] ??
-                Supabase
-                    .instance.client.auth.currentUser
-                    ?.email ??
-                'Unknown',
-            'created_at':
-                timestamp.toUtc().toIso8601String(),
-            'updated_at':
-                timestamp.toUtc().toIso8601String(),
+            'created_by': user?.id,
+            'created_by_name': user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown',
+            'created_at': timestamp.toUtc().toIso8601String(),
+            'updated_at': timestamp.toUtc().toIso8601String(),
           });
         } catch (e) {
-          debugPrint(
-              'Failed to sync inventory to Supabase: $e');
+          debugPrint('Failed to sync: $e');
         }
       }
 
-      await _logService.addLog(ActivityLogEntry(
-        id: _uuid.v4(),
-        timestamp: timestamp,
-        action: 'created',
-        entityType: 'inventory',
-        entityName: name,
-        inventoryId: id,
-        inventoryName: name,
-        details: 'Inventory created: "$name"',
-      ));
-
-      final inventories = _loadFromBox();
+      final items = _loadFromBox(companyId);
       emit(state.copyWith(
-        inventories: inventories,
+        inventories: items,
         selectedInventoryId: id,
         selectedInventoryName: name,
         isLoading: false,
       ));
     } catch (e) {
-      emit(state.copyWith(
-          isLoading: false,
-          error: 'Failed to create inventory: $e'));
+      emit(state.copyWith(isLoading: false, error: 'Failed to create: $e'));
     }
   }
 
-  Future<void> _onRename(
-      RenameInventory event,
-      Emitter<InventoryListState> emit) async {
+  List<InventoryListItem> _loadFromBox(String? companyId) {
+    final items = <InventoryListItem>[];
+    for (var key in _inventoriesBox.keys) {
+      final value = _inventoriesBox.get(key);
+      if (value is Map) {
+        final itemCompanyId = value['company_id']?.toString() ?? '';
+        if (companyId == null || itemCompanyId == companyId || itemCompanyId.isEmpty) {
+          final name = value['name']?.toString() ?? '';
+          if (name.isNotEmpty) {
+            items.add(InventoryListItem.fromMap(key.toString(), Map<String, dynamic>.from(value)));
+          }
+        }
+      }
+    }
+    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return items;
+  }
+
+  Future<void> _onRename(RenameInventory event, Emitter<InventoryListState> emit) async {
     try {
       final data = _inventoriesBox.get(event.id);
       if (data is Map) {
-        final typedMap = <String, dynamic>{};
-        data.forEach(
-            (k, v) => typedMap[k.toString()] = v);
-        final oldName =
-            typedMap['name'] as String? ?? '';
+        final typedMap = Map<String, dynamic>.from(data);
         typedMap['name'] = event.newName.trim();
-        typedMap['modified'] =
-            DateTime.now().toIso8601String();
+        typedMap['modified'] = DateTime.now().toIso8601String();
         await _inventoriesBox.put(event.id, typedMap);
-
+        
         if (AppConfig.useSupabase) {
           try {
-            await Supabase.instance.client
-                .from('inventories')
-                .update({
-              'name': event.newName.trim(),
-              'updated_at': DateTime.now()
-                  .toUtc()
-                  .toIso8601String(),
-            }).eq('id', event.id);
+            await Supabase.instance.client.from('inventories')
+                .update({'name': event.newName.trim(), 'updated_at': DateTime.now().toUtc().toIso8601String()})
+                .eq('id', event.id);
           } catch (_) {}
         }
-
-        await _logService.addLog(ActivityLogEntry(
-          id: _uuid.v4(),
-          timestamp: DateTime.now(),
-          action: 'modified',
-          entityType: 'inventory',
-          entityName: event.newName.trim(),
-          inventoryId: event.id,
-          inventoryName: event.newName.trim(),
-          details: 'Inventory renamed',
-          changes: {
-            'name': FieldChange(
-                oldValue: oldName,
-                newValue: event.newName.trim())
-          },
-        ));
-        final inventories = _loadFromBox();
-        emit(state.copyWith(inventories: inventories));
+        
+        final companyId = await _getCurrentCompanyId();
+        emit(state.copyWith(inventories: _loadFromBox(companyId)));
       }
     } catch (e) {
       emit(state.copyWith(error: 'Failed to rename: $e'));
     }
   }
 
-  Future<void> _onDelete(
-      DeleteInventory event,
-      Emitter<InventoryListState> emit) async {
+  Future<void> _onDelete(DeleteInventory event, Emitter<InventoryListState> emit) async {
     try {
-      final data = _inventoriesBox.get(event.id);
-      final inventoryName = data is Map
-          ? (data['name'] as String? ?? '')
-          : '';
-
-      await _logService.addLog(ActivityLogEntry(
-        id: _uuid.v4(),
-        timestamp: DateTime.now(),
-        action: 'deleted',
-        entityType: 'inventory',
-        entityName: inventoryName,
-        inventoryId: event.id,
-        inventoryName: inventoryName,
-        details: 'Inventory deleted: "$inventoryName"',
-      ));
-
       if (AppConfig.useSupabase) {
         try {
-          await Supabase.instance.client
-              .from('inventories')
-              .update({
-            'is_deleted': true,
-            'updated_at': DateTime.now()
-                .toUtc()
-                .toIso8601String(),
-          }).eq('id', event.id);
+          await Supabase.instance.client.from('inventories')
+              .update({'is_deleted': true, 'updated_at': DateTime.now().toUtc().toIso8601String()})
+              .eq('id', event.id);
         } catch (_) {}
       }
-
-      await _logService.clearLogs(inventoryId: event.id);
-      await _inventoryService
-          .deleteInventoryData(event.id);
+      
+      await _inventoryService.deleteInventoryData(event.id);
       await _inventoriesBox.delete(event.id);
-
-      final inventories = _loadFromBox();
-      final newSelectedId =
-          state.selectedInventoryId == event.id
-              ? (inventories.isNotEmpty
-                  ? inventories.first.id
-                  : null)
-              : state.selectedInventoryId;
+      
+      final companyId = await _getCurrentCompanyId();
+      final inventories = _loadFromBox(companyId);
       emit(state.copyWith(
         inventories: inventories,
-        selectedInventoryId: newSelectedId,
+        selectedInventoryId: state.selectedInventoryId == event.id
+            ? (inventories.isNotEmpty ? inventories.first.id : null)
+            : state.selectedInventoryId,
       ));
     } catch (e) {
-      emit(state.copyWith(
-          error: 'Failed to delete: $e'));
+      emit(state.copyWith(error: 'Failed to delete: $e'));
     }
   }
 
-  void _onSelect(
-      SelectInventory event,
-      Emitter<InventoryListState> emit) {
+  void _onSelect(SelectInventory event, Emitter<InventoryListState> emit) {
     String? name;
     final data = _inventoriesBox.get(event.id);
     if (data is Map) {
-      final typedMap = <String, dynamic>{};
-      data.forEach(
-          (k, v) => typedMap[k.toString()] = v);
-      name = typedMap['name'] as String?;
+      name = data['name']?.toString();
     }
-    emit(state.copyWith(
-      selectedInventoryId: event.id,
-      selectedInventoryName: name,
-    ));
+    emit(state.copyWith(selectedInventoryId: event.id, selectedInventoryName: name));
   }
 }
