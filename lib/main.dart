@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,7 +10,6 @@ import 'core/services/activity_log_service.dart';
 import 'core/di/injection_container.dart';
 import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/onboarding/screens/splash_screen.dart';
-import 'features/inventory_selection/screens/inventory_selection_screen.dart';
 import 'app.dart';
 
 void main() async {
@@ -18,6 +18,7 @@ void main() async {
   try {
     AppConfig.validate();
 
+    // ─── Initialize Supabase ──────────────────────────────────
     if (AppConfig.useSupabase) {
       try {
         await Supabase.initialize(
@@ -38,11 +39,15 @@ void main() async {
       }
     }
 
+    // ─── Initialize Hive ─────────────────────────────────────
     await Hive.initFlutter();
+
+    // Register adapters BEFORE opening any boxes
     Hive.registerAdapter(InventoryItemAdapter());
     Hive.registerAdapter(FieldConfigAdapter());
     Hive.registerAdapter(InventorySettingsAdapter());
 
+    // Open required boxes
     final boxesToOpen = [
       AppConstants.appSettingsBox,
       AppConstants.inventoriesListBox,
@@ -53,6 +58,7 @@ void main() async {
       try {
         await Hive.openBox(boxName);
       } catch (e) {
+        // Box might be corrupted, try to recover
         try {
           await Hive.deleteBoxFromDisk(boxName);
           await Hive.openBox(boxName);
@@ -64,49 +70,43 @@ void main() async {
       }
     }
 
+    // ─── Initialize Services ─────────────────────────────────
     await ActivityLogService().initialize();
     await InjectionContainer.initialize();
+
+    // ─── Check Onboarding ────────────────────────────────────
+    bool onboardingCompleted = false;
+    try {
+      final appSettings =
+          Hive.box(AppConstants.appSettingsBox);
+      onboardingCompleted = appSettings.get(
+            AppConstants.onboardingCompletedKey,
+            defaultValue: false,
+          ) as bool? ??
+          false;
+    } catch (_) {
+      // If reading fails, show onboarding
+      onboardingCompleted = false;
+    }
+
+    // ─── Run App ─────────────────────────────────────────────
+    runApp(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme:
+              ColorScheme.fromSeed(seedColor: Colors.blue),
+        ),
+        home: onboardingCompleted
+            ? const InventoryProApp()
+            : SplashScreen(
+                nextScreen: const OnboardingScreen()),
+      ),
+    );
   } catch (e) {
     runApp(_ErrorApp(error: e.toString()));
-    return;
   }
-
-  // Check if onboarding has been completed
-  bool onboardingCompleted = false;
-  try {
-    final appSettings = Hive.box(AppConstants.appSettingsBox);
-    onboardingCompleted = appSettings.get(
-          AppConstants.onboardingCompletedKey,
-          defaultValue: false,
-        ) as bool? ??
-        false;
-  } catch (_) {}
-
-  // Build the appropriate starting widget based on onboarding status
-  final Widget homeWidget = onboardingCompleted
-      ? const InventoryProApp()
-      : const SplashScreen(
-          nextScreen: OnboardingScreen(),
-        );
-
-await Hive.deleteBoxFromDisk('inventories_list');
-await Hive.deleteBoxFromDisk('app_settings');
-await Hive.deleteBoxFromDisk('activity_logs');
-// Reopen boxes
-await Hive.openBox('inventories_list');
-await Hive.openBox('app_settings');
-await Hive.openBox('activity_logs');
-
-  runApp(
-    MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-      ),
-      home: homeWidget,
-    ),
-  );
 }
 
 // ─── Error App ────────────────────────────────────────────────────
@@ -163,7 +163,10 @@ class _ErrorApp extends StatelessWidget {
                 ),
                 const SizedBox(height: 32),
                 FilledButton.icon(
-                  onPressed: () {},
+                  onPressed: () {
+                    // On web, reload the page
+                    // On native, this is just a visual button
+                  },
                   icon: const Icon(Icons.refresh),
                   label: const Text('Retry'),
                 ),
