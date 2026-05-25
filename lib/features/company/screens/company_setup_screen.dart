@@ -77,9 +77,8 @@ class _CompanySetupScreenState
       return;
     }
 
-    // ✅ Show confirmation dialog with name typing
-    final confirmed = await _showDeleteConfirmationDialog(
-        companyName);
+    final confirmed =
+        await _showDeleteConfirmationDialog(companyName);
     if (confirmed != true || !mounted) return;
 
     context
@@ -87,7 +86,6 @@ class _CompanySetupScreenState
         .add(DeleteCompany(companyId, companyName));
   }
 
-  /// Shows a confirmation dialog that requires typing the company name
   Future<bool?> _showDeleteConfirmationDialog(
       String companyName) async {
     final controller = TextEditingController();
@@ -101,134 +99,163 @@ class _CompanySetupScreenState
         builder: (ctx, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(20)),
-          icon: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .errorContainer,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Icon(
-              Icons.delete_forever_rounded,
-              color:
-                  Theme.of(context).colorScheme.error,
-              size: 32,
-            ),
+          title: Row(
+            children: [
+              Icon(Icons.delete_forever_rounded,
+                  color:
+                      Theme.of(context).colorScheme.error,
+                  size: 28),
+              const SizedBox(width: 8),
+              const Text('Delete Company',
+                  style: TextStyle(fontSize: 18)),
+            ],
           ),
-          title: const Text('Delete Company'),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                RichText(
-                  text: TextSpan(
-                    style: TextStyle(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.7),
-                      fontSize: 14,
-                    ),
-                    children: [
-                      const TextSpan(
-                        text:
-                            'This action is ',
-                      ),
-                      TextSpan(
-                        text:
-                            'permanent and irreversible',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .error,
-                        ),
-                      ),
-                      const TextSpan(
-                        text:
-                            '. All data related to this company will be permanently deleted:\n\n',
-                      ),
-                      const TextSpan(
-                        text:
-                            '• All inventories\n',
-                      ),
-                      const TextSpan(
-                        text:
-                            '• All items and labels\n',
-                      ),
-                      const TextSpan(
-                        text:
-                            '• All member data\n',
-                      ),
-                      const TextSpan(
-                        text:
-                            '• All pending invitations\n',
-                      ),
-                      const TextSpan(
-                        text:
-                            '• Activity logs\n',
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'To confirm, type "$companyName" below:',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: controller,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: 'Type company name',
-                    border: OutlineInputBorder(
+          content: SingleChildScrollView(
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  // Warning box
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.05),
                       borderRadius:
-                          BorderRadius.circular(12),
+                          BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.red
+                            .withValues(alpha: 0.2),
+                      ),
                     ),
-                    filled: true,
-                    prefixIcon: const Icon(
-                        Icons.warning_amber_rounded,
-                        color: Colors.red),
+                    child: const Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.warning_amber,
+                                color: Colors.red,
+                                size: 18),
+                            SizedBox(width: 6),
+                            Text(
+                              'Warning',
+                              style: TextStyle(
+                                fontWeight:
+                                    FontWeight.bold,
+                                color: Colors.red,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'This action is permanent and cannot be undone.',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                      ],
+                    ),
                   ),
-                  validator: (value) {
-                    if (value == null ||
-                        value.trim() !=
-                            companyName) {
-                      return 'Company name does not match';
-                    }
-                    return null;
-                  },
-                  onChanged: (value) {
-                    setDialogState(() {
-                      canDelete =
-                          value.trim() == companyName;
-                    });
-                  },
-                ),
-              ],
+                  const SizedBox(height: 16),
+
+                  // What gets deleted
+                  const Text(
+                    'The following will be permanently deleted:',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13),
+                  ),
+                  const SizedBox(height: 8),
+                  const _DeleteItem(
+                      icon: Icons.inventory_2,
+                      text: 'All inventories'),
+                  const _DeleteItem(
+                      icon: Icons.label,
+                      text: 'All items and labels'),
+                  const _DeleteItem(
+                      icon: Icons.people,
+                      text: 'All member data'),
+                  const _DeleteItem(
+                      icon: Icons.mail,
+                      text: 'All pending invitations'),
+                  const _DeleteItem(
+                      icon: Icons.history,
+                      text: 'Activity logs'),
+                  const SizedBox(height: 16),
+
+                  // Confirmation input
+                  Text.rich(
+                    TextSpan(
+                      children: [
+                        const TextSpan(
+                          text: 'Type ',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                        TextSpan(
+                          text: '"$companyName"',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const TextSpan(
+                          text: ' to confirm:',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: controller,
+                    autofocus: true,
+                    textInputAction: TextInputAction.done,
+                    decoration: InputDecoration(
+                      hintText: 'Type company name',
+                      border: OutlineInputBorder(
+                        borderRadius:
+                            BorderRadius.circular(10),
+                      ),
+                      filled: true,
+                      contentPadding:
+                          const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 14),
+                    ),
+                    style: const TextStyle(fontSize: 14),
+                    validator: (value) {
+                      if (value == null ||
+                          value.trim() != companyName) {
+                        return 'Name does not match';
+                      }
+                      return null;
+                    },
+                    onChanged: (value) {
+                      setDialogState(() {
+                        canDelete =
+                            value.trim() == companyName;
+                      });
+                    },
+                    onFieldSubmitted: (value) {
+                      if (canDelete &&
+                          formKey.currentState!
+                              .validate()) {
+                        Navigator.pop(ctx, true);
+                      }
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.pop(ctx, false),
-              style: TextButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(12),
-                ),
-              ),
+              onPressed: () => Navigator.pop(ctx, false),
               child: const Text('Cancel'),
             ),
-            const SizedBox(width: 8),
             FilledButton(
               onPressed: canDelete
                   ? () {
@@ -240,21 +267,13 @@ class _CompanySetupScreenState
                   : null,
               style: FilledButton.styleFrom(
                 backgroundColor: canDelete
-                    ? Theme.of(context)
-                        .colorScheme
-                        .error
+                    ? Theme.of(context).colorScheme.error
+                    : Colors.grey.shade300,
+                foregroundColor: canDelete
+                    ? Colors.white
                     : Colors.grey,
-                shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(12),
-                ),
               ),
-              child: const Text(
-                'Delete Everything',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              child: const Text('Delete Company'),
             ),
           ],
         ),
@@ -711,6 +730,33 @@ class _CompanySetupScreenState
                   ),
           );
         },
+      ),
+    );
+  }
+}
+
+// Helper widget for delete confirmation items
+class _DeleteItem extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _DeleteItem({
+    required this.icon,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Icon(icon,
+              size: 16,
+              color: Colors.red.withValues(alpha: 0.7)),
+          const SizedBox(width: 8),
+          Text(text, style: const TextStyle(fontSize: 13)),
+        ],
       ),
     );
   }
