@@ -309,15 +309,14 @@ class _CompanySetupScreenState
         .add(LeaveCompany(companyId, companyName));
   }
 
-  void _openCompany(String companyId, String companyName) {
-    context
-        .read<CompanyBloc>()
-        .add(SelectCompany(companyId));
+void _openCompany(String companyId, String companyName) {
+    // Select the company in CompanyBloc
+    context.read<CompanyBloc>().add(SelectCompany(companyId));
 
+    // Navigate to inventory selection
     Navigator.of(context).push(
       MaterialPageRoute(
-          builder: (_) =>
-              const InventorySelectionScreen()),
+          builder: (_) => const InventorySelectionScreen()),
     );
   }
 

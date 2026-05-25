@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -54,72 +54,81 @@ class InventoryListBloc
     return items;
   }
 
-  /// ✅ Load inventories from Supabase AND local cache
   Future<void> _onLoad(
       LoadInventories event,
       Emitter<InventoryListState> emit) async {
-    try {
-      emit(state.copyWith(isLoading: true, error: null));
+    emit(state.copyWith(isLoading: true, error: null));
 
-      // Try to fetch inventories from Supabase
+    try {
+      // Try to sync from Supabase first
       if (AppConfig.useSupabase) {
         try {
           final supabaseClient =
               Supabase.instance.client;
-
-          // Get current user's company
           final user = supabaseClient.auth.currentUser;
+
           if (user != null) {
-            final profileData = await supabaseClient
-                .from('profiles')
+            // Get user's company memberships
+            final memberships = await supabaseClient
+                .from('company_members')
                 .select('company_id')
-                .eq('id', user.id)
-                .maybeSingle();
+                .eq('user_id', user.id);
 
-            final companyId =
-                profileData?['company_id'] as String?;
+            if (memberships is List &&
+                memberships.isNotEmpty) {
+              for (final membership in memberships) {
+                final companyId =
+                    membership['company_id']
+                            ?.toString() ??
+                        '';
 
-            if (companyId != null) {
-              // Fetch inventories for this company
-              final supabaseInventories =
-                  await supabaseClient
-                      .rpc('get_company_inventories',
+                if (companyId.isNotEmpty) {
+                  // Fetch inventories for this company
+                  final inventories =
+                      await supabaseClient.rpc(
+                          'get_company_inventories',
                           params: {
                         'p_company_id': companyId,
                       });
 
-              if (supabaseInventories is List &&
-                  supabaseInventories.isNotEmpty) {
-                // Sync to local Hive boxes
-                for (final inv
-                    in supabaseInventories) {
-                  final invMap = Map<String,
-                      dynamic>.from(inv as Map);
-                  final invId = invMap['id']
-                          ?.toString() ??
-                      '';
+                  if (inventories is List) {
+                    for (final inv
+                        in inventories) {
+                      final invMap = Map<String,
+                          dynamic>.from(
+                          inv as Map);
+                      final invId =
+                          invMap['id']
+                                  ?.toString() ??
+                              '';
 
-                  if (invId.isNotEmpty) {
-                    // Initialize the inventory service for this inventory
-                    await _inventoryService
-                        .initializeForInventory(
-                            invId);
+                      if (invId.isNotEmpty) {
+                        // Store in local Hive
+                        await _inventoriesBox
+                            .put(invId, {
+                          'name': invMap['name']
+                                  ?.toString() ??
+                              'Inventory',
+                          'created':
+                              invMap['created_at']
+                                      ?.toString() ??
+                                  DateTime.now()
+                                      .toIso8601String(),
+                          'modified':
+                              invMap['updated_at']
+                                      ?.toString() ??
+                                  DateTime.now()
+                                      .toIso8601String(),
+                          'company_id':
+                              companyId,
+                        });
 
-                    // Store in local Hive box
-                    await _inventoriesBox.put(invId, {
-                      'name': invMap['name']
-                              ?.toString() ??
-                          'Unknown Inventory',
-                      'created': invMap['created_at']
-                              ?.toString() ??
-                          DateTime.now()
-                              .toIso8601String(),
-                      'modified': invMap['updated_at']
-                              ?.toString() ??
-                          DateTime.now()
-                              .toIso8601String(),
-                      'company_id': companyId,
-                    });
+                        // Initialize inventory service
+                        await _inventoryService
+                            .initializeForInventory(
+                                invId);
+                      }
+                    }
                   }
                 }
               }
@@ -127,18 +136,30 @@ class InventoryListBloc
           }
         } catch (e) {
           debugPrint(
-              'Failed to load inventories from Supabase: $e');
-          // Continue with local cache
+              'Failed to sync inventories from Supabase: $e');
         }
       }
 
-      // Load from local Hive box (which now includes synced data)
+      // Load from local Hive
       final inventories = _loadFromBox();
+
+      // Filter out any orphaned inventories (no company_id)
+      final validInventories = inventories
+          .where((inv) => _inventoriesBox
+                  .get(inv.id)?['company_id'] !=
+              null)
+          .toList();
+
       emit(state.copyWith(
-          inventories: inventories, error: null));
+        inventories: validInventories,
+        isLoading: false,
+        isInitialized: true,
+      ));
     } catch (e) {
       emit(state.copyWith(
-          error: 'Failed to load inventories: $e'));
+        isLoading: false,
+        error: 'Failed to load inventories: $e',
+      ));
     }
   }
 
@@ -151,17 +172,8 @@ class InventoryListBloc
       final timestamp = DateTime.now();
       final name = event.name.trim();
 
-      // Store locally
-      await _inventoriesBox.put(id, {
-        'name': name,
-        'created': timestamp.toIso8601String(),
-        'modified': timestamp.toIso8601String(),
-      });
-
-      // Initialize the inventory service
-      await _inventoryService.initializeForInventory(id);
-
-      // ✅ Sync to Supabase if online
+      // Get current user's company
+      String? companyId;
       if (AppConfig.useSupabase) {
         try {
           final supabaseClient =
@@ -169,38 +181,61 @@ class InventoryListBloc
           final user = supabaseClient.auth.currentUser;
 
           if (user != null) {
-            // Get company ID
-            final profileData = await supabaseClient
-                .from('profiles')
+            final memberships = await supabaseClient
+                .from('company_members')
                 .select('company_id')
-                .eq('id', user.id)
+                .eq('user_id', user.id)
+                .limit(1)
                 .maybeSingle();
 
-            final companyId = profileData?['company_id']
-                as String?;
-
-            if (companyId != null) {
-              // Create inventory in Supabase
-              await supabaseClient
-                  .from('inventories')
-                  .insert({
-                'id': id,
-                'company_id': companyId,
-                'name': name,
-                'created_by': user.id,
-                'created_at': timestamp
-                    .toUtc()
-                    .toIso8601String(),
-                'updated_at': timestamp
-                    .toUtc()
-                    .toIso8601String(),
-              });
-            }
+            companyId =
+                memberships?['company_id']?.toString();
           }
+        } catch (_) {}
+      }
+
+      // Store locally
+      await _inventoriesBox.put(id, {
+        'name': name,
+        'created': timestamp.toIso8601String(),
+        'modified': timestamp.toIso8601String(),
+        'company_id': companyId ?? '',
+      });
+
+      // Initialize inventory service
+      await _inventoryService.initializeForInventory(id);
+
+      // Sync to Supabase
+      if (AppConfig.useSupabase &&
+          companyId != null &&
+          companyId.isNotEmpty) {
+        try {
+          await Supabase.instance.client
+              .from('inventories')
+              .insert({
+            'id': id,
+            'company_id': companyId,
+            'name': name,
+            'created_by': Supabase
+                .instance.client.auth.currentUser?.id,
+            'created_by_name': Supabase
+                    .instance
+                    .client
+                    .auth
+                    .currentUser
+                    ?.userMetadata?['display_name'] ??
+                Supabase
+                    .instance.client.auth.currentUser
+                    ?.email ??
+                'Unknown',
+            'created_at':
+                timestamp.toUtc().toIso8601String(),
+            'updated_at':
+                timestamp.toUtc().toIso8601String(),
+          });
         } catch (e) {
           debugPrint(
               'Failed to sync inventory to Supabase: $e');
-          // Inventory is saved locally, will sync later
         }
       }
 
@@ -245,7 +280,6 @@ class InventoryListBloc
             DateTime.now().toIso8601String();
         await _inventoriesBox.put(event.id, typedMap);
 
-        // Sync to Supabase
         if (AppConfig.useSupabase) {
           try {
             await Supabase.instance.client
@@ -302,7 +336,6 @@ class InventoryListBloc
         details: 'Inventory deleted: "$inventoryName"',
       ));
 
-      // Soft delete in Supabase
       if (AppConfig.useSupabase) {
         try {
           await Supabase.instance.client
