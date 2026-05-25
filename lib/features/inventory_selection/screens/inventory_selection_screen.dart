@@ -21,36 +21,21 @@ class _InventorySelectionScreenState
   @override
   void initState() {
     super.initState();
-    context
-        .read<InventoryListBloc>()
-        .add(const LoadInventories());
+    context.read<InventoryListBloc>().add(const LoadInventories());
   }
 
   void _openInventory(String id) {
-    context
-        .read<InventoryListBloc>()
-        .add(SelectInventory(id));
-    context
-        .read<InventoryBloc>()
-        .add(InitializeInventory(id));
+    context.read<InventoryListBloc>().add(SelectInventory(id));
+    context.read<InventoryBloc>().add(InitializeInventory(id));
 
     Navigator.push(
       context,
-      MaterialPageRoute(
-          builder: (_) => const InventoryHomeScreen()),
+      MaterialPageRoute(builder: (_) => const InventoryHomeScreen()),
     );
   }
 
   void _showCreateDialog() {
     CreateInventoryDialog.show(context);
-  }
-
-  void _openActivityLog() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-          builder: (_) => const ActivityLogScreen()),
-    );
   }
 
   @override
@@ -65,19 +50,12 @@ class _InventorySelectionScreenState
                 const Padding(
                   padding: EdgeInsets.only(right: 8),
                   child: Chip(
-                    label: Text('Offline',
-                        style: TextStyle(fontSize: 10)),
+                    label: Text('Offline', style: TextStyle(fontSize: 10)),
                     backgroundColor: Colors.orange,
                     labelStyle: TextStyle(color: Colors.white),
-                    avatar: Icon(Icons.cloud_off,
-                        size: 14, color: Colors.white),
+                    avatar: Icon(Icons.cloud_off, size: 14, color: Colors.white),
                   ),
                 ),
-              IconButton(
-                tooltip: 'Activity Log',
-                icon: const Icon(Icons.history),
-                onPressed: _openActivityLog,
-              ),
             ],
           ),
           floatingActionButton: state.isOffline
@@ -88,32 +66,22 @@ class _InventorySelectionScreenState
                   label: const Text('New Inventory'),
                   elevation: 4,
                 ),
-          floatingActionButtonLocation:
-              FloatingActionButtonLocation.centerFloat,
+          floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
           body: RefreshIndicator(
             onRefresh: () async {
-              context
-                  .read<InventoryListBloc>()
-                  .add(const RefreshInventories());
+              context.read<InventoryListBloc>().add(const RefreshInventories());
             },
-            child: state.isLoading &&
-                    state.inventories.isEmpty
-                ? const Center(
-                    child: CircularProgressIndicator())
-                : state.error != null &&
-                        state.inventories.isEmpty
+            child: state.isLoading && state.inventories.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : state.error != null && state.inventories.isEmpty
                     ? _buildError(state.error!)
                     : state.inventories.isEmpty
                         ? EmptyStateWidget(
-                            onCreateInventory: state.isOffline
-                                ? null
-                                : _showCreateDialog,
+                            onCreateInventory: state.isOffline ? null : _showCreateDialog,
                           )
                         : InventoryListWidget(
-                            inventories:
-                                state.inventories,
-                            onOpenInventory:
-                                _openInventory,
+                            inventories: state.inventories,
+                            onOpenInventory: _openInventory,
                           ),
           ),
         );
@@ -128,17 +96,12 @@ class _InventorySelectionScreenState
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_off,
-                size: 64, color: Colors.grey[400]),
+            Icon(Icons.cloud_off, size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
-            Text(error,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey[600])),
+            Text(error, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[600])),
             const SizedBox(height: 24),
             FilledButton.icon(
-              onPressed: () => context
-                  .read<InventoryListBloc>()
-                  .add(const RefreshInventories()),
+              onPressed: () => context.read<InventoryListBloc>().add(const RefreshInventories()),
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
             ),
