@@ -9,6 +9,10 @@ import 'features/auth/screens/login_screen.dart';
 import 'features/company/screens/company_setup_screen.dart';
 import 'features/admin/screens/admin_dashboard_screen.dart';
 
+/// Root widget of the application.
+///
+/// Provides all BLoCs through [MultiBlocProvider] and handles
+/// authentication-based routing through [_AppEntryPoint].
 class InventoryProApp extends StatelessWidget {
   const InventoryProApp({super.key});
 
@@ -62,8 +66,7 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
           AuthStatus.unknown ||
           AuthStatus.initializing =>
             const Scaffold(
-                body: Center(
-                    child: CircularProgressIndicator())),
+                body: Center(child: CircularProgressIndicator())),
           AuthStatus.authenticating =>
             const Scaffold(
                 body: Center(
@@ -74,33 +77,29 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
                   SizedBox(height: 16),
                   Text('Please wait...'),
                 ]))),
-          AuthStatus.unauthenticated =>
-            const LoginScreen(),
-          AuthStatus.authenticated =>
-            state.isAdmin
-                ? const _AdminGate()
-                : const CompanySetupScreen(),
+          AuthStatus.unauthenticated => const LoginScreen(),
+          AuthStatus.authenticated => state.isAdmin
+              ? const _AdminGate()
+              : const CompanySetupScreen(),
           AuthStatus.emailUnconfirmed =>
             const _EmailConfirmationScreen(),
-          AuthStatus.emailConfirmed =>
-            const _EmailConfirmedScreen(),
-          AuthStatus.error =>
-            Scaffold(
-                body: Center(
-                    child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                  const Icon(Icons.error_outline,
-                      size: 64, color: Colors.red),
-                  const SizedBox(height: 16),
-                  Text(state.error ?? 'Unknown error'),
-                  const SizedBox(height: 24),
-                  FilledButton(
-                      onPressed: () => context
-                          .read<AuthBloc>()
-                          .add(const AuthCheckRequested()),
-                      child: const Text('Retry')),
-                ]))),
+          AuthStatus.emailConfirmed => const _EmailConfirmedScreen(),
+          AuthStatus.error => Scaffold(
+              body: Center(
+                  child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                const Icon(Icons.error_outline,
+                    size: 64, color: Colors.red),
+                const SizedBox(height: 16),
+                Text(state.error ?? 'Unknown error'),
+                const SizedBox(height: 24),
+                FilledButton(
+                    onPressed: () => context
+                        .read<AuthBloc>()
+                        .add(const AuthCheckRequested()),
+                    child: const Text('Retry')),
+              ]))),
         };
       },
     );
@@ -108,9 +107,6 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
 }
 
 // ─── Admin Gate ───────────────────────────────────────────────────
-// ✅ FIXED: Converted from StatelessWidget with fragile
-// addPostFrameCallback in build() to a proper StatefulWidget that
-// shows the admin navigation dialog in initState.
 
 class _AdminGate extends StatefulWidget {
   const _AdminGate();
@@ -126,7 +122,9 @@ class _AdminGateState extends State<_AdminGate> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showAdminDialog();
+      if (mounted) {
+        _showAdminDialog();
+      }
     });
   }
 
@@ -151,8 +149,7 @@ class _AdminGateState extends State<_AdminGate> {
               Navigator.pop(ctx);
               Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(
-                    builder: (_) =>
-                        const CompanySetupScreen()),
+                    builder: (_) => const CompanySetupScreen()),
                 (route) => false,
               );
             },
@@ -163,15 +160,14 @@ class _AdminGateState extends State<_AdminGate> {
               Navigator.pop(ctx);
               Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(
-                    builder: (_) =>
-                        const AdminDashboardScreen()),
+                    builder: (_) => const AdminDashboardScreen()),
                 (route) => false,
               );
             },
             icon: const Icon(Icons.dashboard),
             label: const Text('Admin Dashboard'),
-            style: FilledButton.styleFrom(
-                backgroundColor: Colors.blue),
+            style:
+                FilledButton.styleFrom(backgroundColor: Colors.blue),
           ),
         ],
       ),
@@ -221,14 +217,11 @@ class _EmailConfirmationScreen extends StatelessWidget {
                     height: 100,
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius:
-                          BorderRadius.circular(25),
+                      borderRadius: BorderRadius.circular(25),
                     ),
                     child: Icon(Icons.email_rounded,
                         size: 50,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .primary),
+                        color: Theme.of(context).colorScheme.primary),
                   ),
                   const SizedBox(height: 32),
                   Text(
@@ -247,8 +240,7 @@ class _EmailConfirmationScreen extends StatelessWidget {
                     'The app will open automatically and sign you in.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                        color: Colors.white
-                            .withValues(alpha: 0.85),
+                        color: Colors.white.withValues(alpha: 0.85),
                         fontSize: 15,
                         height: 1.6),
                   ),
@@ -257,25 +249,21 @@ class _EmailConfirmationScreen extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 10),
                     decoration: BoxDecoration(
-                      color: Colors.white
-                          .withValues(alpha: 0.12),
-                      borderRadius:
-                          BorderRadius.circular(12),
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.info_outline,
-                            color: Colors.white
-                                .withValues(alpha: 0.8),
+                            color: Colors.white.withValues(alpha: 0.8),
                             size: 18),
                         const SizedBox(width: 8),
                         Flexible(
                           child: Text(
                             'Clicking the link in Gmail will open this app directly.',
                             style: TextStyle(
-                                color: Colors.white
-                                    .withValues(alpha: 0.8),
+                                color: Colors.white.withValues(alpha: 0.8),
                                 fontSize: 13),
                           ),
                         ),
@@ -292,12 +280,10 @@ class _EmailConfirmationScreen extends StatelessWidget {
                           .add(const AuthCheckRequested()),
                       style: FilledButton.styleFrom(
                         backgroundColor: Colors.white,
-                        foregroundColor: Theme.of(context)
-                            .colorScheme
-                            .primary,
+                        foregroundColor:
+                            Theme.of(context).colorScheme.primary,
                         shape: RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.circular(12)),
+                            borderRadius: BorderRadius.circular(12)),
                       ),
                       child: const Text('Back to Sign In',
                           style: TextStyle(
@@ -347,13 +333,10 @@ class _EmailConfirmedScreen extends StatelessWidget {
                     height: 100,
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius:
-                          BorderRadius.circular(25),
+                      borderRadius: BorderRadius.circular(25),
                     ),
-                    child: const Icon(
-                        Icons.check_circle_rounded,
-                        size: 60,
-                        color: Colors.green),
+                    child: const Icon(Icons.check_circle_rounded,
+                        size: 60, color: Colors.green),
                   ),
                   const SizedBox(height: 32),
                   Text(
@@ -370,8 +353,7 @@ class _EmailConfirmedScreen extends StatelessWidget {
                     'Your email has been successfully verified.\nYou can now sign in to your account.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                        color: Colors.white
-                            .withValues(alpha: 0.85),
+                        color: Colors.white.withValues(alpha: 0.85),
                         fontSize: 15,
                         height: 1.6),
                   ),
@@ -387,11 +369,9 @@ class _EmailConfirmedScreen extends StatelessWidget {
                       },
                       style: FilledButton.styleFrom(
                         backgroundColor: Colors.white,
-                        foregroundColor:
-                            Colors.green.shade700,
+                        foregroundColor: Colors.green.shade700,
                         shape: RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.circular(12)),
+                            borderRadius: BorderRadius.circular(12)),
                       ),
                       child: const Text('Sign In Now',
                           style: TextStyle(

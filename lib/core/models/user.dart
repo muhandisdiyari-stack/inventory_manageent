@@ -1,3 +1,4 @@
+/// User role enum with permission hierarchy.
 enum UserRole {
   owner,
   admin,
@@ -7,12 +8,194 @@ enum UserRole {
 
   static UserRole fromString(String value) {
     return UserRole.values.firstWhere(
-      (e) => e.name == value,
+      (e) => e.name == value.toLowerCase(),
       orElse: () => UserRole.viewer,
     );
   }
+
+  /// Whether this role can manage members of the company.
+  bool get canManageCompany => this == owner;
+
+  /// Whether this role can manage (invite/remove) members.
+  bool get canManageMembers => this == owner || this == admin;
+
+  /// Whether this role can manage inventory (create/edit/delete items).
+  bool get canManageInventory =>
+      this == owner || this == admin || this == manager;
+
+  /// Whether this role can delete items.
+  bool get canDeleteItems =>
+      this == owner || this == admin || this == manager;
+
+  /// Whether this role can export reports.
+  bool get canExportReports =>
+      this == owner || this == admin || this == manager;
+
+  /// Whether this role can bulk import.
+  bool get canBulkImport =>
+      this == owner || this == admin || this == manager;
+
+  /// Whether this role can change inventory settings.
+  bool get canChangeSettings =>
+      this == owner || this == admin;
+
+  /// Whether this role can view inventory items.
+  bool get canViewInventory => true; // All roles can view
 }
 
+/// Inventory-level permission flags for invited members.
+class InventoryPermissions {
+  final bool canView;
+  final bool canAddItems;
+  final bool canRemoveItems;
+  final bool canUpdateItems;
+  final bool canDownloadReports;
+  final bool canViewActivity;
+  final bool canChangeSettings;
+  final bool canDeleteItems;
+
+  const InventoryPermissions({
+    this.canView = true,
+    this.canAddItems = false,
+    this.canRemoveItems = false,
+    this.canUpdateItems = false,
+    this.canDownloadReports = false,
+    this.canViewActivity = false,
+    this.canChangeSettings = false,
+    this.canDeleteItems = false,
+  });
+
+  /// Default viewer permissions (view only).
+  static const viewer = InventoryPermissions(
+    canView: true,
+    canViewActivity: true,
+  );
+
+  /// Default staff permissions (add + update items).
+  static const staff = InventoryPermissions(
+    canView: true,
+    canAddItems: true,
+    canUpdateItems: true,
+    canViewActivity: true,
+  );
+
+  /// Default manager permissions (full item management).
+  static const manager = InventoryPermissions(
+    canView: true,
+    canAddItems: true,
+    canRemoveItems: true,
+    canUpdateItems: true,
+    canDownloadReports: true,
+    canViewActivity: true,
+    canChangeSettings: true,
+  );
+
+  /// Owner permissions (everything).
+  static const owner = InventoryPermissions(
+    canView: true,
+    canAddItems: true,
+    canRemoveItems: true,
+    canUpdateItems: true,
+    canDownloadReports: true,
+    canViewActivity: true,
+    canChangeSettings: true,
+    canDeleteItems: true,
+  );
+
+  static InventoryPermissions fromRole(String role) {
+    switch (role.toLowerCase()) {
+      case 'owner':
+        return InventoryPermissions.owner;
+      case 'admin':
+        return InventoryPermissions.owner;
+      case 'manager':
+        return InventoryPermissions.manager;
+      case 'staff':
+        return InventoryPermissions.staff;
+      default:
+        return InventoryPermissions.viewer;
+    }
+  }
+
+  static InventoryPermissions fromJson(Map<String, dynamic>? json) {
+    if (json == null) return InventoryPermissions.viewer;
+    return InventoryPermissions(
+      canView: json['canView'] as bool? ?? json['view'] as bool? ?? true,
+      canAddItems: json['canAddItems'] as bool? ?? json['add'] as bool? ?? false,
+      canRemoveItems: json['canRemoveItems'] as bool? ?? json['delete'] as bool? ?? false,
+      canUpdateItems: json['canUpdateItems'] as bool? ?? json['update'] as bool? ?? false,
+      canDownloadReports: json['canDownloadReports'] as bool? ?? json['reports'] as bool? ?? false,
+      canViewActivity: json['canViewActivity'] as bool? ?? json['activity'] as bool? ?? false,
+      canChangeSettings: json['canChangeSettings'] as bool? ?? json['settings'] as bool? ?? false,
+      canDeleteItems: json['canDeleteItems'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'canView': canView,
+    'canAddItems': canAddItems,
+    'canRemoveItems': canRemoveItems,
+    'canUpdateItems': canUpdateItems,
+    'canDownloadReports': canDownloadReports,
+    'canViewActivity': canViewActivity,
+    'canChangeSettings': canChangeSettings,
+    'canDeleteItems': canDeleteItems,
+  };
+
+  /// Supabase-compatible JSON (uses shorter keys matching DB schema).
+  Map<String, dynamic> toSupabaseJson() => {
+    'view': canView,
+    'add': canAddItems,
+    'delete': canRemoveItems,
+    'update': canUpdateItems,
+    'reports': canDownloadReports,
+    'activity': canViewActivity,
+    'settings': canChangeSettings,
+  };
+
+  InventoryPermissions copyWith({
+    bool? canView,
+    bool? canAddItems,
+    bool? canRemoveItems,
+    bool? canUpdateItems,
+    bool? canDownloadReports,
+    bool? canViewActivity,
+    bool? canChangeSettings,
+    bool? canDeleteItems,
+  }) {
+    return InventoryPermissions(
+      canView: canView ?? this.canView,
+      canAddItems: canAddItems ?? this.canAddItems,
+      canRemoveItems: canRemoveItems ?? this.canRemoveItems,
+      canUpdateItems: canUpdateItems ?? this.canUpdateItems,
+      canDownloadReports: canDownloadReports ?? this.canDownloadReports,
+      canViewActivity: canViewActivity ?? this.canViewActivity,
+      canChangeSettings: canChangeSettings ?? this.canChangeSettings,
+      canDeleteItems: canDeleteItems ?? this.canDeleteItems,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is InventoryPermissions &&
+          canView == other.canView &&
+          canAddItems == other.canAddItems &&
+          canRemoveItems == other.canRemoveItems &&
+          canUpdateItems == other.canUpdateItems &&
+          canDownloadReports == other.canDownloadReports &&
+          canViewActivity == other.canViewActivity &&
+          canChangeSettings == other.canChangeSettings &&
+          canDeleteItems == other.canDeleteItems;
+
+  @override
+  int get hashCode => Object.hash(
+    canView, canAddItems, canRemoveItems, canUpdateItems,
+    canDownloadReports, canViewActivity, canChangeSettings, canDeleteItems,
+  );
+}
+
+/// User model representing an authenticated user.
 class User {
   final String id;
   final String email;
@@ -22,6 +205,7 @@ class User {
   final bool isApproved;
   final DateTime? createdAt;
   final Map<String, bool> permissions;
+  final InventoryPermissions? inventoryPermissions;
 
   User({
     required this.id,
@@ -32,6 +216,7 @@ class User {
     this.isApproved = false,
     this.createdAt,
     Map<String, bool>? permissions,
+    this.inventoryPermissions,
   }) : permissions = permissions ?? _getDefaultPermissions(role);
 
   static Map<String, bool> _getDefaultPermissions(UserRole role) {
@@ -99,7 +284,39 @@ class User {
   bool get canBulkImport => hasPermission('bulk_import');
   bool get canDeleteItems => hasPermission('delete_items');
 
-  /// Creates a copy with updated fields
+  /// Returns the effective inventory permissions, falling back to role-based defaults.
+  InventoryPermissions get effectiveInventoryPermissions {
+    if (inventoryPermissions != null) return inventoryPermissions!;
+    return InventoryPermissions.fromRole(role.name);
+  }
+
+  /// Whether this user can perform a specific inventory action.
+  bool canPerformInventoryAction(InventoryAction action) {
+    final perms = effectiveInventoryPermissions;
+    switch (action) {
+      case InventoryAction.view:
+        return perms.canView;
+      case InventoryAction.addItem:
+        return perms.canAddItems;
+      case InventoryAction.removeItem:
+        return perms.canRemoveItems;
+      case InventoryAction.updateItem:
+        return perms.canUpdateItems;
+      case InventoryAction.deleteItem:
+        return perms.canDeleteItems;
+      case InventoryAction.downloadReport:
+        return perms.canDownloadReports;
+      case InventoryAction.viewActivity:
+        return perms.canViewActivity;
+      case InventoryAction.changeSettings:
+        return perms.canChangeSettings;
+    }
+  }
+
+  String get displayNameOrEmail => displayName ?? email;
+  String get displayNameInitial =>
+      displayNameOrEmail.isNotEmpty ? displayNameOrEmail[0].toUpperCase() : '?';
+
   User copyWith({
     String? id,
     String? email,
@@ -109,6 +326,7 @@ class User {
     bool? isApproved,
     DateTime? createdAt,
     Map<String, bool>? permissions,
+    InventoryPermissions? inventoryPermissions,
   }) {
     return User(
       id: id ?? this.id,
@@ -119,10 +337,10 @@ class User {
       isApproved: isApproved ?? this.isApproved,
       createdAt: createdAt ?? this.createdAt,
       permissions: permissions ?? Map<String, bool>.from(this.permissions),
+      inventoryPermissions: inventoryPermissions ?? this.inventoryPermissions,
     );
   }
 
-  /// Serialize for cloud storage (Supabase)
   Map<String, dynamic> toCloudJson() {
     return {
       'id': id,
@@ -136,7 +354,6 @@ class User {
     };
   }
 
-  /// Deserialize from cloud storage (Supabase)
   factory User.fromCloudJson(Map<String, dynamic> json) {
     return User(
       id: json['id'] as String,
@@ -151,10 +368,13 @@ class User {
       permissions: (json['permissions'] as Map<String, dynamic>?)?.map(
         (k, v) => MapEntry(k, v as bool),
       ),
+      inventoryPermissions: json['inventory_permissions'] != null
+          ? InventoryPermissions.fromJson(
+              json['inventory_permissions'] as Map<String, dynamic>?)
+          : null,
     );
   }
 
-  /// Serialize for local storage (Hive)
   Map<String, dynamic> toLocalJson() {
     return {
       'id': id,
@@ -165,10 +385,10 @@ class User {
       'isApproved': isApproved,
       'createdAt': createdAt?.toIso8601String(),
       'permissions': permissions,
+      'inventoryPermissions': inventoryPermissions?.toJson(),
     };
   }
 
-  /// Deserialize from local storage (Hive)
   factory User.fromLocalJson(Map<String, dynamic> json) {
     return User(
       id: json['id'] as String,
@@ -183,6 +403,35 @@ class User {
       permissions: (json['permissions'] as Map<String, dynamic>?)?.map(
         (k, v) => MapEntry(k, v as bool),
       ),
+      inventoryPermissions: json['inventoryPermissions'] != null
+          ? InventoryPermissions.fromJson(
+              json['inventoryPermissions'] as Map<String, dynamic>?)
+          : null,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is User &&
+          id == other.id &&
+          email == other.email &&
+          role == other.role &&
+          companyId == other.companyId &&
+          isApproved == other.isApproved;
+
+  @override
+  int get hashCode => Object.hash(id, email, role, companyId, isApproved);
+}
+
+/// Actions a user can perform within an inventory.
+enum InventoryAction {
+  view,
+  addItem,
+  removeItem,
+  updateItem,
+  deleteItem,
+  downloadReport,
+  viewActivity,
+  changeSettings,
 }

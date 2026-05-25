@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/inventory_list_bloc.dart';
 import '../../inventory_management/bloc/inventory_bloc.dart';
 import '../../inventory_management/screens/inventory_home_screen.dart';
-import '../../activity_log/screens/activity_log_screen.dart';
 import '../widgets/empty_state_widget.dart';
 import '../widgets/inventory_list_widget.dart';
 import '../widgets/create_inventory_dialog.dart';

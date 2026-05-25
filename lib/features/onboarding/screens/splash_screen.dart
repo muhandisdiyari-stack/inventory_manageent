@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/config/app_config.dart';
 
 class SplashScreen extends StatefulWidget {
   final Widget nextScreen;
@@ -55,13 +56,14 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _navigateAfterDelay() async {
-    await Future.delayed(const Duration(milliseconds: 2500));
+    await Future.delayed(AppConstants.splashDuration);
     if (mounted) {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           pageBuilder: (context, animation, secondaryAnimation) =>
               widget.nextScreen,
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          transitionsBuilder:
+              (context, animation, secondaryAnimation, child) {
             return FadeTransition(
               opacity: animation,
               child: child,
@@ -103,14 +105,11 @@ class _SplashScreenState extends State<SplashScreen>
             builder: (context, child) {
               return Stack(
                 children: [
-                  // Background animated circles
                   ..._buildBackgroundCircles(colorScheme),
-                  // Main content
                   Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        // Logo icon
                         SlideTransition(
                           position: _slideAnimation,
                           child: ScaleTransition(
@@ -125,7 +124,8 @@ class _SplashScreenState extends State<SplashScreen>
                                   borderRadius: BorderRadius.circular(30),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.2),
+                                      color: Colors.black
+                                          .withValues(alpha: 0.2),
                                       blurRadius: 20,
                                       offset: const Offset(0, 10),
                                     ),
@@ -141,14 +141,13 @@ class _SplashScreenState extends State<SplashScreen>
                           ),
                         ),
                         const SizedBox(height: 32),
-                        // App name
                         SlideTransition(
                           position: _slideAnimation,
                           child: FadeTransition(
                             opacity: _fadeAnimation,
-                            child: const Text(
-                              'Inventory Pro',
-                              style: TextStyle(
+                            child: Text(
+                              AppConfig.appName,
+                              style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 36,
                                 fontWeight: FontWeight.bold,
@@ -158,7 +157,6 @@ class _SplashScreenState extends State<SplashScreen>
                           ),
                         ),
                         const SizedBox(height: 12),
-                        // Tagline
                         SlideTransition(
                           position: _slideAnimation,
                           child: FadeTransition(
@@ -166,7 +164,8 @@ class _SplashScreenState extends State<SplashScreen>
                             child: Text(
                               'Manage your inventory with ease',
                               style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.9),
+                                color:
+                                    Colors.white.withValues(alpha: 0.9),
                                 fontSize: 16,
                                 fontWeight: FontWeight.w400,
                               ),
@@ -174,7 +173,6 @@ class _SplashScreenState extends State<SplashScreen>
                           ),
                         ),
                         const SizedBox(height: 48),
-                        // Loading indicator
                         FadeTransition(
                           opacity: _fadeAnimation,
                           child: SizedBox(
@@ -191,7 +189,6 @@ class _SplashScreenState extends State<SplashScreen>
                       ],
                     ),
                   ),
-                  // Version info at bottom
                   Positioned(
                     bottom: 24,
                     left: 0,
@@ -199,7 +196,7 @@ class _SplashScreenState extends State<SplashScreen>
                     child: FadeTransition(
                       opacity: _fadeAnimation,
                       child: Text(
-                        'v${AppConstants.appVersion}',
+                        'v${AppConfig.appVersion}',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.5),

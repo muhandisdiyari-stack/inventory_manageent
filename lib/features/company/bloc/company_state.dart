@@ -38,4 +38,31 @@ class CompanyState {
       successMessage: successMessage,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CompanyState &&
+          isLoading == other.isLoading &&
+          error == other.error &&
+          successMessage == other.successMessage &&
+          _mapEquals(selectedCompany, other.selectedCompany);
+
+  @override
+  int get hashCode => Object.hash(
+        isLoading,
+        error,
+        successMessage,
+        selectedCompany?['id'],
+      );
+
+  static bool _mapEquals(Map<String, dynamic>? a, Map<String, dynamic>? b) {
+    if (a == null) return b == null;
+    if (b == null) return false;
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (a[key] != b[key]) return false;
+    }
+    return true;
+  }
 }

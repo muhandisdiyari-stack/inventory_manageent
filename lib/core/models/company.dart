@@ -1,24 +1,31 @@
-import 'base_entity.dart';
-
-class Company extends BaseEntity {
-  @override
+/// Company model representing a multi-tenant organization.
+///
+/// Supabase is the authoritative source.
+class Company {
   final String id;
   final String name;
   final String? ownerUserId;
   final String? subscriptionPlan;
+  final String? companyId;
+  final String? createdBy;
+  final DateTime? createdAt;
+  final String? modifiedBy;
+  final DateTime? modifiedAt;
+  final bool isSynced;
+  final bool isDeleted;
 
-  Company({
+  const Company({
     required this.id,
     required this.name,
     this.ownerUserId,
     this.subscriptionPlan,
-    super.createdBy,
-    super.createdAt,
-    super.modifiedBy,
-    super.modifiedAt,
-    super.isSynced,
-    super.isDeleted,
-    super.companyId,
+    this.companyId,
+    this.createdBy,
+    this.createdAt,
+    this.modifiedBy,
+    this.modifiedAt,
+    this.isSynced = false,
+    this.isDeleted = false,
   });
 
   factory Company.fromJson(Map<String, dynamic> json) {
@@ -36,7 +43,6 @@ class Company extends BaseEntity {
     );
   }
 
-  @override
   Map<String, dynamic> toCloudJson() {
     return {
       'id': id,
@@ -47,7 +53,6 @@ class Company extends BaseEntity {
     };
   }
 
-  @override
   Map<String, dynamic> toLocalJson() {
     return {
       'id': id,

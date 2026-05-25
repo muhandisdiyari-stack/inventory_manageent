@@ -1,10 +1,18 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AdminService {
-  final SupabaseClient _client;
+  final SupabaseClient? _client;
 
-  AdminService({SupabaseClient? client})
-      : _client = client ?? Supabase.instance.client;
+  AdminService({SupabaseClient? client}) : _client = client;
+
+  /// Returns the Supabase client safely.
+  /// Falls back to Supabase.instance.client if injected client is null.
+SupabaseClient get _safeClient {
+  final client = _client;
+  if (client != null) return client;
+  return Supabase.instance.client;
+}
 
   // ---------------------------------------------------------------------------
   // Auth helpers
@@ -12,17 +20,17 @@ class AdminService {
 
   Future<bool> isAdmin() async {
     try {
-      final currentUser = _client.auth.currentUser;
+      final currentUser = _safeClient.auth.currentUser;
       if (currentUser == null) return false;
 
-      final result =
-          await _client.rpc('is_admin', params: {'p_user_id': currentUser.id});
+      final result = await _safeClient.rpc('is_admin',
+          params: {'p_user_id': currentUser.id});
       return result == true;
     } catch (_) {
       try {
-        final currentUser = _client.auth.currentUser;
+        final currentUser = _safeClient.auth.currentUser;
         if (currentUser == null) return false;
-        final data = await _client
+        final data = await _safeClient
             .from('admin_users')
             .select('is_active')
             .eq('user_id', currentUser.id)
@@ -40,10 +48,11 @@ class AdminService {
 
   Future<Map<String, dynamic>> getStatistics() async {
     try {
-      final result = await _client.rpc('get_admin_statistics');
+      final result = await _safeClient.rpc('get_admin_statistics');
       if (result is Map) return Map<String, dynamic>.from(result);
       return {};
     } catch (e) {
+      debugPrint('AdminService.getStatistics error: $e');
       return {};
     }
   }
@@ -54,17 +63,18 @@ class AdminService {
 
   Future<List<Map<String, dynamic>>> getAllUsers() async {
     try {
-      final data = await _client.rpc('admin_get_all_users_full');
+      final data = await _safeClient.rpc('admin_get_all_users_full');
       if (data is List) return List<Map<String, dynamic>>.from(data);
       return [];
     } catch (_) {
       try {
-        final data = await _client
+        final data = await _safeClient
             .from('profiles')
             .select()
             .order('created_at', ascending: false);
         return List<Map<String, dynamic>>.from(data);
-      } catch (_) {
+      } catch (e) {
+        debugPrint('AdminService.getAllUsers error: $e');
         return [];
       }
     }
@@ -72,44 +82,45 @@ class AdminService {
 
   Future<Map<String, dynamic>> getUserDetails(String userId) async {
     try {
-      final result = await _client
-          .rpc('admin_get_user_details', params: {'p_user_id': userId});
+      final result = await _safeClient.rpc('admin_get_user_details',
+          params: {'p_user_id': userId});
       if (result is Map) return Map<String, dynamic>.from(result);
       return {};
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AdminService.getUserDetails error: $e');
       return {};
     }
   }
 
-  /// Returns true on success, false on failure.
   Future<bool> approveUser(String userId) async {
     try {
-      final result = await _client
-          .rpc('admin_approve_user', params: {'p_user_id': userId});
+      final result = await _safeClient.rpc('admin_approve_user',
+          params: {'p_user_id': userId});
       return result is Map && result['success'] == true;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AdminService.approveUser error: $e');
       return false;
     }
   }
 
-  /// Returns true on success, false on failure.
   Future<bool> forceConfirmUser(String userId) async {
     try {
-      final result = await _client
-          .rpc('admin_force_confirm_user', params: {'p_user_id': userId});
+      final result = await _safeClient.rpc('admin_force_confirm_user',
+          params: {'p_user_id': userId});
       return result is Map && result['success'] == true;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AdminService.forceConfirmUser error: $e');
       return false;
     }
   }
 
-  /// Returns true on success, false on failure.
   Future<bool> deactivateUser(String userId) async {
     try {
-      final result = await _client
-          .rpc('admin_deactivate_user', params: {'p_user_id': userId});
+      final result = await _safeClient.rpc('admin_deactivate_user',
+          params: {'p_user_id': userId});
       return result is Map && result['success'] == true;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AdminService.deactivateUser error: $e');
       return false;
     }
   }
@@ -121,7 +132,7 @@ class AdminService {
     String role,
   ) async {
     try {
-      final result = await _client.rpc('admin_create_user', params: {
+      final result = await _safeClient.rpc('admin_create_user', params: {
         'p_email': email,
         'p_password': password,
         'p_display_name': displayName,
@@ -130,19 +141,20 @@ class AdminService {
       if (result is Map) return Map<String, dynamic>.from(result);
       return {'success': false, 'message': 'Failed to create user'};
     } catch (e) {
+      debugPrint('AdminService.createUser error: $e');
       return {'success': false, 'message': e.toString()};
     }
   }
 
-  /// Returns true on success, false on failure.
   Future<bool> updateUserRole(String userId, String newRole) async {
     try {
-      final result = await _client.rpc('admin_update_user_role', params: {
+      final result = await _safeClient.rpc('admin_update_user_role', params: {
         'p_user_id': userId,
         'p_new_role': newRole,
       });
       return result is Map && result['success'] == true;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AdminService.updateUserRole error: $e');
       return false;
     }
   }
@@ -153,12 +165,13 @@ class AdminService {
 
   Future<List<Map<String, dynamic>>> getAllCompanies() async {
     try {
-      final data = await _client
+      final data = await _safeClient
           .from('companies')
           .select()
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(data);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AdminService.getAllCompanies error: $e');
       return [];
     }
   }
@@ -167,7 +180,6 @@ class AdminService {
   // Notifications
   // ---------------------------------------------------------------------------
 
-  /// Returns true on success, false on failure.
   Future<bool> sendNotification(
     String userId,
     String title,
@@ -175,56 +187,59 @@ class AdminService {
     String type = 'info',
   }) async {
     try {
-      final result =
-          await _client.rpc('admin_send_notification', params: {
+      final result = await _safeClient.rpc('admin_send_notification', params: {
         'p_user_id': userId,
         'p_title': title,
         'p_message': message,
         'p_type': type,
       });
       return result is Map && result['success'] == true;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AdminService.sendNotification error: $e');
       return false;
     }
   }
 
-  /// Returns true on success, false on failure.
-  Future<bool> sendEmail(
-      String userId, String subject, String body) async {
+  Future<bool> sendEmail(String userId, String subject, String body) async {
     try {
-      final result = await _client.rpc('admin_send_email', params: {
+      final result = await _safeClient.rpc('admin_send_email', params: {
         'p_user_id': userId,
         'p_subject': subject,
         'p_body': body,
       });
       return result is Map && result['success'] == true;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AdminService.sendEmail error: $e');
       return false;
     }
   }
 
   Future<List<Map<String, dynamic>>> getNotifications() async {
     try {
-      final userId = _client.auth.currentUser?.id;
+      final userId = _safeClient.auth.currentUser?.id;
       if (userId == null) return [];
-      final data = await _client
+      final data = await _safeClient
           .from('notifications')
           .select()
           .eq('user_id', userId)
           .order('created_at', ascending: false)
           .limit(20);
       return List<Map<String, dynamic>>.from(data);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AdminService.getNotifications error: $e');
       return [];
     }
   }
 
   Future<void> markNotificationRead(String notificationId) async {
     try {
-      await _client
+      await _safeClient
           .from('notifications')
-          .update({'is_read': true}).eq('id', notificationId);
-    } catch (_) {}
+          .update({'is_read': true})
+          .eq('id', notificationId);
+    } catch (e) {
+      debugPrint('AdminService.markNotificationRead error: $e');
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -233,13 +248,14 @@ class AdminService {
 
   Future<List<Map<String, dynamic>>> getAuditLogs({int limit = 50}) async {
     try {
-      final data = await _client
+      final data = await _safeClient
           .from('admin_audit_log')
           .select()
           .order('created_at', ascending: false)
           .limit(limit);
       return List<Map<String, dynamic>>.from(data);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AdminService.getAuditLogs error: $e');
       return [];
     }
   }

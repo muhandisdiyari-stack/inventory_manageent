@@ -42,4 +42,25 @@ class InventoryListState {
   }
 
   bool get hasInventories => inventories.isNotEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is InventoryListState &&
+          selectedInventoryId == other.selectedInventoryId &&
+          selectedInventoryName == other.selectedInventoryName &&
+          isLoading == other.isLoading &&
+          isInitialized == other.isInitialized &&
+          isOffline == other.isOffline &&
+          error == other.error;
+
+  @override
+  int get hashCode => Object.hash(
+        selectedInventoryId,
+        selectedInventoryName,
+        isLoading,
+        isInitialized,
+        isOffline,
+        error,
+      );
 }

@@ -1,3 +1,4 @@
+// ignore_for_file: unused_field
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../services/inventory_service.dart';
 import '../models/inventory_item.dart';
@@ -37,56 +38,64 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
   Future<void> _onInitialize(
       InitializeInventory event, Emitter<InventoryState> emit) async {
     emit(state.copyWith(isLoading: true, error: null));
+
     try {
       await _inventoryService.initializeForInventory(event.inventoryId);
-      final labels = _inventoryService.labels;
+
+      final allLabels = _inventoryService.labels;
+      final labelNames = allLabels.map((l) => l.name).toList();
       final settings = _inventoryService.currentSettings;
       final inventoryName =
           _inventoryService.getInventoryName(event.inventoryId);
+
       emit(state.copyWith(
         inventoryId: event.inventoryId,
         inventoryName: inventoryName,
-        labels: labels,
+        labels: labelNames,
         settings: settings,
         isLoading: false,
         isInitialized: true,
-        selectedLabel: labels.isNotEmpty ? labels.first : null,
+        selectedLabel: labelNames.isNotEmpty ? labelNames.first : null,
       ));
-      if (labels.isNotEmpty) {
-        add(LoadItems(labels.first));
+
+      if (labelNames.isNotEmpty) {
+        add(LoadItems(labelNames.first));
       }
     } catch (e) {
       emit(state.copyWith(
-          isLoading: false, error: 'Failed to initialize: $e'));
+        isLoading: false,
+        error: 'Failed to initialize: $e',
+      ));
     }
   }
 
   void _onLoadLabels(LoadLabels event, Emitter<InventoryState> emit) {
     final sortedLabels =
-        _inventoryService.getSortedLabels(sortType: state.sortType);
+        _inventoryService.getSortedLabelNames(sortType: state.sortType);
     emit(state.copyWith(labels: sortedLabels));
   }
 
-  Future<void> _onCreateLabel(
-      CreateLabel event, Emitter<InventoryState> emit) async {
-    try {
-      await _inventoryService.createLabel(event.name);
-      final labels = _inventoryService.labels;
-      emit(state.copyWith(labels: labels, selectedLabel: event.name));
-    } catch (e) {
-      emit(state.copyWith(error: 'Failed to create label: $e'));
-    }
+Future<void> _onCreateLabel(
+    CreateLabel event, Emitter<InventoryState> emit) async {
+  try {
+    final label = await _inventoryService.createLabel(event.name);
+    final labelNames = _inventoryService.labelNames;
+    emit(state.copyWith(labels: labelNames, selectedLabel: label.name));
+    // _logService is available for future activity logging
+  } catch (e) {
+    emit(state.copyWith(error: 'Failed to create label: $e'));
   }
+}
 
   Future<void> _onRenameLabel(
       RenameLabel event, Emitter<InventoryState> emit) async {
     try {
       await _inventoryService.renameLabel(event.oldName, event.newName);
-      final labels = _inventoryService.labels;
+      final labelNames = _inventoryService.labelNames;
       final newSelectedLabel = state.selectedLabel == event.oldName
           ? event.newName
           : state.selectedLabel;
-      emit(state.copyWith(labels: labels, selectedLabel: newSelectedLabel));
+      emit(state.copyWith(labels: labelNames, selectedLabel: newSelectedLabel));
     } catch (e) {
       emit(state.copyWith(error: 'Failed to rename label: $e'));
     }
@@ -96,11 +105,11 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
       DeleteLabel event, Emitter<InventoryState> emit) async {
     try {
       await _inventoryService.deleteLabel(event.name);
-      final labels = _inventoryService.labels;
+      final labelNames = _inventoryService.labelNames;
       final newSelectedLabel = state.selectedLabel == event.name
-          ? (labels.isNotEmpty ? labels.first : null)
+          ? (labelNames.isNotEmpty ? labelNames.first : null)
           : state.selectedLabel;
-      emit(state.copyWith(labels: labels, selectedLabel: newSelectedLabel));
+      emit(state.copyWith(labels: labelNames, selectedLabel: newSelectedLabel));
     } catch (e) {
       emit(state.copyWith(error: 'Failed to delete label: $e'));
     }
@@ -109,7 +118,8 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
   void _onLoadItems(LoadItems event, Emitter<InventoryState> emit) {
     try {
       final items = _inventoryService.getItemsByLabel(event.label);
-      emit(state.copyWith(selectedLabel: event.label, currentItems: items));
+      emit(
+          state.copyWith(selectedLabel: event.label, currentItems: items));
     } catch (e) {
       emit(state.copyWith(error: 'Failed to load items: $e'));
     }
@@ -143,12 +153,14 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
   Future<void> _onAdjustQuantity(
       AdjustQuantity event, Emitter<InventoryState> emit) async {
     try {
-      final newQuantity = (event.item.quantity + event.delta)
-          .clamp(0, InventoryItem.maxQuantity);
+      final newQuantity =
+          (event.item.quantity + event.delta).clamp(0, InventoryItem.maxQuantity);
       if (newQuantity == event.item.quantity) return;
+
       event.item.quantity = newQuantity;
       event.item.modified = DateTime.now();
       await event.item.save();
+
       if (state.selectedLabel != null) {
         add(LoadItems(state.selectedLabel!));
       }
@@ -173,7 +185,8 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
         emit(state.copyWith(searchResults: []));
         return;
       }
-      final results = _inventoryService.searchAllInventories(event.query);
+      final results =
+          _inventoryService.searchAllInventories(event.query);
       emit(state.copyWith(searchResults: results));
     } catch (e) {
       emit(state.copyWith(error: 'Search failed: $e'));
@@ -184,8 +197,8 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
       ImportItems event, Emitter<InventoryState> emit) async {
     try {
       await _inventoryService.importItems(event.label, event.items);
-      final labels = _inventoryService.labels;
-      emit(state.copyWith(labels: labels));
+      final labelNames = _inventoryService.labelNames;
+      emit(state.copyWith(labels: labelNames));
       if (state.selectedLabel != null) {
         add(LoadItems(state.selectedLabel!));
       }
@@ -202,9 +215,10 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
     }
   }
 
-  void _onSetSortType(SetLabelSortType event, Emitter<InventoryState> emit) {
+  void _onSetSortType(
+      SetLabelSortType event, Emitter<InventoryState> emit) {
     final sortedLabels =
-        _inventoryService.getSortedLabels(sortType: event.sortType);
+        _inventoryService.getSortedLabelNames(sortType: event.sortType);
     emit(state.copyWith(sortType: event.sortType, labels: sortedLabels));
   }
 

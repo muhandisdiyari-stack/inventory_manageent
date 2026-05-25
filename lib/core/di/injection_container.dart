@@ -14,29 +14,76 @@ import '../../features/inventory_management/services/inventory_service.dart';
 import '../../features/reports/services/csv_service.dart';
 import '../database/supabase/supabase_client.dart';
 
+/// Central dependency injection container.
+///
+/// All services and BLoCs are created here to ensure consistent dependency
+/// injection throughout the app. SupabaseClientService is the single source
+/// for Supabase access; all other services receive their client through
+/// constructor injection.
 class InjectionContainer {
-  static final SupabaseClientService supabaseClient = SupabaseClientService();
-  static final AuthService authService = AuthService(supabaseClient: supabaseClient);
-  static final AdminService adminService = AdminService();
+  // ─── Services ──────────────────────────────────────────────────
+
+  static final SupabaseClientService supabaseClient =
+      SupabaseClientService();
+
+  static final AuthService authService = AuthService(
+    supabaseClient: supabaseClient,
+  );
+
+  static final AdminService adminService = AdminService(
+    client: supabaseClient.safeClient,
+  );
+
   static final ActivityLogService logService = ActivityLogService();
+
   static final InventoryService inventoryService = InventoryService();
+
   static final CsvService csvService = CsvService();
+
+  // ─── Initialization ────────────────────────────────────────────
 
   static Future<void> initialize() async {
     await logService.initialize();
     await authService.initialize();
   }
 
+  // ─── BLoC Providers ────────────────────────────────────────────
+
   static List<BlocProvider> get blocProviders {
     return [
-      BlocProvider<ThemeBloc>(create: (_) => ThemeBloc()),
-      BlocProvider<ActivityLogBloc>(create: (_) => ActivityLogBloc(logService: logService)),
-      BlocProvider<AuthBloc>(create: (_) => AuthBloc(authService: authService, adminService: adminService)),
-      BlocProvider<CompanyBloc>(create: (_) => CompanyBloc(authService: authService)),
-      BlocProvider<InventoryListBloc>(create: (_) => InventoryListBloc(inventoryService: inventoryService, logService: logService)),
-      BlocProvider<InventoryBloc>(create: (_) => InventoryBloc(inventoryService: inventoryService, logService: logService)),
-      BlocProvider<AdminBloc>(create: (_) => AdminBloc(adminService: adminService)),
-      BlocProvider<ReportsBloc>(create: (_) => ReportsBloc(csvService: csvService)),
+      BlocProvider<ThemeBloc>(
+        create: (_) => ThemeBloc(),
+      ),
+      BlocProvider<ActivityLogBloc>(
+        create: (_) => ActivityLogBloc(logService: logService),
+      ),
+      BlocProvider<AuthBloc>(
+        create: (_) => AuthBloc(
+          authService: authService,
+          adminService: adminService,
+        ),
+      ),
+      BlocProvider<CompanyBloc>(
+        create: (_) => CompanyBloc(authService: authService),
+      ),
+      BlocProvider<InventoryListBloc>(
+        create: (_) => InventoryListBloc(
+          inventoryService: inventoryService,
+          logService: logService,
+        ),
+      ),
+      BlocProvider<InventoryBloc>(
+        create: (_) => InventoryBloc(
+          inventoryService: inventoryService,
+          logService: logService,
+        ),
+      ),
+      BlocProvider<AdminBloc>(
+        create: (_) => AdminBloc(adminService: adminService),
+      ),
+      BlocProvider<ReportsBloc>(
+        create: (_) => ReportsBloc(csvService: csvService),
+      ),
     ];
   }
 }

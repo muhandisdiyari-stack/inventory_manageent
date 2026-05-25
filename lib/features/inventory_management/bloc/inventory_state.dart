@@ -60,4 +60,41 @@ class InventoryState {
   }
 
   bool get hasLabels => labels.isNotEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is InventoryState &&
+          inventoryId == other.inventoryId &&
+          inventoryName == other.inventoryName &&
+          sortType == other.sortType &&
+          selectedLabel == other.selectedLabel &&
+          isLoading == other.isLoading &&
+          isInitialized == other.isInitialized &&
+          error == other.error &&
+          _listEquals(labels, other.labels) &&
+          _listEquals(currentItems, other.currentItems) &&
+          _listEquals(allItems, other.allItems) &&
+          _listEquals(searchResults, other.searchResults);
+
+  @override
+  int get hashCode => Object.hash(
+        inventoryId,
+        inventoryName,
+        sortType,
+        selectedLabel,
+        isLoading,
+        isInitialized,
+        error,
+      );
+
+  static bool _listEquals<T>(List<T>? a, List<T>? b) {
+    if (a == null) return b == null;
+    if (b == null) return false;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 }

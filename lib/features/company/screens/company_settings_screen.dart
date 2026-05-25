@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/company_bloc.dart';
 
@@ -17,15 +16,16 @@ class CompanySettingsScreen extends StatefulWidget {
       _CompanySettingsScreenState();
 }
 
-class _CompanySettingsScreenState
-    extends State<CompanySettingsScreen> {
+class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
   final _emailController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<CompanyBloc>().add(const LoadCompanies());
+      if (mounted) {
+        context.read<CompanyBloc>().add(const LoadCompanies());
+      }
     });
   }
 
@@ -53,13 +53,13 @@ class _CompanySettingsScreenState
     final company = state.selectedCompany;
     if (company == null) return null;
 
-    return (company['id'] ?? company['company_id'] ?? '')
-        .toString();
+    return (company['id'] ?? company['company_id'] ?? '').toString();
   }
 
   void _inviteUser() {
     final email = _emailController.text.trim();
     if (email.isEmpty || !email.contains('@')) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter valid email')),
       );
@@ -68,6 +68,7 @@ class _CompanySettingsScreenState
 
     final companyId = _selectedCompanyId;
     if (companyId == null || companyId.isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -87,13 +88,10 @@ class _CompanySettingsScreenState
   }
 
   void _cancelInvitation(String invitationId) {
-    context
-        .read<CompanyBloc>()
-        .add(CancelInvitation(invitationId));
+    context.read<CompanyBloc>().add(CancelInvitation(invitationId));
   }
 
-  void _removeMember(
-      String memberId, String memberName) async {
+  void _removeMember(String memberId, String memberName) async {
     final companyId = _selectedCompanyId;
     if (companyId == null || companyId.isEmpty) return;
 
@@ -101,7 +99,7 @@ class _CompanySettingsScreenState
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Remove Member'),
-        content: Text('Remove $memberName?'),
+        content: Text('Remove $memberName from this company?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -109,14 +107,14 @@ class _CompanySettingsScreenState
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove',
-                style: TextStyle(color: Colors.red)),
+            child:
+                const Text('Remove', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
 
-    if (confirm == true) {
+    if (confirm == true && mounted) {
       context.read<CompanyBloc>().add(RemoveMember(
             memberId: memberId,
             companyId: companyId,
@@ -125,8 +123,7 @@ class _CompanySettingsScreenState
     }
   }
 
-  void _changeRole(
-      String memberId, String currentRole) async {
+  void _changeRole(String memberId, String currentRole) async {
     final companyId = _selectedCompanyId;
     if (companyId == null || companyId.isEmpty) return;
 
@@ -142,8 +139,7 @@ class _CompanySettingsScreenState
                       if (role == currentRole)
                         const Icon(Icons.check, size: 18),
                       const SizedBox(width: 8),
-                      Text(role[0].toUpperCase() +
-                          role.substring(1)),
+                      Text(role[0].toUpperCase() + role.substring(1)),
                     ],
                   ),
                 ))
@@ -151,7 +147,7 @@ class _CompanySettingsScreenState
       ),
     );
 
-    if (newRole != null && newRole != currentRole) {
+    if (newRole != null && newRole != currentRole && mounted) {
       context.read<CompanyBloc>().add(ChangeMemberRole(
             memberId: memberId,
             companyId: companyId,
@@ -167,17 +163,17 @@ class _CompanySettingsScreenState
     return BlocListener<CompanyBloc, CompanyState>(
       listener: (context, state) {
         if (state.successMessage != null) {
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(state.successMessage!),
               behavior: SnackBarBehavior.floating,
             ),
           );
-          context
-              .read<CompanyBloc>()
-              .add(const ClearMessages());
+          context.read<CompanyBloc>().add(const ClearMessages());
         }
         if (state.error != null) {
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(state.error!),
@@ -185,28 +181,21 @@ class _CompanySettingsScreenState
               behavior: SnackBarBehavior.floating,
             ),
           );
-          context
-              .read<CompanyBloc>()
-              .add(const ClearMessages());
+          context.read<CompanyBloc>().add(const ClearMessages());
         }
       },
-      child:
-          BlocBuilder<CompanyBloc, CompanyState>(
+      child: BlocBuilder<CompanyBloc, CompanyState>(
         builder: (context, state) {
           if (state.isLoading && state.companies.isEmpty) {
             return Scaffold(
-              appBar: AppBar(
-                  title: const Text('Company Settings')),
-              body: const Center(
-                  child: CircularProgressIndicator()),
+              appBar: AppBar(title: const Text('Company Settings')),
+              body: const Center(child: CircularProgressIndicator()),
             );
           }
 
-          if (state.selectedCompany == null &&
-              !state.isLoading) {
+          if (state.selectedCompany == null && !state.isLoading) {
             return Scaffold(
-              appBar: AppBar(
-                  title: const Text('Company Settings')),
+              appBar: AppBar(title: const Text('Company Settings')),
               body: Center(
                 child: Padding(
                   padding: const EdgeInsets.all(32),
@@ -214,20 +203,17 @@ class _CompanySettingsScreenState
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.business_outlined,
-                          size: 64,
-                          color: Colors.grey[400]),
+                          size: 64, color: Colors.grey[400]),
                       const SizedBox(height: 16),
                       const Text(
                         'No company selected',
                         style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600),
+                            fontSize: 18, fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 8),
                       const Text(
                         'Please go back and select a company first.',
-                        style: TextStyle(
-                            color: Colors.grey),
+                        style: TextStyle(color: Colors.grey),
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -245,9 +231,9 @@ class _CompanySettingsScreenState
             ),
             body: RefreshIndicator(
               onRefresh: () async {
-                context
-                    .read<CompanyBloc>()
-                    .add(const LoadCompanies());
+                if (mounted) {
+                  context.read<CompanyBloc>().add(const LoadCompanies());
+                }
               },
               child: ListView(
                 padding: const EdgeInsets.all(16),
@@ -264,16 +250,14 @@ class _CompanySettingsScreenState
                         child: Row(
                           children: [
                             Icon(Icons.business,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .primary),
+                                color:
+                                    Theme.of(context).colorScheme.primary),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 'Company: ${state.selectedCompany!['name'] ?? 'Unknown'}',
                                 style: TextStyle(
-                                    fontWeight:
-                                        FontWeight.w600,
+                                    fontWeight: FontWeight.w600,
                                     color: Theme.of(context)
                                         .colorScheme
                                         .onPrimaryContainer),
@@ -290,23 +274,25 @@ class _CompanySettingsScreenState
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              const Icon(Icons.people,
-                                  color: Colors.green),
+                              const Icon(Icons.people, color: Colors.green),
                               const SizedBox(width: 8),
                               Text(
-                                'Joined Members (${state.members.length})',
-                                style: theme
-                                    .textTheme.titleMedium
-                                    ?.copyWith(
-                                        fontWeight:
-                                            FontWeight.bold),
+                                'Company Members (${state.members.length})',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Company-level members can see all inventories. '
+                            'Use Inventory Settings to set per-inventory permissions.',
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.grey[600]),
                           ),
                           const SizedBox(height: 12),
                           if (state.members.isEmpty)
@@ -315,8 +301,7 @@ class _CompanySettingsScreenState
                               child: Center(
                                 child: Text(
                                   'No members yet',
-                                  style: TextStyle(
-                                      color: Colors.grey),
+                                  style: TextStyle(color: Colors.grey),
                                 ),
                               ),
                             )
@@ -326,12 +311,10 @@ class _CompanySettingsScreenState
                                       member['email'] ??
                                       'Unknown')
                                   .toString();
-                              final role = (member['role'] ??
-                                      'staff')
-                                  .toString();
+                              final role =
+                                  (member['role'] ?? 'staff').toString();
                               final memberId =
-                                  member['id']?.toString() ??
-                                      '';
+                                  member['id']?.toString() ?? '';
                               final isOwner = role == 'owner';
 
                               return ListTile(
@@ -343,47 +326,32 @@ class _CompanySettingsScreenState
                                   ),
                                 ),
                                 title: Text(name),
-                                subtitle: Text(
-                                    'Role: ${role.toUpperCase()}'),
-                                trailing:
-                                    _canManageMembers &&
-                                            !isOwner
-                                        ? PopupMenuButton<
-                                            String>(
-                                            onSelected:
-                                                (action) {
-                                              if (action ==
-                                                  'change_role') {
-                                                _changeRole(
-                                                    memberId,
-                                                    role);
-                                              } else if (action ==
-                                                  'remove') {
-                                                _removeMember(
-                                                    memberId,
-                                                    name);
-                                              }
-                                            },
-                                            itemBuilder:
-                                                (ctx) => [
-                                              const PopupMenuItem(
-                                                value:
-                                                    'change_role',
-                                                child: Text(
-                                                    'Change Role'),
-                                              ),
-                                              const PopupMenuItem(
-                                                value: 'remove',
-                                                child: Text(
-                                                  'Remove',
-                                                  style: TextStyle(
-                                                      color: Colors
-                                                          .red),
-                                                ),
-                                              ),
-                                            ],
-                                          )
-                                        : null,
+                                subtitle: Text('Role: ${role.toUpperCase()}'),
+                                trailing: _canManageMembers && !isOwner
+                                    ? PopupMenuButton<String>(
+                                        onSelected: (action) {
+                                          if (action == 'change_role') {
+                                            _changeRole(memberId, role);
+                                          } else if (action == 'remove') {
+                                            _removeMember(memberId, name);
+                                          }
+                                        },
+                                        itemBuilder: (ctx) => [
+                                          const PopupMenuItem(
+                                            value: 'change_role',
+                                            child: Text('Change Role'),
+                                          ),
+                                          const PopupMenuItem(
+                                            value: 'remove',
+                                            child: Text(
+                                              'Remove',
+                                              style: TextStyle(
+                                                  color: Colors.red),
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : null,
                               );
                             }),
                         ],
@@ -391,15 +359,14 @@ class _CompanySettingsScreenState
                     ),
                   ),
 
-                  // ✅ Invite Member Card - simplified, no token
+                  // Invite Member Card
                   if (_canManageMembers) ...[
                     const SizedBox(height: 16),
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
@@ -412,20 +379,16 @@ class _CompanySettingsScreenState
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Invite Member',
-                                        style: theme
-                                            .textTheme
-                                            .titleMedium
+                                        'Invite Company Member',
+                                        style: theme.textTheme.titleMedium
                                             ?.copyWith(
-                                                fontWeight: FontWeight
-                                                    .bold),
+                                                fontWeight: FontWeight.bold),
                                       ),
                                       Text(
                                         'They will automatically join when they sign in with this email',
                                         style: TextStyle(
                                             fontSize: 12,
-                                            color: Colors
-                                                .grey[600]),
+                                            color: Colors.grey[600]),
                                       ),
                                     ],
                                   ),
@@ -435,17 +398,12 @@ class _CompanySettingsScreenState
                             const SizedBox(height: 12),
                             TextField(
                               controller: _emailController,
-                              keyboardType:
-                                  TextInputType.emailAddress,
+                              keyboardType: TextInputType.emailAddress,
                               decoration: InputDecoration(
-                                hintText:
-                                    'Enter email address',
-                                prefixIcon: const Icon(
-                                    Icons.email),
+                                hintText: 'Enter email address',
+                                prefixIcon: const Icon(Icons.email),
                                 border: OutlineInputBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(
-                                          12),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                                 filled: true,
                               ),
@@ -455,10 +413,8 @@ class _CompanySettingsScreenState
                               width: double.infinity,
                               child: FilledButton.icon(
                                 onPressed: _inviteUser,
-                                icon:
-                                    const Icon(Icons.send),
-                                label: const Text(
-                                    'Send Invitation'),
+                                icon: const Icon(Icons.send),
+                                label: const Text('Send Invitation'),
                               ),
                             ),
                           ],
@@ -474,62 +430,44 @@ class _CompanySettingsScreenState
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
-                                const Icon(
-                                    Icons.pending_actions,
+                                const Icon(Icons.pending_actions,
                                     color: Colors.orange),
                                 const SizedBox(width: 8),
                                 Text(
                                   'Pending Invitations (${state.invitations.length})',
-                                  style: theme
-                                      .textTheme.titleMedium
-                                      ?.copyWith(
-                                          fontWeight:
-                                              FontWeight.bold),
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.bold),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 12),
                             ...state.invitations.map((inv) {
-                              final email = (inv['email'] ?? '')
-                                  .toString();
-                              final invId =
-                                  inv['id']?.toString() ?? '';
+                              final email =
+                                  (inv['email'] ?? '').toString();
+                              final invId = inv['id']?.toString() ?? '';
                               final status =
-                                  (inv['status'] ?? 'pending')
-                                      .toString();
-                              final createdAt =
-                                  inv['created_at']
-                                          ?.toString() ??
-                                      '';
+                                  (inv['status'] ?? 'pending').toString();
 
                               return ListTile(
                                 leading: CircleAvatar(
-                                  backgroundColor: Colors
-                                      .orange
-                                      .withValues(alpha: 0.1),
-                                  child: const Icon(
-                                      Icons.person_outline,
-                                      color: Colors.orange,
-                                      size: 20),
+                                  backgroundColor:
+                                      Colors.orange.withValues(alpha: 0.1),
+                                  child: const Icon(Icons.person_outline,
+                                      color: Colors.orange, size: 20),
                                 ),
                                 title: Text(email),
-                                subtitle: Text(
-                                    'Status: $status'),
+                                subtitle: Text('Status: $status'),
                                 trailing: _canManageMembers
                                     ? IconButton(
-                                        icon: const Icon(
-                                            Icons.cancel,
+                                        icon: const Icon(Icons.cancel,
                                             color: Colors.red),
                                         onPressed: () =>
-                                            _cancelInvitation(
-                                                invId),
-                                        tooltip:
-                                            'Cancel invitation',
+                                            _cancelInvitation(invId),
+                                        tooltip: 'Cancel invitation',
                                       )
                                     : null,
                               );

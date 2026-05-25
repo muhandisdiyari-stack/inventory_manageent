@@ -6,45 +6,106 @@ part 'inventory_item.g.dart';
 class InventoryItem extends HiveObject {
   @HiveField(0)
   String name;
-  
+
   @HiveField(1)
   String code;
-  
+
   @HiveField(2)
   String barcode;
-  
+
   @HiveField(3)
   String color;
-  
+
   @HiveField(4)
   String material;
-  
+
   @HiveField(5)
   String size;
-  
+
   @HiveField(6)
   DateTime? productionDate;
-  
+
   @HiveField(7)
   DateTime? expireDate;
-  
+
   @HiveField(8)
   String note;
-  
+
   @HiveField(9)
   DateTime modified;
-  
+
   @HiveField(10)
   int quantity;
-  
+
   @HiveField(11)
   Map<String, String> customFields;
-  
+
   @HiveField(12)
   String label;
-  
+
   @HiveField(13)
   DateTime createdAt;
+
+  // ─── User Tracking Fields ──────────────────────────────────────
+  // These are stored in customFields to avoid Hive schema migration,
+  // but are accessed through dedicated getters/setters.
+
+  /// Who created this item (user ID from Supabase).
+  String? get createdBy => customFields['_created_by'];
+
+  set createdBy(String? value) {
+    if (value != null) {
+      customFields['_created_by'] = value;
+    } else {
+      customFields.remove('_created_by');
+    }
+  }
+
+  /// Display name of who created this item.
+  String? get createdByName => customFields['_created_by_name'];
+
+  set createdByName(String? value) {
+    if (value != null) {
+      customFields['_created_by_name'] = value;
+    } else {
+      customFields.remove('_created_by_name');
+    }
+  }
+
+  /// Who last modified this item (user ID from Supabase).
+  String? get modifiedBy => customFields['_modified_by'];
+
+  set modifiedBy(String? value) {
+    if (value != null) {
+      customFields['_modified_by'] = value;
+    } else {
+      customFields.remove('_modified_by');
+    }
+  }
+
+  /// Display name of who last modified this item.
+  String? get modifiedByName => customFields['_modified_by_name'];
+
+  set modifiedByName(String? value) {
+    if (value != null) {
+      customFields['_modified_by_name'] = value;
+    } else {
+      customFields.remove('_modified_by_name');
+    }
+  }
+
+  /// Supabase row ID for sync tracking.
+  String? get supabaseId => customFields['_supabase_id'];
+
+  set supabaseId(String? value) {
+    if (value != null) {
+      customFields['_supabase_id'] = value;
+    } else {
+      customFields.remove('_supabase_id');
+    }
+  }
+
+  // ─── Constructor ───────────────────────────────────────────────
 
   InventoryItem({
     this.name = '',
@@ -60,11 +121,16 @@ class InventoryItem extends HiveObject {
     this.quantity = 0,
     Map<String, String>? customFields,
     this.label = '',
-    DateTime? createdAt, 
+    DateTime? createdAt,
     String? createdBy,
+    String? createdByName,
   })  : modified = modified ?? DateTime.now(),
         customFields = customFields ?? {},
-        createdAt = createdAt ?? DateTime.now();
+        createdAt = createdAt ?? DateTime.now() {
+    // Set user tracking fields if provided
+    if (createdBy != null) this.createdBy = createdBy;
+    if (createdByName != null) this.createdByName = createdByName;
+  }
 
   void updateFrom(InventoryItem other) {
     name = other.name;
@@ -97,6 +163,8 @@ class InventoryItem extends HiveObject {
     Map<String, String>? customFields,
     String? label,
     DateTime? createdAt,
+    String? createdBy,
+    String? createdByName,
   }) {
     return InventoryItem(
       name: name ?? this.name,
@@ -113,39 +181,45 @@ class InventoryItem extends HiveObject {
       customFields: customFields ?? Map<String, String>.from(this.customFields),
       label: label ?? this.label,
       createdAt: createdAt ?? this.createdAt,
+      createdBy: createdBy ?? this.createdBy,
+      createdByName: createdByName ?? this.createdByName,
     );
   }
 
   static const int maxQuantity = 999999;
-  
+
   bool get isExpired {
     if (expireDate == null) return false;
     final now = DateTime.now().toUtc();
     final expiry = expireDate!.toUtc();
     return expiry.isBefore(now);
   }
-  
+
   bool get isExpiringSoon {
     if (expireDate == null) return false;
     final now = DateTime.now().toUtc();
     final expiry = expireDate!.toUtc();
     return expiry.isBefore(now.add(const Duration(days: 30))) && !isExpired;
   }
-      
-  String get displayName => name.isNotEmpty ? name : (size.isNotEmpty ? size : 'Unnamed');
-  
-  /// Format creation date for display
+
+  String get displayName =>
+      name.isNotEmpty ? name : (size.isNotEmpty ? size : 'Unnamed');
+
   String get formattedCreatedAt {
     return '${createdAt.year}-${createdAt.month.toString().padLeft(2, '0')}-${createdAt.day.toString().padLeft(2, '0')} '
         '${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}';
   }
-  
-  /// Format modification date for display
+
   String get formattedModifiedAt {
     return '${modified.year}-${modified.month.toString().padLeft(2, '0')}-${modified.day.toString().padLeft(2, '0')} '
         '${modified.hour.toString().padLeft(2, '0')}:${modified.minute.toString().padLeft(2, '0')}';
   }
-  
+
+  /// Returns who created/modified this item for display.
+  String get creatorDisplayName => createdByName ?? createdBy ?? 'Unknown';
+
+  String get modifierDisplayName => modifiedByName ?? modifiedBy ?? creatorDisplayName;
+
   bool matchesQuery(String query) {
     final q = query.toLowerCase();
     return name.toLowerCase().contains(q) ||
@@ -158,4 +232,34 @@ class InventoryItem extends HiveObject {
         material.toLowerCase().contains(q) ||
         customFields.values.any((v) => v.toLowerCase().contains(q));
   }
+
+  /// Returns only user-facing custom fields (excludes internal tracking fields).
+  Map<String, String> get userCustomFields {
+    final fields = Map<String, String>.from(customFields);
+    fields.remove('_supabase_id');
+    fields.remove('_created_by');
+    fields.remove('_created_by_name');
+    fields.remove('_modified_by');
+    fields.remove('_modified_by_name');
+    return fields;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is InventoryItem &&
+          name == other.name &&
+          code == other.code &&
+          barcode == other.barcode &&
+          label == other.label &&
+          quantity == other.quantity &&
+          size == other.size &&
+          color == other.color &&
+          material == other.material &&
+          note == other.note;
+
+  @override
+  int get hashCode => Object.hash(
+        name, code, barcode, label, quantity, size, color, material, note,
+      );
 }

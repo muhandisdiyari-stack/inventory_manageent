@@ -46,4 +46,27 @@ class ActivityLogState {
       searchQuery: searchQuery ?? this.searchQuery,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ActivityLogState &&
+          isLoading == other.isLoading &&
+          showStats == other.showStats &&
+          error == other.error &&
+          exportedFilePath == other.exportedFilePath &&
+          filterInventoryId == other.filterInventoryId &&
+          filterEntityType == other.filterEntityType &&
+          searchQuery == other.searchQuery;
+
+  @override
+  int get hashCode => Object.hash(
+        isLoading,
+        showStats,
+        error,
+        exportedFilePath,
+        filterInventoryId,
+        filterEntityType,
+        searchQuery,
+      );
 }

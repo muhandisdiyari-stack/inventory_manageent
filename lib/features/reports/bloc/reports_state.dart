@@ -64,4 +64,33 @@ class ReportsState {
       inventoryName: inventoryName ?? this.inventoryName,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ReportsState &&
+          reportType == other.reportType &&
+          isGenerating == other.isGenerating &&
+          progress == other.progress &&
+          statusMessage == other.statusMessage &&
+          generatedCsv == other.generatedCsv &&
+          fileName == other.fileName &&
+          totalItems == other.totalItems &&
+          error == other.error &&
+          successMessage == other.successMessage &&
+          inventoryName == other.inventoryName;
+
+  @override
+  int get hashCode => Object.hash(
+        reportType,
+        isGenerating,
+        progress,
+        statusMessage,
+        generatedCsv,
+        fileName,
+        totalItems,
+        error,
+        successMessage,
+        inventoryName,
+      );
 }

@@ -1,4 +1,3 @@
-// lib/features/inventory_management/widgets/items_list_widget.dart
 import 'package:flutter/material.dart';
 import '../models/inventory_item.dart';
 
@@ -28,11 +27,8 @@ class ItemsListWidget extends StatelessWidget {
 
     final filteredItems = searchQuery.isEmpty
         ? items
-        : items
-            .where((item) => item.matchesQuery(searchQuery))
-            .toList();
+        : items.where((item) => item.matchesQuery(searchQuery)).toList();
 
-    // Sort items: expired first, then expiring, then normal
     final sortedItems = List<InventoryItem>.from(filteredItems);
     sortedItems.sort((a, b) {
       if (a.isExpired && !b.isExpired) return -1;
@@ -48,7 +44,6 @@ class ItemsListWidget extends StatelessWidget {
 
     return Column(
       children: [
-        // Search bar
         Padding(
           padding: const EdgeInsets.all(10),
           child: TextField(
@@ -62,31 +57,24 @@ class ItemsListWidget extends StatelessWidget {
                       onPressed: () => searchController.clear(),
                     )
                   : null,
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(40)),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
               filled: true,
-              fillColor: Theme.of(context)
-                  .colorScheme
-                  .surfaceContainerHighest,
+              fillColor:
+                  Theme.of(context).colorScheme.surfaceContainerHighest,
             ),
           ),
         ),
 
-        // Items count
         if (searchQuery.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Text(
               'Found ${sortedItems.length} of ${items.length} items',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ),
 
-        // Items list
         Expanded(
           child: sortedItems.isEmpty
               ? Center(
@@ -98,24 +86,20 @@ class ItemsListWidget extends StatelessWidget {
                       const SizedBox(height: 12),
                       Text(
                         'No items match "$searchQuery"',
-                        style:
-                            TextStyle(color: Colors.grey[600]),
+                        style: TextStyle(color: Colors.grey[600]),
                       ),
                     ],
                   ),
                 )
               : ListView.builder(
-                  padding:
-                      const EdgeInsets.fromLTRB(8, 4, 8, 80),
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 80),
                   itemCount: sortedItems.length,
                   itemBuilder: (context, index) {
                     final item = sortedItems[index];
                     return _ItemCard(
                       item: item,
-                      onIncrement: () =>
-                          onAdjustQuantity(item, 1),
-                      onDecrement: () =>
-                          onAdjustQuantity(item, -1),
+                      onIncrement: () => onAdjustQuantity(item, 1),
+                      onDecrement: () => onAdjustQuantity(item, -1),
                       onDelete: () => onDeleteItem(item),
                       onEdit: () => onEditItem(item),
                     );
@@ -174,8 +158,7 @@ class _ItemCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
         leading: CircleAvatar(
           backgroundColor: item.isExpired
@@ -204,17 +187,15 @@ class _ItemCard extends StatelessWidget {
                   Text(
                     item.displayName,
                     style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14),
+                        fontWeight: FontWeight.w600, fontSize: 14),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (item.code.isNotEmpty)
                     Text(
                       item.code,
-                      style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey),
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                 ],
               ),
@@ -222,15 +203,13 @@ class _ItemCard extends StatelessWidget {
             if (item.isExpired)
               _buildStatusBadge(context, 'EXPIRED', Colors.red)
             else if (item.isExpiringSoon)
-              _buildStatusBadge(
-                  context, 'EXPIRING', Colors.orange),
+              _buildStatusBadge(context, 'EXPIRING', Colors.orange),
           ],
         ),
         subtitle: Row(
           children: [
             if (item.barcode.isNotEmpty) ...[
-              const Icon(Icons.qr_code,
-                  size: 12, color: Colors.grey),
+              const Icon(Icons.qr_code, size: 12, color: Colors.grey),
               const SizedBox(width: 4),
               Flexible(
                 child: Text(
@@ -257,7 +236,7 @@ class _ItemCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Date information
+                // Date and creator info
                 Container(
                   padding: const EdgeInsets.all(8),
                   margin: const EdgeInsets.only(bottom: 12),
@@ -266,67 +245,63 @@ class _ItemCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         '📅 Created: ${item.formattedCreatedAt}',
                         style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey),
+                            fontSize: 11, color: Colors.grey),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         '✏️ Modified: ${item.formattedModifiedAt}',
                         style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey),
+                            fontSize: 11, color: Colors.grey),
                       ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '👤 Created by: ${item.creatorDisplayName}',
+                        style: const TextStyle(
+                            fontSize: 11, color: Colors.grey),
+                      ),
+                      if (item.modifiedByName != null &&
+                          item.modifiedByName != item.createdByName)
+                        Text(
+                          '👤 Modified by: ${item.modifierDisplayName}',
+                          style: const TextStyle(
+                              fontSize: 11, color: Colors.grey),
+                        ),
                     ],
                   ),
                 ),
 
                 // Item details
-                if (item.color.isNotEmpty)
-                  _detailRow('Color', item.color),
+                if (item.color.isNotEmpty) _detailRow('Color', item.color),
                 if (item.material.isNotEmpty)
                   _detailRow('Material', item.material),
                 if (item.productionDate != null)
-                  _detailRow(
-                      'Production',
-                      item.productionDate
-                          .toString()
-                          .split(' ')[0]),
+                  _detailRow('Production',
+                      item.productionDate.toString().split(' ')[0]),
                 if (item.expireDate != null)
                   _detailRow(
-                      'Expires',
-                      item.expireDate
-                          .toString()
-                          .split(' ')[0]),
-                if (item.note.isNotEmpty)
-                  _detailRow('Note', item.note),
-                ...item.customFields.entries
-                    .where((e) => e.key != '_supabase_id')
+                      'Expires', item.expireDate.toString().split(' ')[0]),
+                if (item.note.isNotEmpty) _detailRow('Note', item.note),
+                ...item.userCustomFields.entries
                     .map((e) => _detailRow(e.key, e.value)),
 
                 const Divider(height: 24),
 
                 // Action buttons
                 Row(
-                  mainAxisAlignment:
-                      MainAxisAlignment.spaceEvenly,
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     IconButton.filled(
-                      onPressed: item.quantity > 0
-                          ? onDecrement
-                          : null,
+                      onPressed: item.quantity > 0 ? onDecrement : null,
                       icon: const Icon(Icons.remove),
                       tooltip: 'Decrease quantity',
                       style: IconButton.styleFrom(
-                        backgroundColor:
-                            colorScheme.errorContainer,
-                        foregroundColor:
-                            colorScheme.error,
+                        backgroundColor: colorScheme.errorContainer,
+                        foregroundColor: colorScheme.error,
                       ),
                     ),
                     Text(
@@ -334,22 +309,18 @@ class _ItemCard extends StatelessWidget {
                       style: Theme.of(context)
                           .textTheme
                           .headlineMedium
-                          ?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                          ?.copyWith(fontWeight: FontWeight.w700),
                     ),
                     IconButton.filled(
-                      onPressed: item.quantity <
-                              InventoryItem.maxQuantity
-                          ? onIncrement
-                          : null,
+                      onPressed:
+                          item.quantity < InventoryItem.maxQuantity
+                              ? onIncrement
+                              : null,
                       icon: const Icon(Icons.add),
                       tooltip: 'Increase quantity',
                       style: IconButton.styleFrom(
-                        backgroundColor:
-                            colorScheme.primaryContainer,
-                        foregroundColor:
-                            colorScheme.primary,
+                        backgroundColor: colorScheme.primaryContainer,
+                        foregroundColor: colorScheme.primary,
                       ),
                     ),
                     IconButton(
@@ -373,17 +344,14 @@ class _ItemCard extends StatelessWidget {
     );
   }
 
-  Widget _buildStatusBadge(
-      BuildContext context, String label, Color color) {
+  Widget _buildStatusBadge(BuildContext context, String label, Color color) {
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       margin: const EdgeInsets.only(left: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border:
-            Border.all(color: color.withValues(alpha: 0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Text(
         label,
@@ -407,13 +375,11 @@ class _ItemCard extends StatelessWidget {
             child: Text(
               '$label: ',
               style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12),
+                  fontWeight: FontWeight.w600, fontSize: 12),
             ),
           ),
           Expanded(
-            child: Text(value,
-                style: const TextStyle(fontSize: 12)),
+            child: Text(value, style: const TextStyle(fontSize: 12)),
           ),
         ],
       ),

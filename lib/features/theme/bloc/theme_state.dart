@@ -10,4 +10,12 @@ class ThemeState {
   ThemeState copyWith({ThemeMode? mode}) {
     return ThemeState(mode: mode ?? this.mode);
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ThemeState && mode == other.mode;
+
+  @override
+  int get hashCode => mode.hashCode;
 }
