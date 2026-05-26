@@ -55,7 +55,7 @@ void main() async {
       } catch (e) {
         debugPrint('⚠️ Supabase initialization failed: $e');
         if (AppConfig.isProduction) {
-          runApp(_ErrorApp(
+          runApp(const _ErrorApp(
               title: 'Connection Error',
               error: 'Failed to connect to server. Please check your internet connection and try again.',
               canRetry: true));
@@ -91,7 +91,7 @@ void main() async {
           debugPrint('✅ Box $boxName recovered');
         } catch (e2) {
           debugPrint('❌ Box $boxName recovery failed: $e2');
-          runApp(_ErrorApp(
+          runApp(const _ErrorApp(
               title: 'Storage Error',
               error: 'Failed to initialize local storage. Please restart the app.',
               canRetry: false));
@@ -134,7 +134,7 @@ void main() async {
           ),
           home: onboardingCompleted
               ? const InventoryProApp()
-              : SplashScreen(nextScreen: const OnboardingScreen()),
+              : const SplashScreen(nextScreen: OnboardingScreen()),
         ),
       ),
     );

@@ -16,44 +16,42 @@ class _UsersManagementState extends State<UsersManagement> {
   @override
   void initState() {
     super.initState();
-    context.read<AdminBloc>().add(const LoadUsers());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AdminBloc>().add(const LoadUsers());
+      }
+    });
   }
 
-  void _changeRole(
-      String userId, String currentRole, String email) async {
+  void _changeRole(String userId, String currentRole, String email) async {
     final newRole = await showDialog<String>(
       context: context,
       builder: (ctx) => SimpleDialog(
         title: Text('Change Role for $email'),
-        children: ['staff', 'manager', 'admin', 'owner']
+        children: ['owner', 'admin', 'data_operator', 'viewer']
             .map((role) => SimpleDialogOption(
                   onPressed: () => Navigator.pop(ctx, role),
                   child: Row(children: [
                     SizedBox(
                       width: 24,
                       child: role == currentRole
-                          ? const Icon(Icons.check,
-                              size: 18, color: Colors.green)
+                          ? const Icon(Icons.check, size: 18, color: Colors.green)
                           : null,
                     ),
                     const SizedBox(width: 8),
-                    Text(role[0].toUpperCase() +
-                        role.substring(1)),
+                    Text(role.replaceAll('_', ' ').split(' ').map((w) => w.isNotEmpty ? w[0].toUpperCase() + w.substring(1) : w).join(' ')),
                   ]),
                 ))
             .toList(),
       ),
     );
 
-    if (newRole != null && newRole != currentRole) {
-      context
-          .read<AdminBloc>()
-          .add(UpdateUserRole(userId, newRole));
+    if (newRole != null && newRole != currentRole && mounted) {
+      context.read<AdminBloc>().add(UpdateUserRole(userId, newRole));
     }
   }
 
-  void _sendNotificationToUser(
-      String userId, String email) async {
+  void _sendNotificationToUser(String userId, String email) async {
     final titleController = TextEditingController();
     final messageController = TextEditingController();
 
@@ -61,49 +59,35 @@ class _UsersManagementState extends State<UsersManagement> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('Notify $email'),
-        content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleController,
-                decoration: const InputDecoration(
-                    labelText: 'Title',
-                    border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: messageController,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                    labelText: 'Message',
-                    border: OutlineInputBorder()),
-              ),
-            ]),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+            controller: titleController,
+            decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: messageController,
+            maxLines: 3,
+            decoration: const InputDecoration(labelText: 'Message', border: OutlineInputBorder()),
+          ),
+        ]),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Send')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Send')),
         ],
       ),
     );
 
-    if (confirmed == true && titleController.text.isNotEmpty) {
+    if (confirmed == true && titleController.text.isNotEmpty && mounted) {
       context.read<AdminBloc>().add(SendNotificationToUser(
-            userId: userId,
-            title: titleController.text,
-            message: messageController.text,
-          ));
+        userId: userId,
+        title: titleController.text,
+        message: messageController.text,
+      ));
     }
   }
 
-  void _viewUserDetails(String userId) async {
-    // ✅ FIXED: Dispatch event to AdminBloc instead of creating
-    // a new AdminService() instance that bypasses the BLoC.
-    // For now, show a simple dialog with the user ID.
-    // In the future, add a GetUserDetails event to AdminBloc.
+  void _viewUserDetails(String userId) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -116,15 +100,12 @@ class _UsersManagementState extends State<UsersManagement> {
             const SizedBox(height: 8),
             const Text(
               'Full details loading is handled by the admin service.',
-              style: TextStyle(
-                  color: Colors.grey, fontSize: 13),
+              style: TextStyle(color: Colors.grey, fontSize: 13),
             ),
           ],
         ),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Close'))
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
         ],
       ),
     );
@@ -133,16 +114,10 @@ class _UsersManagementState extends State<UsersManagement> {
   Widget _detailRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-                width: 100,
-                child: Text('$label:',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600))),
-            Expanded(child: Text(value)),
-          ]),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SizedBox(width: 100, child: Text('$label:', style: const TextStyle(fontWeight: FontWeight.w600))),
+        Expanded(child: Text(value)),
+      ]),
     );
   }
 
@@ -150,32 +125,20 @@ class _UsersManagementState extends State<UsersManagement> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(children: [
-        SizedBox(
-            width: 80,
-            child: Text('$label:',
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12))),
-        Expanded(
-            child: Text(value,
-                style: const TextStyle(fontSize: 12))),
+        SizedBox(width: 80, child: Text('$label:', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
+        Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
       ]),
     );
   }
 
   Widget _statusBadge(String label, Color color) {
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Text(label,
-          style: TextStyle(
-              fontSize: 10,
-              color: color,
-              fontWeight: FontWeight.w700)),
+      child: Text(label, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w700)),
     );
   }
 
@@ -184,11 +147,8 @@ class _UsersManagementState extends State<UsersManagement> {
     return BlocBuilder<AdminBloc, AdminState>(
       builder: (context, state) {
         final filteredUsers = state.users.where((u) {
-          final email =
-              (u['email'] ?? '').toString().toLowerCase();
-          final name = (u['display_name'] ?? '')
-              .toString()
-              .toLowerCase();
+          final email = (u['email'] ?? '').toString().toLowerCase();
+          final name = (u['display_name'] ?? '').toString().toLowerCase();
           final matchesSearch = _searchQuery.isEmpty ||
               email.contains(_searchQuery.toLowerCase()) ||
               name.contains(_searchQuery.toLowerCase());
@@ -216,18 +176,12 @@ class _UsersManagementState extends State<UsersManagement> {
                   child: TextField(
                     decoration: InputDecoration(
                       hintText: 'Search users...',
-                      prefixIcon: const Icon(Icons.search,
-                          size: 20),
-                      border: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(12)),
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       filled: true,
-                      contentPadding:
-                          const EdgeInsets.symmetric(
-                              horizontal: 12),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
                     ),
-                    onChanged: (v) =>
-                        setState(() => _searchQuery = v),
+                    onChanged: (v) => setState(() => _searchQuery = v),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -235,151 +189,78 @@ class _UsersManagementState extends State<UsersManagement> {
                   value: _filterStatus,
                   underline: const SizedBox(),
                   items: const [
-                    DropdownMenuItem(
-                        value: 'all', child: Text('All')),
-                    DropdownMenuItem(
-                        value: 'confirmed',
-                        child: Text('Confirmed')),
-                    DropdownMenuItem(
-                        value: 'pending',
-                        child: Text('Pending')),
-                    DropdownMenuItem(
-                        value: 'approved',
-                        child: Text('Approved')),
+                    DropdownMenuItem(value: 'all', child: Text('All')),
+                    DropdownMenuItem(value: 'confirmed', child: Text('Confirmed')),
+                    DropdownMenuItem(value: 'pending', child: Text('Pending')),
+                    DropdownMenuItem(value: 'approved', child: Text('Approved')),
                   ],
-                  onChanged: (v) =>
-                      setState(() => _filterStatus = v!),
+                  onChanged: (v) => setState(() => _filterStatus = v!),
                 ),
               ]),
             ),
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(children: [
                 Text('${filteredUsers.length} users',
-                    style: TextStyle(
-                        color: Colors.grey[600],
-                        fontSize: 13)),
+                    style: TextStyle(color: Colors.grey[600], fontSize: 13)),
                 const Spacer(),
                 if (state.isLoading)
-                  const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2)),
+                  const SizedBox(width: 16, height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2)),
               ]),
             ),
             const SizedBox(height: 8),
             Expanded(
               child: filteredUsers.isEmpty
-                  ? Center(
-                      child: Text(state.isLoading
-                          ? 'Loading...'
-                          : 'No users found'))
+                  ? Center(child: Text(state.isLoading ? 'Loading...' : 'No users found'))
                   : ListView.builder(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
                       itemCount: filteredUsers.length,
                       itemBuilder: (_, i) {
                         final user = filteredUsers[i];
-                        final email = user['email']
-                                ?.toString() ??
-                            '';
-                        final name =
-                            user['display_name']
-                                    ?.toString() ??
-                                'User';
-                        final isApproved =
-                            user['is_approved'] == true;
-                        final isConfirmed =
-                            user['email_confirmed'] ==
-                                true;
-                        final role = user['role']
-                                ?.toString() ??
-                            'staff';
-                        final userId = user['id']
-                                ?.toString() ??
-                            '';
-                        final companiesCount =
-                            user['companies_count'] ?? 0;
+                        final email = user['email']?.toString() ?? '';
+                        final name = user['display_name']?.toString() ?? 'User';
+                        final isApproved = user['is_approved'] == true;
+                        final isConfirmed = user['email_confirmed'] == true;
+                        final role = user['role']?.toString() ?? 'viewer';
+                        final userId = user['id']?.toString() ?? '';
+                        final companiesCount = user['companies_count'] ?? 0;
 
                         return Card(
-                          margin: const EdgeInsets.only(
-                              bottom: 8),
-                          shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(
-                                      12)),
+                          margin: const EdgeInsets.only(bottom: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           child: ExpansionTile(
                             leading: CircleAvatar(
                               backgroundColor: isApproved
                                   ? Colors.green
-                                  : (isConfirmed
-                                      ? Colors.blue
-                                      : Colors.orange),
+                                  : (isConfirmed ? Colors.blue : Colors.orange),
                               child: Text(
-                                name.isNotEmpty
-                                    ? name[0]
-                                        .toUpperCase()
-                                    : '?',
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight:
-                                        FontWeight.bold),
+                                name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                               ),
                             ),
-                            title: Text(name,
-                                style: const TextStyle(
-                                    fontWeight:
-                                        FontWeight.w600)),
-                            subtitle: Text(email,
-                                style: const TextStyle(
-                                    fontSize: 12)),
+                            title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            subtitle: Text(email, style: const TextStyle(fontSize: 12)),
                             trailing: Row(
-                              mainAxisSize:
-                                  MainAxisSize.min,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                if (!isConfirmed)
-                                  _statusBadge(
-                                      'PENDING',
-                                      Colors.orange),
-                                if (isConfirmed &&
-                                    !isApproved)
-                                  _statusBadge(
-                                      'CONFIRMED',
-                                      Colors.blue),
-                                if (isApproved)
-                                  _statusBadge(
-                                      'ACTIVE',
-                                      Colors.green),
+                                if (!isConfirmed) _statusBadge('PENDING', Colors.orange),
+                                if (isConfirmed && !isApproved) _statusBadge('CONFIRMED', Colors.blue),
+                                if (isApproved) _statusBadge('ACTIVE', Colors.green),
                               ],
                             ),
                             children: [
                               Padding(
-                                padding:
-                                    const EdgeInsets.all(
-                                        16),
+                                padding: const EdgeInsets.all(16),
                                 child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment
-                                          .start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    _infoRow(
-                                        'Email', email),
-                                    _infoRow(
-                                        'Role',
-                                        role
-                                            .toUpperCase()),
-                                    _infoRow(
-                                        'Companies',
-                                        '$companiesCount'),
-                                    _infoRow(
-                                        'Status',
-                                        isApproved
-                                            ? 'Active'
-                                            : (isConfirmed
-                                                ? 'Confirmed'
-                                                : 'Pending')),
+                                    _infoRow('Email', email),
+                                    _infoRow('Role', role.toUpperCase()),
+                                    _infoRow('Companies', '$companiesCount'),
+                                    _infoRow('Status', isApproved
+                                        ? 'Active'
+                                        : (isConfirmed ? 'Confirmed' : 'Pending')),
                                     const Divider(),
                                     Wrap(
                                       spacing: 8,
@@ -387,91 +268,38 @@ class _UsersManagementState extends State<UsersManagement> {
                                       children: [
                                         if (!isConfirmed)
                                           ActionChip(
-                                            avatar: const Icon(
-                                                Icons
-                                                    .verified,
-                                                size: 16),
-                                            label: const Text(
-                                                'Force Confirm'),
-                                            onPressed: () => context
-                                                .read<
-                                                    AdminBloc>()
-                                                .add(ForceConfirmUser(
-                                                    userId)),
-                                            backgroundColor:
-                                                Colors.blue
-                                                    .shade50,
+                                            avatar: const Icon(Icons.verified, size: 16),
+                                            label: const Text('Force Confirm'),
+                                            onPressed: () => context.read<AdminBloc>().add(ForceConfirmUser(userId)),
+                                            backgroundColor: Colors.blue.shade50,
                                           ),
                                         if (!isApproved)
                                           ActionChip(
-                                            avatar: const Icon(
-                                                Icons.check,
-                                                size: 16),
-                                            label: const Text(
-                                                'Approve'),
-                                            onPressed: () => context
-                                                .read<
-                                                    AdminBloc>()
-                                                .add(ApproveUser(
-                                                    userId)),
-                                            backgroundColor: Colors
-                                                .green
-                                                .shade50,
+                                            avatar: const Icon(Icons.check, size: 16),
+                                            label: const Text('Approve'),
+                                            onPressed: () => context.read<AdminBloc>().add(ApproveUser(userId)),
+                                            backgroundColor: Colors.green.shade50,
                                           ),
                                         ActionChip(
-                                          avatar: const Icon(
-                                              Icons.edit,
-                                              size: 16),
-                                          label: const Text(
-                                              'Change Role'),
-                                          onPressed: () =>
-                                              _changeRole(
-                                                  userId,
-                                                  role,
-                                                  email),
+                                          avatar: const Icon(Icons.edit, size: 16),
+                                          label: const Text('Change Role'),
+                                          onPressed: () => _changeRole(userId, role, email),
                                         ),
                                         ActionChip(
-                                          avatar: const Icon(
-                                              Icons
-                                                  .notifications,
-                                              size: 16),
-                                          label: const Text(
-                                              'Notify'),
-                                          onPressed: () =>
-                                              _sendNotificationToUser(
-                                                  userId,
-                                                  email),
+                                          avatar: const Icon(Icons.notifications, size: 16),
+                                          label: const Text('Notify'),
+                                          onPressed: () => _sendNotificationToUser(userId, email),
                                         ),
                                         ActionChip(
-                                          avatar: const Icon(
-                                              Icons
-                                                  .info_outline,
-                                              size: 16),
-                                          label: const Text(
-                                              'Details'),
-                                          onPressed: () =>
-                                              _viewUserDetails(
-                                                  userId),
+                                          avatar: const Icon(Icons.info_outline, size: 16),
+                                          label: const Text('Details'),
+                                          onPressed: () => _viewUserDetails(userId),
                                         ),
                                         ActionChip(
-                                          avatar: const Icon(
-                                              Icons.block,
-                                              size: 16,
-                                              color:
-                                                  Colors.red),
-                                          label: const Text(
-                                              'Deactivate',
-                                              style: TextStyle(
-                                                  color: Colors
-                                                      .red)),
-                                          onPressed: () => context
-                                              .read<
-                                                  AdminBloc>()
-                                              .add(DeactivateUser(
-                                                  userId,
-                                                  email)),
-                                          backgroundColor: Colors
-                                              .red.shade50,
+                                          avatar: const Icon(Icons.block, size: 16, color: Colors.red),
+                                          label: const Text('Deactivate', style: TextStyle(color: Colors.red)),
+                                          onPressed: () => context.read<AdminBloc>().add(DeactivateUser(userId, email)),
+                                          backgroundColor: Colors.red.shade50,
                                         ),
                                       ],
                                     ),

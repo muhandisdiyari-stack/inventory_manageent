@@ -13,7 +13,11 @@ class _AuditLogViewerState extends State<AuditLogViewer> {
   @override
   void initState() {
     super.initState();
-    context.read<AdminBloc>().add(const LoadAuditLogs());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AdminBloc>().add(const LoadAuditLogs());
+      }
+    });
   }
 
   String _formatDateTime(String? raw) {
@@ -35,7 +39,8 @@ class _AuditLogViewerState extends State<AuditLogViewer> {
       case 'force_confirm_user': return 'Force Confirmed User';
       case 'create_user': return 'Created User';
       case 'update_user_role': return 'Updated User Role';
-      default: return action.replaceAll('_', ' ').split(' ').map((w) => w.isNotEmpty ? w[0].toUpperCase() + w.substring(1) : w).join(' ');
+      default:
+        return action.replaceAll('_', ' ').split(' ').map((w) => w.isNotEmpty ? w[0].toUpperCase() + w.substring(1) : w).join(' ');
     }
   }
 
@@ -54,10 +59,14 @@ class _AuditLogViewerState extends State<AuditLogViewer> {
     switch (action) {
       case 'approve_user':
       case 'force_confirm_user':
-      case 'create_user': return Colors.green;
-      case 'deactivate_user': return Colors.red;
-      case 'update_user_role': return Colors.blue;
-      default: return Colors.grey;
+      case 'create_user':
+        return Colors.green;
+      case 'deactivate_user':
+        return Colors.red;
+      case 'update_user_role':
+        return Colors.blue;
+      default:
+        return Colors.grey;
     }
   }
 
@@ -99,7 +108,7 @@ class _AuditLogViewerState extends State<AuditLogViewer> {
                               margin: const EdgeInsets.only(bottom: 8),
                               child: ListTile(
                                 leading: CircleAvatar(
-                                  backgroundColor: color.withOpacity(0.12),
+                                  backgroundColor: color.withValues(alpha: 0.12),
                                   child: Icon(_getActionIcon(action), size: 20, color: color),
                                 ),
                                 title: Text(_formatAction(action), style: const TextStyle(fontWeight: FontWeight.w600)),

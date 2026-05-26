@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/inventory_item.dart';
 
+
 class ItemsListWidget extends StatelessWidget {
   final List<InventoryItem> items;
   final String label;
@@ -9,6 +10,9 @@ class ItemsListWidget extends StatelessWidget {
   final Function(InventoryItem) onDeleteItem;
   final VoidCallback onAddItem;
   final Function(InventoryItem) onEditItem;
+  final bool canCreate;
+  final bool canUpdate;
+  final bool canDelete;
 
   const ItemsListWidget({
     super.key,
@@ -19,6 +23,9 @@ class ItemsListWidget extends StatelessWidget {
     required this.onDeleteItem,
     required this.onAddItem,
     required this.onEditItem,
+    this.canCreate = false,
+    this.canUpdate = false,
+    this.canDelete = false,
   });
 
   @override
@@ -57,15 +64,12 @@ class ItemsListWidget extends StatelessWidget {
                       onPressed: () => searchController.clear(),
                     )
                   : null,
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
               filled: true,
-              fillColor:
-                  Theme.of(context).colorScheme.surfaceContainerHighest,
+              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
             ),
           ),
         ),
-
         if (searchQuery.isNotEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -74,20 +78,16 @@ class ItemsListWidget extends StatelessWidget {
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ),
-
         Expanded(
           child: sortedItems.isEmpty
               ? Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.search_off,
-                          size: 48, color: Colors.grey[400]),
+                      Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
                       const SizedBox(height: 12),
-                      Text(
-                        'No items match "$searchQuery"',
-                        style: TextStyle(color: Colors.grey[600]),
-                      ),
+                      Text('No items match "$searchQuery"',
+                          style: TextStyle(color: Colors.grey[600])),
                     ],
                   ),
                 )
@@ -98,6 +98,8 @@ class ItemsListWidget extends StatelessWidget {
                     final item = sortedItems[index];
                     return _ItemCard(
                       item: item,
+                      canUpdate: canUpdate,
+                      canDelete: canDelete,
                       onIncrement: () => onAdjustQuantity(item, 1),
                       onDecrement: () => onAdjustQuantity(item, -1),
                       onDelete: () => onDeleteItem(item),
@@ -115,22 +117,13 @@ class ItemsListWidget extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.inventory_2_outlined,
-              size: 48, color: Colors.grey[400]),
+          Icon(Icons.inventory_2_outlined, size: 48, color: Colors.grey[400]),
           const SizedBox(height: 12),
-          Text(
-            'No items in $label',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey[700],
-            ),
-          ),
+          Text('No items in $label',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey[700])),
           const SizedBox(height: 4),
-          Text(
-            'Tap + to add items',
-            style: TextStyle(color: Colors.grey[500]),
-          ),
+          Text(canCreate ? 'Tap + to add items' : 'No items yet',
+              style: TextStyle(color: Colors.grey[500])),
         ],
       ),
     );
@@ -139,6 +132,8 @@ class ItemsListWidget extends StatelessWidget {
 
 class _ItemCard extends StatelessWidget {
   final InventoryItem item;
+  final bool canUpdate;
+  final bool canDelete;
   final VoidCallback onIncrement;
   final VoidCallback onDecrement;
   final VoidCallback onDelete;
@@ -146,6 +141,8 @@ class _ItemCard extends StatelessWidget {
 
   const _ItemCard({
     required this.item,
+    required this.canUpdate,
+    required this.canDelete,
     required this.onIncrement,
     required this.onDecrement,
     required this.onDelete,
@@ -184,26 +181,20 @@ class _ItemCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    item.displayName,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 14),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  Text(item.displayName,
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
                   if (item.code.isNotEmpty)
-                    Text(
-                      item.code,
-                      style:
-                          const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
+                    Text(item.code, style: const TextStyle(fontSize: 12, color: Colors.grey)),
                 ],
               ),
             ),
             if (item.isExpired)
-              _buildStatusBadge(context, 'EXPIRED', Colors.red)
+              _buildBadge('EXPIRED', Colors.red)
             else if (item.isExpiringSoon)
-              _buildStatusBadge(context, 'EXPIRING', Colors.orange),
+              _buildBadge('EXPIRING', Colors.orange),
+            if (item.hasReachedUpdateLimit)
+              _buildBadge('LOCKED', Colors.purple),
           ],
         ),
         subtitle: Row(
@@ -212,21 +203,15 @@ class _ItemCard extends StatelessWidget {
               const Icon(Icons.qr_code, size: 12, color: Colors.grey),
               const SizedBox(width: 4),
               Flexible(
-                child: Text(
-                  item.barcode,
-                  style: const TextStyle(fontSize: 11),
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: Text(item.barcode, style: const TextStyle(fontSize: 11),
+                    overflow: TextOverflow.ellipsis),
               ),
               const SizedBox(width: 8),
             ],
             if (item.size.isNotEmpty)
               Flexible(
-                child: Text(
-                  'Size: ${item.size}',
-                  style: const TextStyle(fontSize: 11),
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: Text('Size: ${item.size}', style: const TextStyle(fontSize: 11),
+                    overflow: TextOverflow.ellipsis),
               ),
           ],
         ),
@@ -236,7 +221,7 @@ class _ItemCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Date and creator info
+                // Creator/updater info
                 Container(
                   padding: const EdgeInsets.all(8),
                   margin: const EdgeInsets.only(bottom: 12),
@@ -247,95 +232,109 @@ class _ItemCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '📅 Created: ${item.formattedCreatedAt}',
-                        style: const TextStyle(
-                            fontSize: 11, color: Colors.grey),
-                      ),
+                      Text('📅 Created: ${item.formattedCreatedAt}',
+                          style: const TextStyle(fontSize: 11, color: Colors.grey)),
                       const SizedBox(height: 2),
-                      Text(
-                        '✏️ Modified: ${item.formattedModifiedAt}',
-                        style: const TextStyle(
-                            fontSize: 11, color: Colors.grey),
-                      ),
+                      Text('✏️ Modified: ${item.formattedModifiedAt}',
+                          style: const TextStyle(fontSize: 11, color: Colors.grey)),
                       const SizedBox(height: 2),
-                      Text(
-                        '👤 Created by: ${item.creatorDisplayName}',
-                        style: const TextStyle(
-                            fontSize: 11, color: Colors.grey),
-                      ),
-                      if (item.modifiedByName != null &&
-                          item.modifiedByName != item.createdByName)
-                        Text(
-                          '👤 Modified by: ${item.modifierDisplayName}',
-                          style: const TextStyle(
-                              fontSize: 11, color: Colors.grey),
-                        ),
+                      Text('👤 Created by: ${item.creatorDisplayName}',
+                          style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      if (item.updatedByName != null && item.updatedByName != item.createdByName)
+                        Text('👤 Updated by: ${item.updaterDisplayName}',
+                            style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      if (item.updateCount > 0)
+                        Text('🔄 Updates: ${item.updateCount}/3',
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: item.hasReachedUpdateLimit ? Colors.red : Colors.grey)),
                     ],
                   ),
                 ),
 
                 // Item details
-                if (item.color.isNotEmpty) _detailRow('Color', item.color),
-                if (item.material.isNotEmpty)
-                  _detailRow('Material', item.material),
+                if (item.color.isNotEmpty) _infoRow('Color', item.color),
+                if (item.material.isNotEmpty) _infoRow('Material', item.material),
                 if (item.productionDate != null)
-                  _detailRow('Production',
-                      item.productionDate.toString().split(' ')[0]),
+                  _infoRow('Production', item.productionDate.toString().split(' ')[0]),
                 if (item.expireDate != null)
-                  _detailRow(
-                      'Expires', item.expireDate.toString().split(' ')[0]),
-                if (item.note.isNotEmpty) _detailRow('Note', item.note),
-                ...item.userCustomFields.entries
-                    .map((e) => _detailRow(e.key, e.value)),
+                  _infoRow('Expires', item.expireDate.toString().split(' ')[0]),
+                if (item.note.isNotEmpty) _infoRow('Note', item.note),
+                ...item.userCustomFields.entries.map((e) => _infoRow(e.key, e.value)),
 
                 const Divider(height: 24),
 
-                // Action buttons
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    IconButton.filled(
-                      onPressed: item.quantity > 0 ? onDecrement : null,
-                      icon: const Icon(Icons.remove),
-                      tooltip: 'Decrease quantity',
-                      style: IconButton.styleFrom(
-                        backgroundColor: colorScheme.errorContainer,
-                        foregroundColor: colorScheme.error,
+                // Action buttons — gated by permissions
+                if (canUpdate && !item.hasReachedUpdateLimit) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      IconButton.filled(
+                        onPressed: item.quantity > 0 ? onDecrement : null,
+                        icon: const Icon(Icons.remove),
+                        tooltip: 'Decrease quantity',
+                        style: IconButton.styleFrom(
+                          backgroundColor: colorScheme.errorContainer,
+                          foregroundColor: colorScheme.error,
+                        ),
                       ),
-                    ),
-                    Text(
-                      '${item.quantity}',
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineMedium
-                          ?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                    IconButton.filled(
-                      onPressed:
-                          item.quantity < InventoryItem.maxQuantity
-                              ? onIncrement
-                              : null,
-                      icon: const Icon(Icons.add),
-                      tooltip: 'Increase quantity',
-                      style: IconButton.styleFrom(
-                        backgroundColor: colorScheme.primaryContainer,
-                        foregroundColor: colorScheme.primary,
+                      Text('${item.quantity}',
+                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              )),
+                      IconButton.filled(
+                        onPressed: item.quantity < InventoryItem.maxQuantity ? onIncrement : null,
+                        icon: const Icon(Icons.add),
+                        tooltip: 'Increase quantity',
+                        style: IconButton.styleFrom(
+                          backgroundColor: colorScheme.primaryContainer,
+                          foregroundColor: colorScheme.primary,
+                        ),
                       ),
+                      IconButton(
+                        onPressed: onEdit,
+                        icon: const Icon(Icons.edit),
+                        tooltip: 'Edit item',
+                      ),
+                      if (canDelete)
+                        IconButton(
+                          onPressed: onDelete,
+                          icon: const Icon(Icons.delete_outline),
+                          color: Colors.red,
+                          tooltip: 'Delete item',
+                        ),
+                    ],
+                  ),
+                ] else if (item.hasReachedUpdateLimit) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.purple.shade200),
                     ),
-                    IconButton(
-                      onPressed: onEdit,
-                      icon: const Icon(Icons.edit),
-                      tooltip: 'Edit item',
+                    child: const Row(
+                      children: [
+                        Icon(Icons.lock, size: 16, color: Colors.purple),
+                        SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'This item has reached the maximum update limit. Contact an admin.',
+                            style: TextStyle(fontSize: 12, color: Colors.purple),
+                          ),
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      onPressed: onDelete,
-                      icon: const Icon(Icons.delete_outline),
-                      color: Colors.red,
-                      tooltip: 'Delete item',
+                  ),
+                ] else ...[
+                  // Viewer: no action buttons
+                  Center(
+                    child: Text(
+                      'View only — contact admin for edit access',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -344,7 +343,7 @@ class _ItemCard extends StatelessWidget {
     );
   }
 
-  Widget _buildStatusBadge(BuildContext context, String label, Color color) {
+  Widget _buildBadge(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       margin: const EdgeInsets.only(left: 4),
@@ -353,18 +352,12 @@ class _ItemCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 9,
-          color: color,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
+      child: Text(label,
+          style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w700)),
     );
   }
 
-  Widget _detailRow(String label, String value) {
+  Widget _infoRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
@@ -372,15 +365,10 @@ class _ItemCard extends StatelessWidget {
         children: [
           SizedBox(
             width: 100,
-            child: Text(
-              '$label: ',
-              style: const TextStyle(
-                  fontWeight: FontWeight.w600, fontSize: 12),
-            ),
+            child: Text('$label: ',
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
           ),
-          Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 12)),
-          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
         ],
       ),
     );

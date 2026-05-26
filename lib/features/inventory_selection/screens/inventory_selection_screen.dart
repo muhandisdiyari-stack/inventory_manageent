@@ -11,26 +11,24 @@ class InventorySelectionScreen extends StatefulWidget {
   const InventorySelectionScreen({super.key});
 
   @override
-  State<InventorySelectionScreen> createState() =>
-      _InventorySelectionScreenState();
+  State<InventorySelectionScreen> createState() => _InventorySelectionScreenState();
 }
 
-class _InventorySelectionScreenState
-    extends State<InventorySelectionScreen> {
+class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
   @override
   void initState() {
     super.initState();
-    context.read<InventoryListBloc>().add(const LoadInventories());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<InventoryListBloc>().add(const LoadInventories());
+      }
+    });
   }
 
   void _openInventory(String id) {
     context.read<InventoryListBloc>().add(SelectInventory(id));
     context.read<InventoryBloc>().add(InitializeInventory(id));
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const InventoryHomeScreen()),
-    );
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const InventoryHomeScreen()));
   }
 
   void _showCreateDialog() {
@@ -68,20 +66,17 @@ class _InventorySelectionScreenState
           floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
           body: RefreshIndicator(
             onRefresh: () async {
-              context.read<InventoryListBloc>().add(const RefreshInventories());
+              if (mounted) {
+                context.read<InventoryListBloc>().add(const RefreshInventories());
+              }
             },
             child: state.isLoading && state.inventories.isEmpty
                 ? const Center(child: CircularProgressIndicator())
                 : state.error != null && state.inventories.isEmpty
                     ? _buildError(state.error!)
                     : state.inventories.isEmpty
-                        ? EmptyStateWidget(
-                            onCreateInventory: state.isOffline ? null : _showCreateDialog,
-                          )
-                        : InventoryListWidget(
-                            inventories: state.inventories,
-                            onOpenInventory: _openInventory,
-                          ),
+                        ? EmptyStateWidget(onCreateInventory: state.isOffline ? null : _showCreateDialog)
+                        : InventoryListWidget(inventories: state.inventories, onOpenInventory: _openInventory),
           ),
         );
       },
@@ -92,20 +87,17 @@ class _InventorySelectionScreenState
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.cloud_off, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(error, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[600])),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: () => context.read<InventoryListBloc>().add(const RefreshInventories()),
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            ),
-          ],
-        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.cloud_off, size: 64, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(error, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[600])),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: () => context.read<InventoryListBloc>().add(const RefreshInventories()),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry'),
+          ),
+        ]),
       ),
     );
   }

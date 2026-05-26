@@ -106,7 +106,7 @@ class AuthService {
       _currentUser = User(
         id: email.hashCode.toString(),
         email: email,
-        role: UserRole.staff,
+        role: UserRole.dataOperator,
         isApproved: true,
         createdAt: DateTime.now(),
       );
@@ -147,13 +147,12 @@ class AuthService {
     // Offline / no-auth mode.
     if (!requiresAuth) {
       _currentUser = User(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        email: email,
-        displayName: displayName,
-        role: UserRole.staff,
-        isApproved: false,
-        createdAt: DateTime.now(),
-      );
+  id: email.hashCode.toString(),
+  email: email,
+  role: UserRole.dataOperator,  // FIXED
+  isApproved: true,
+  createdAt: DateTime.now(),
+);
       _isAuthenticated = true;
       _emailConfirmed = true;
       await _cacheCurrentUser();
@@ -209,9 +208,25 @@ class AuthService {
 
   // ─── Permissions ──────────────────────────────────────────────
 
-  bool hasPermission(String permission) =>
-      _currentUser?.hasPermission(permission) ?? false;
+  // LINE 213: The User model no longer has hasPermission().
+// Replace the entire method with:
 
+bool hasPermission(String permission) {
+  if (_currentUser == null) return false;
+  
+  // Check based on role
+  switch (_currentUser!.role) {
+    case UserRole.owner:
+      return true; // Owner has all permissions
+    case UserRole.admin:
+      return permission != 'manage_company'; // Admin can do everything except manage company
+    case UserRole.dataOperator:
+      return ['view_inventory', 'manage_inventory', 'export_reports', 'bulk_import']
+          .contains(permission);
+    case UserRole.viewer:
+      return ['view_inventory', 'export_reports'].contains(permission);
+  }
+}
   // ─── Company operations ───────────────────────────────────────
 
   Future<Map<String, dynamic>?> createCompany(String name) async =>

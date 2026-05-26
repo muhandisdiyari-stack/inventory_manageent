@@ -148,9 +148,7 @@ class _AddItemFormState extends State<_AddItemForm> {
 
   bool _isFieldEnabled(String fieldName) {
     if (widget.settings == null) {
-      const alwaysShown = [
-        'Name', 'Code', 'Barcode', 'Size', 'Quantity', 'Note'
-      ];
+      const alwaysShown = ['Name', 'Code', 'Barcode', 'Size', 'Quantity', 'Note'];
       return alwaysShown.contains(fieldName);
     }
     return widget.settings!.isFieldEnabled(fieldName);
@@ -181,16 +179,12 @@ class _AddItemFormState extends State<_AddItemForm> {
                 const Icon(Icons.check_circle, color: Colors.white, size: 18),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    'Barcode scanned: $barcode',
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  child: Text('Barcode scanned: $barcode', overflow: TextOverflow.ellipsis),
                 ),
               ],
             ),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(40)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
             margin: const EdgeInsets.all(20),
             duration: const Duration(seconds: 2),
           ),
@@ -206,12 +200,9 @@ class _AddItemFormState extends State<_AddItemForm> {
     });
   }
 
-  // ─── Helper to get current user info ──────────────────────────
-
   String _getCurrentUserId() {
     try {
-      final authState = context.read<AuthBloc>().state;
-      return authState.user?.id ?? 'unknown';
+      return context.read<AuthBloc>().state.user?.id ?? 'unknown';
     } catch (_) {
       return 'unknown';
     }
@@ -219,9 +210,7 @@ class _AddItemFormState extends State<_AddItemForm> {
 
   String _getCurrentUserName() {
     try {
-      final authState = context.read<AuthBloc>().state;
-      final user = authState.user;
-      return user?.displayNameOrEmail ?? 'Unknown';
+      return context.read<AuthBloc>().state.user?.displayNameOrEmail ?? 'Unknown';
     } catch (_) {
       return 'Unknown';
     }
@@ -230,6 +219,10 @@ class _AddItemFormState extends State<_AddItemForm> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.existingItem != null;
+    final item = widget.existingItem;
+
+    // Show warning if item has reached update limit
+    final showUpdateLimitWarning = isEditing && item != null && item.hasReachedUpdateLimit;
 
     return Padding(
       padding: EdgeInsets.only(
@@ -259,11 +252,33 @@ class _AddItemFormState extends State<_AddItemForm> {
 
               Text(
                 isEditing ? 'Edit Item' : 'Add New Item to ${widget.label}',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
               ),
+
+              if (showUpdateLimitWarning) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.purple.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.lock, color: Colors.purple, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'This item has reached the maximum update limit (${item.updateCount}/3). '
+                          'Contact an admin to make further changes.',
+                          style: const TextStyle(color: Colors.purple, fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
 
               if (_errorMessage != null) ...[
                 const SizedBox(height: 12),
@@ -272,20 +287,14 @@ class _AddItemFormState extends State<_AddItemForm> {
                   decoration: BoxDecoration(
                     color: Colors.red.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
-                    border:
-                        Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                    border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.error_outline,
-                          color: Colors.red, size: 18),
+                      const Icon(Icons.error_outline, color: Colors.red, size: 18),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          _errorMessage!,
-                          style: const TextStyle(
-                              color: Colors.red, fontSize: 13),
-                        ),
+                        child: Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 13)),
                       ),
                     ],
                   ),
@@ -303,6 +312,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                   required: _isFieldRequired('Name'),
                   textCapitalization: TextCapitalization.words,
                   autofocus: true,
+                  enabled: !showUpdateLimitWarning,
                 ),
 
               if (_isFieldEnabled('Code'))
@@ -312,9 +322,11 @@ class _AddItemFormState extends State<_AddItemForm> {
                   hint: 'Enter item code',
                   icon: Icons.code,
                   required: _isFieldRequired('Code'),
+                  enabled: !showUpdateLimitWarning,
                 ),
 
-              if (_isFieldEnabled('Barcode')) _buildBarcodeField(),
+              if (_isFieldEnabled('Barcode'))
+                _buildBarcodeField(enabled: !showUpdateLimitWarning),
 
               if (_isFieldEnabled('Color'))
                 _buildTextField(
@@ -324,6 +336,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                   icon: Icons.color_lens,
                   required: _isFieldRequired('Color'),
                   textCapitalization: TextCapitalization.words,
+                  enabled: !showUpdateLimitWarning,
                 ),
 
               if (_isFieldEnabled('Material'))
@@ -334,6 +347,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                   icon: Icons.texture,
                   required: _isFieldRequired('Material'),
                   textCapitalization: TextCapitalization.words,
+                  enabled: !showUpdateLimitWarning,
                 ),
 
               if (_isFieldEnabled('Size'))
@@ -343,9 +357,11 @@ class _AddItemFormState extends State<_AddItemForm> {
                   hint: 'Enter size (e.g., S, M, L, XL)',
                   icon: Icons.straighten,
                   required: _isFieldRequired('Size'),
+                  enabled: !showUpdateLimitWarning,
                 ),
 
-              if (_isFieldEnabled('Quantity')) _buildQuantityField(),
+              if (_isFieldEnabled('Quantity'))
+                _buildQuantityField(enabled: !showUpdateLimitWarning),
 
               if (_isFieldEnabled('Production Date'))
                 _buildDateField(
@@ -354,6 +370,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                   value: _productionDate,
                   onPicked: (d) => setState(() => _productionDate = d),
                   onClear: () => setState(() => _productionDate = null),
+                  enabled: !showUpdateLimitWarning,
                 ),
 
               if (_isFieldEnabled('Expire Date'))
@@ -363,6 +380,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                   value: _expireDate,
                   onPicked: (d) => setState(() => _expireDate = d),
                   onClear: () => setState(() => _expireDate = null),
+                  enabled: !showUpdateLimitWarning,
                 ),
 
               if (_isFieldEnabled('Note'))
@@ -374,54 +392,58 @@ class _AddItemFormState extends State<_AddItemForm> {
                   maxLines: 3,
                   required: _isFieldRequired('Note'),
                   textCapitalization: TextCapitalization.sentences,
+                  enabled: !showUpdateLimitWarning,
                 ),
 
-              ..._buildCustomFields(),
+              ..._buildCustomFields(enabled: !showUpdateLimitWarning),
 
               const SizedBox(height: 16),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _saving ? null : () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(40),
+              if (!showUpdateLimitWarning)
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _saving ? null : () => Navigator.pop(context),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
                         ),
+                        child: const Text('Cancel'),
                       ),
-                      child: const Text('Cancel'),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: _saving ? null : _submit,
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(40),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _saving ? null : _submit,
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
                         ),
+                        child: _saving
+                            ? const SizedBox(height: 18, width: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : Text(isEditing ? 'Update' : 'Save',
+                                style: const TextStyle(fontWeight: FontWeight.w700)),
                       ),
-                      child: _saving
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text(
-                              isEditing ? 'Update' : 'Save',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w700),
-                            ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+                        ),
+                        child: const Text('Close'),
+                      ),
+                    ),
+                  ],
+                ),
               const SizedBox(height: 8),
             ],
           ),
@@ -430,7 +452,7 @@ class _AddItemFormState extends State<_AddItemForm> {
     );
   }
 
-  Widget _buildBarcodeField() {
+  Widget _buildBarcodeField({bool enabled = true}) {
     final hasText = _barcodeController.text.isNotEmpty;
     final required = _isFieldRequired('Barcode');
 
@@ -438,6 +460,7 @@ class _AddItemFormState extends State<_AddItemForm> {
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
         controller: _barcodeController,
+        enabled: enabled,
         decoration: InputDecoration(
           labelText: required ? 'Barcode *' : 'Barcode',
           hintText: 'Enter barcode manually or scan',
@@ -445,47 +468,35 @@ class _AddItemFormState extends State<_AddItemForm> {
           suffixIcon: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (hasText)
+              if (hasText && enabled)
+                IconButton(icon: const Icon(Icons.clear, size: 20), tooltip: 'Clear barcode', onPressed: _clearBarcode),
+              if (enabled)
                 IconButton(
-                  icon: const Icon(Icons.clear, size: 20),
-                  tooltip: 'Clear barcode',
-                  onPressed: _clearBarcode,
+                  icon: Icon(Icons.qr_code_scanner, size: 20, color: Theme.of(context).colorScheme.primary),
+                  tooltip: 'Scan barcode (Camera, USB Scanner, or Image)',
+                  onPressed: _openBarcodeScanner,
                 ),
-              IconButton(
-                icon: Icon(
-                  Icons.qr_code_scanner,
-                  size: 20,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                tooltip: 'Scan barcode (Camera, USB Scanner, or Image)',
-                onPressed: _openBarcodeScanner,
-              ),
             ],
           ),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           filled: true,
           fillColor: hasText
-              ? Theme.of(context)
-                  .colorScheme
-                  .primaryContainer
-                  .withValues(alpha: 0.1)
+              ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.1)
               : null,
         ),
-        validator: required
-            ? (v) =>
-                (v == null || v.trim().isEmpty) ? 'Barcode is required' : null
-            : null,
+        validator: required ? (v) => (v == null || v.trim().isEmpty) ? 'Barcode is required' : null : null,
       ),
     );
   }
 
-  Widget _buildQuantityField() {
+  Widget _buildQuantityField({bool enabled = true}) {
     final required = _isFieldRequired('Quantity');
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
         controller: _quantityController,
         keyboardType: TextInputType.number,
+        enabled: enabled,
         decoration: InputDecoration(
           labelText: required ? 'Quantity *' : 'Quantity',
           hintText: 'Enter quantity (0-${InventoryItem.maxQuantity})',
@@ -495,16 +506,12 @@ class _AddItemFormState extends State<_AddItemForm> {
           errorStyle: const TextStyle(fontSize: 12),
         ),
         validator: (v) {
-          if (required && (v == null || v.trim().isEmpty)) {
-            return 'Quantity is required';
-          }
+          if (required && (v == null || v.trim().isEmpty)) return 'Quantity is required';
           if (v == null || v.trim().isEmpty) return null;
           final parsed = int.tryParse(v.trim());
           if (parsed == null) return 'Enter a valid whole number';
           if (parsed < 0) return 'Quantity cannot be negative';
-          if (parsed > InventoryItem.maxQuantity) {
-            return 'Quantity cannot exceed ${InventoryItem.maxQuantity}';
-          }
+          if (parsed > InventoryItem.maxQuantity) return 'Quantity cannot exceed ${InventoryItem.maxQuantity}';
           return null;
         },
       ),
@@ -521,6 +528,7 @@ class _AddItemFormState extends State<_AddItemForm> {
     TextInputType? keyboardType,
     TextCapitalization textCapitalization = TextCapitalization.none,
     bool autofocus = false,
+    bool enabled = true,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -530,6 +538,7 @@ class _AddItemFormState extends State<_AddItemForm> {
         keyboardType: keyboardType,
         textCapitalization: textCapitalization,
         autofocus: autofocus,
+        enabled: enabled,
         decoration: InputDecoration(
           labelText: required ? '$label *' : label,
           hintText: hint,
@@ -538,14 +547,7 @@ class _AddItemFormState extends State<_AddItemForm> {
           filled: true,
           errorStyle: const TextStyle(fontSize: 12),
         ),
-        validator: required
-            ? (v) {
-                if (v == null || v.trim().isEmpty) {
-                  return '$label is required';
-                }
-                return null;
-              }
-            : null,
+        validator: required ? (v) => (v == null || v.trim().isEmpty) ? '$label is required' : null : null,
       ),
     );
   }
@@ -556,50 +558,43 @@ class _AddItemFormState extends State<_AddItemForm> {
     required DateTime? value,
     required Function(DateTime) onPicked,
     required VoidCallback onClear,
+    bool enabled = true,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: FormField<DateTime?>(
         initialValue: value,
-        validator: required
-            ? (v) => v == null ? '$label is required' : null
-            : null,
+        validator: required ? (v) => v == null ? '$label is required' : null : null,
         builder: (formFieldState) => InkWell(
-          onTap: () async {
-            try {
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: value ?? DateTime.now(),
-                firstDate: DateTime(2000),
-                lastDate: DateTime(2100),
-                helpText: 'Select $label',
-                cancelText: 'Cancel',
-                confirmText: 'OK',
-              );
-              if (picked != null && mounted) {
-                onPicked(picked);
-                formFieldState.didChange(picked);
-              }
-            } catch (e) {
-              debugPrint('Date picker error: $e');
-            }
-          },
+          onTap: enabled
+              ? () async {
+                  try {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: value ?? DateTime.now(),
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime(2100),
+                      helpText: 'Select $label',
+                      cancelText: 'Cancel',
+                      confirmText: 'OK',
+                    );
+                    if (picked != null && mounted) {
+                      onPicked(picked);
+                      formFieldState.didChange(picked);
+                    }
+                  } catch (e) {
+                    debugPrint('Date picker error: $e');
+                  }
+                }
+              : null,
           child: InputDecorator(
             decoration: InputDecoration(
               labelText: required ? '$label *' : label,
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
               filled: true,
               prefixIcon: const Icon(Icons.calendar_today, size: 18),
-              suffixIcon: value != null
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, size: 18),
-                      tooltip: 'Clear date',
-                      onPressed: () {
-                        onClear();
-                        formFieldState.didChange(null);
-                      },
-                    )
+              suffixIcon: value != null && enabled
+                  ? IconButton(icon: const Icon(Icons.clear, size: 18), tooltip: 'Clear date', onPressed: () { onClear(); formFieldState.didChange(null); })
                   : null,
               errorText: formFieldState.errorText,
             ),
@@ -607,10 +602,7 @@ class _AddItemFormState extends State<_AddItemForm> {
               value != null
                   ? '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}'
                   : 'Select date',
-              style: TextStyle(
-                color: value != null ? null : Colors.grey,
-                fontSize: 16,
-              ),
+              style: TextStyle(color: value != null ? null : Colors.grey, fontSize: 16),
             ),
           ),
         ),
@@ -618,12 +610,13 @@ class _AddItemFormState extends State<_AddItemForm> {
     );
   }
 
-  List<Widget> _buildCustomFields() {
+  List<Widget> _buildCustomFields({bool enabled = true}) {
     return _customFieldControllers.entries.map((entry) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: TextFormField(
           controller: entry.value,
+          enabled: enabled,
           decoration: InputDecoration(
             labelText: entry.key,
             hintText: 'Enter ${entry.key}',
@@ -639,13 +632,9 @@ class _AddItemFormState extends State<_AddItemForm> {
 
   Future<void> _submit() async {
     FocusScope.of(context).unfocus();
-
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() {
-      _saving = true;
-      _errorMessage = null;
-    });
+    setState(() { _saving = true; _errorMessage = null; });
 
     try {
       final customFields = <String, String>{};
@@ -660,34 +649,24 @@ class _AddItemFormState extends State<_AddItemForm> {
       final now = DateTime.now();
 
       if (isEditing) {
-        // Update existing item
         final oldItem = widget.existingItem!;
         final oldValues = _captureOldValues(oldItem);
 
         oldItem.name = _nameController.text.trim();
-        oldItem.code =
-            _isFieldEnabled('Code') ? _codeController.text.trim() : '';
-        oldItem.barcode =
-            _isFieldEnabled('Barcode') ? _barcodeController.text.trim() : '';
-        oldItem.color =
-            _isFieldEnabled('Color') ? _colorController.text.trim() : '';
-        oldItem.material =
-            _isFieldEnabled('Material') ? _materialController.text.trim() : '';
-        oldItem.size =
-            _isFieldEnabled('Size') ? _sizeController.text.trim() : '';
-        oldItem.productionDate =
-            _isFieldEnabled('Production Date') ? _productionDate : null;
-        oldItem.expireDate =
-            _isFieldEnabled('Expire Date') ? _expireDate : null;
-        oldItem.note =
-            _isFieldEnabled('Note') ? _noteController.text.trim() : '';
-        oldItem.quantity =
-            int.tryParse(_quantityController.text.trim()) ?? 0;
+        oldItem.code = _isFieldEnabled('Code') ? _codeController.text.trim() : '';
+        oldItem.barcode = _isFieldEnabled('Barcode') ? _barcodeController.text.trim() : '';
+        oldItem.color = _isFieldEnabled('Color') ? _colorController.text.trim() : '';
+        oldItem.material = _isFieldEnabled('Material') ? _materialController.text.trim() : '';
+        oldItem.size = _isFieldEnabled('Size') ? _sizeController.text.trim() : '';
+        oldItem.productionDate = _isFieldEnabled('Production Date') ? _productionDate : null;
+        oldItem.expireDate = _isFieldEnabled('Expire Date') ? _expireDate : null;
+        oldItem.note = _isFieldEnabled('Note') ? _noteController.text.trim() : '';
+        oldItem.quantity = int.tryParse(_quantityController.text.trim()) ?? 0;
         oldItem.label = widget.label;
         oldItem.customFields = customFields;
         oldItem.modified = now;
-        oldItem.modifiedBy = userId;
-        oldItem.modifiedByName = userName;
+        oldItem.updatedBy = userId;
+        oldItem.updatedByName = userName;
         await oldItem.save();
 
         final changes = _detectChanges(oldValues, oldItem, customFields);
@@ -701,29 +680,20 @@ class _AddItemFormState extends State<_AddItemForm> {
             inventoryId: widget.inventoryId,
             inventoryName: widget.inventoryName,
             labelName: widget.label,
-            details:
-                'Item modified by $userName: "${oldItem.displayName}"',
+            details: 'Item modified by $userName: "${oldItem.displayName}" (update #${oldItem.updateCount + 1})',
             changes: changes,
           ));
         }
       } else {
-        // Create new item
         final item = InventoryItem(
           name: _nameController.text.trim(),
           code: _isFieldEnabled('Code') ? _codeController.text.trim() : '',
-          barcode: _isFieldEnabled('Barcode')
-              ? _barcodeController.text.trim()
-              : '',
-          color:
-              _isFieldEnabled('Color') ? _colorController.text.trim() : '',
-          material: _isFieldEnabled('Material')
-              ? _materialController.text.trim()
-              : '',
+          barcode: _isFieldEnabled('Barcode') ? _barcodeController.text.trim() : '',
+          color: _isFieldEnabled('Color') ? _colorController.text.trim() : '',
+          material: _isFieldEnabled('Material') ? _materialController.text.trim() : '',
           size: _isFieldEnabled('Size') ? _sizeController.text.trim() : '',
-          productionDate:
-              _isFieldEnabled('Production Date') ? _productionDate : null,
-          expireDate:
-              _isFieldEnabled('Expire Date') ? _expireDate : null,
+          productionDate: _isFieldEnabled('Production Date') ? _productionDate : null,
+          expireDate: _isFieldEnabled('Expire Date') ? _expireDate : null,
           note: _isFieldEnabled('Note') ? _noteController.text.trim() : '',
           quantity: int.tryParse(_quantityController.text.trim()) ?? 0,
           label: widget.label,
@@ -745,26 +715,20 @@ class _AddItemFormState extends State<_AddItemForm> {
           inventoryId: widget.inventoryId,
           inventoryName: widget.inventoryName,
           labelName: widget.label,
-          details:
-              'Item created by $userName: "${item.displayName}" with quantity ${item.quantity}',
+          details: 'Item created by $userName: "${item.displayName}" with quantity ${item.quantity}',
         ));
       }
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _saving = false;
-          _errorMessage = 'Error saving item: ${e.toString()}';
-        });
-
+        setState(() { _saving = false; _errorMessage = 'Error saving item: ${e.toString()}'; });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error saving item: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(40)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
             margin: const EdgeInsets.all(20),
           ),
         );
@@ -773,58 +737,39 @@ class _AddItemFormState extends State<_AddItemForm> {
   }
 
   Map<String, String> _captureOldValues(InventoryItem item) {
-    final values = <String, String>{
-      'name': item.name,
-      'code': item.code,
-      'barcode': item.barcode,
-      'color': item.color,
-      'material': item.material,
-      'size': item.size,
+    return {
+      'name': item.name, 'code': item.code, 'barcode': item.barcode,
+      'color': item.color, 'material': item.material, 'size': item.size,
       'productionDate': item.productionDate?.toIso8601String() ?? '',
       'expireDate': item.expireDate?.toIso8601String() ?? '',
-      'note': item.note,
-      'quantity': item.quantity.toString(),
-      'label': item.label,
+      'note': item.note, 'quantity': item.quantity.toString(), 'label': item.label,
+      ...item.customFields,
     };
-    for (final entry in item.customFields.entries) {
-      values[entry.key] = entry.value;
-    }
-    return values;
   }
 
   Map<String, FieldChange> _detectChanges(
-    Map<String, String> oldValues,
-    InventoryItem newItem,
-    Map<String, String> newCustomFields,
+    Map<String, String> oldValues, InventoryItem newItem, Map<String, String> newCustomFields,
   ) {
     final changes = <String, FieldChange>{};
-
     void compare(String key, String newValue) {
       if (oldValues[key] != newValue) {
-        changes[key] = FieldChange(
-          oldValue: oldValues[key] ?? '',
-          newValue: newValue,
-        );
+        changes[key] = FieldChange(oldValue: oldValues[key] ?? '', newValue: newValue);
       }
     }
-
     compare('name', newItem.name);
     compare('code', newItem.code);
     compare('barcode', newItem.barcode);
     compare('color', newItem.color);
     compare('material', newItem.material);
     compare('size', newItem.size);
-    compare('productionDate',
-        newItem.productionDate?.toIso8601String() ?? '');
+    compare('productionDate', newItem.productionDate?.toIso8601String() ?? '');
     compare('expireDate', newItem.expireDate?.toIso8601String() ?? '');
     compare('note', newItem.note);
     compare('quantity', newItem.quantity.toString());
     compare('label', newItem.label);
-
     for (final entry in newCustomFields.entries) {
       compare(entry.key, entry.value);
     }
-
     return changes;
   }
 }

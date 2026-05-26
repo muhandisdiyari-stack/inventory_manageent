@@ -145,9 +145,9 @@ class _SplashScreenState extends State<SplashScreen>
                           position: _slideAnimation,
                           child: FadeTransition(
                             opacity: _fadeAnimation,
-                            child: Text(
+                            child: const Text(
                               AppConfig.appName,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 36,
                                 fontWeight: FontWeight.bold,

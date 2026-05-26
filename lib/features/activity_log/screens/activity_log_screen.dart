@@ -66,7 +66,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                 IconButton(
                   icon: const Icon(Icons.download),
                   tooltip: 'Export Log',
-                  onPressed: () => _exportLogs(context),
+                  onPressed: _exportLogs,
                 ),
               ],
             ),
@@ -254,6 +254,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
       default:
         icon = Icons.info;
         color = Colors.blue;
+        break;
     }
 
     return Card(
@@ -351,32 +352,31 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
         '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
   }
 
-Future<void> _exportLogs(BuildContext context) async {
-  final result = await showDialog<String>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text('Export Activity Log'),
-      content: const Text('Download the activity log as a text file?'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () {
-            Navigator.pop(ctx, 'download');
-          },
-          child: const Text('Download'),
-        ),
-      ],
-    ),
-  );
+  // No longer takes BuildContext as a parameter — uses this.context directly
+  // so the `mounted` check on State satisfies the linter.
+  Future<void> _exportLogs() async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Export Activity Log'),
+        content: const Text('Download the activity log as a text file?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, 'download'),
+            child: const Text('Download'),
+          ),
+        ],
+      ),
+    );
 
-  // 🔑 FIX: Check mounted before using context
-  if (result == 'download' && mounted) {
-    context.read<ActivityLogBloc>().add(const ExportActivityLogs());
+    if (result == 'download' && mounted) {
+      context.read<ActivityLogBloc>().add(const ExportActivityLogs());
+    }
   }
-}
 }
 
 extension StringExtension on String {

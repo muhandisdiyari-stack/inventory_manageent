@@ -13,7 +13,11 @@ class _CompaniesManagementState extends State<CompaniesManagement> {
   @override
   void initState() {
     super.initState();
-    context.read<AdminBloc>().add(const LoadAdminCompanies());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AdminBloc>().add(const LoadAdminCompanies());
+      }
+    });
   }
 
   String _formatDate(String? raw) {

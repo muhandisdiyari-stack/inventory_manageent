@@ -22,88 +22,56 @@ class _ReportsScreenState extends State<ReportsScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ReportsBloc>().add(const InitializeReportFields());
-      final inventoryState = context.read<InventoryBloc>().state;
-
-      final settings = inventoryState.settings;
-      if (settings != null && settings.customFieldNames.isNotEmpty) {
-        context.read<ReportsBloc>().add(
-              UpdateAvailableFields(
-                customFieldNames: settings.customFieldNames,
-              ),
-            );
-      }
-
-      if (inventoryState.inventoryId != null) {
-        context.read<InventoryBloc>().add(
-              LoadAllItems(inventoryState.inventoryId!),
-            );
+      if (mounted) {
+        context.read<ReportsBloc>().add(const InitializeReportFields());
+        final inventoryState = context.read<InventoryBloc>().state;
+        final settings = inventoryState.settings;
+        if (settings != null && settings.customFieldNames.isNotEmpty) {
+          context.read<ReportsBloc>().add(UpdateAvailableFields(customFieldNames: settings.customFieldNames));
+        }
+        if (inventoryState.inventoryId != null) {
+          context.read<InventoryBloc>().add(LoadAllItems(inventoryState.inventoryId!));
+        }
       }
     });
   }
 
   List<InventoryItem> _getAllItems(InventoryState state) {
-    if (state.allItems.isNotEmpty) {
-      return state.allItems;
-    }
-
+    if (state.allItems.isNotEmpty) return state.allItems;
     final allItems = <InventoryItem>[];
     allItems.addAll(state.currentItems);
-
-    final searchResults = state.searchResults;
-    for (final result in searchResults) {
+    for (final result in state.searchResults) {
       final item = result['item'];
-      if (item is InventoryItem && !allItems.contains(item)) {
-        allItems.add(item);
-      }
+      if (item is InventoryItem && !allItems.contains(item)) allItems.add(item);
     }
-
     return allItems;
   }
 
-  void _previewReport(
-      InventoryState inventoryState, ReportsState reportsState) {
+  void _previewReport(InventoryState inventoryState, ReportsState reportsState) {
     final allItems = _getAllItems(inventoryState);
-    context.read<ReportsBloc>().add(PreviewReport(
-          allItems: allItems,
-          inventoryName: inventoryState.inventoryName ?? 'Unknown',
-        ));
+    context.read<ReportsBloc>().add(PreviewReport(allItems: allItems, inventoryName: inventoryState.inventoryName ?? 'Unknown'));
   }
 
-  void _generateAndSaveReport(
-      InventoryState inventoryState, ReportsState reportsState) {
+  void _generateAndSaveReport(InventoryState inventoryState, ReportsState reportsState) {
     final allItems = _getAllItems(inventoryState);
-    context.read<ReportsBloc>().add(GenerateReport(
-          allItems: allItems,
-          settings: inventoryState.settings,
-          inventoryName: inventoryState.inventoryName ?? 'Unknown',
-        ));
+    context.read<ReportsBloc>().add(GenerateReport(allItems: allItems, settings: inventoryState.settings, inventoryName: inventoryState.inventoryName ?? 'Unknown'));
   }
 
-  void _downloadAgain() {
-    context.read<ReportsBloc>().add(const DownloadAgain());
-  }
+  void _downloadAgain() { context.read<ReportsBloc>().add(const DownloadAgain()); }
+  void _copyToClipboard() { context.read<ReportsBloc>().add(const CopyToClipboard()); }
 
-  void _copyToClipboard() {
-    context.read<ReportsBloc>().add(const CopyToClipboard());
-  }
-
-  void _showSnackBar(String message,
-      {int duration = 3, bool isError = false}) {
+  void _showSnackBar(String message, {int duration = 3, bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: isError ? Colors.red : null,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(40)),
-          margin: const EdgeInsets.all(20),
-          duration: Duration(seconds: duration),
-        ),
-      );
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red : null,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
+        margin: const EdgeInsets.all(20),
+        duration: Duration(seconds: duration),
+      ));
   }
 
   @override
@@ -115,166 +83,68 @@ class _ReportsScreenState extends State<ReportsScreen> {
         return BlocListener<ReportsBloc, ReportsState>(
           listener: (context, reportsState) {
             if (reportsState.successMessage != null) {
+              if (!mounted) return;
               _showSnackBar(reportsState.successMessage!);
-              context
-                  .read<ReportsBloc>()
-                  .add(const ClearReportMessages());
+              context.read<ReportsBloc>().add(const ClearReportMessages());
             }
-            if (reportsState.error != null &&
-                reportsState.generatedCsv == null &&
-                reportsState.previewData == null) {
+            if (reportsState.error != null && reportsState.generatedCsv == null && reportsState.previewData == null) {
+              if (!mounted) return;
               _showSnackBar(reportsState.error!, isError: true);
-              context
-                  .read<ReportsBloc>()
-                  .add(const ClearReportMessages());
+              context.read<ReportsBloc>().add(const ClearReportMessages());
             }
           },
-          child:
-              BlocBuilder<ReportsBloc, ReportsState>(
+          child: BlocBuilder<ReportsBloc, ReportsState>(
             builder: (context, reportsState) {
               if (reportsState.isGenerating) {
                 return Scaffold(
                   appBar: AppBar(
-                    title: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Generate Report',
-                            style: TextStyle(fontSize: 16)),
-                        Text(
-                          inventoryName,
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .primary),
-                        ),
-                      ],
-                    ),
+                    title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('Generate Report', style: TextStyle(fontSize: 16)),
+                      Text(inventoryName, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.primary)),
+                    ]),
                   ),
-                  body: ProgressView(
-                    progress: reportsState.progress,
-                    statusMessage: reportsState.statusMessage,
-                  ),
+                  body: ProgressView(progress: reportsState.progress, statusMessage: reportsState.statusMessage),
                 );
               }
 
               return Scaffold(
                 appBar: AppBar(
-                  title: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Generate Report',
-                          style: TextStyle(fontSize: 16)),
-                      Text(
-                        inventoryName,
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary),
-                      ),
-                    ],
-                  ),
+                  title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Generate Report', style: TextStyle(fontSize: 16)),
+                    Text(inventoryName, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.primary)),
+                  ]),
                 ),
                 body: ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    if (reportsState.error != null &&
-                        reportsState.generatedCsv == null)
+                    if (reportsState.error != null && reportsState.generatedCsv == null)
                       Container(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                              color:
-                                  Colors.red.withValues(alpha: 0.3)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.error_outline,
-                                color: Colors.red, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(reportsState.error!,
-                                  style: const TextStyle(
-                                      color: Colors.red,
-                                      fontSize: 13)),
-                            ),
-                          ],
-                        ),
+                        margin: const EdgeInsets.only(bottom: 16), padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.red.withValues(alpha: 0.3))),
+                        child: Row(children: [
+                          const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(reportsState.error!, style: const TextStyle(color: Colors.red, fontSize: 13))),
+                        ]),
                       ),
-
-                    ReportTypeCard(
-                      selectedType: reportsState.reportType,
-                      onTypeChanged: (type) => context
-                          .read<ReportsBloc>()
-                          .add(SetReportType(type)),
-                    ),
+                    ReportTypeCard(selectedType: reportsState.reportType, onTypeChanged: (type) => context.read<ReportsBloc>().add(SetReportType(type))),
                     const SizedBox(height: 16),
-
                     FieldSelectorCard(
-                      availableFields:
-                          reportsState.availableFields,
-                      selectedFields:
-                          reportsState.selectedFields,
-                      onSelectionChanged: () {
-                        context
-                            .read<ReportsBloc>()
-                            .add(const ClearReportMessages());
-                      },
-                      onToggleField: (fieldName) {
-                        context
-                            .read<ReportsBloc>()
-                            .add(ToggleField(fieldName));
-                      },
-                      onResetFields: () {
-                        context
-                            .read<ReportsBloc>()
-                            .add(const ResetFields());
-                      },
-                      onSelectAllFields: () {
-                        context
-                            .read<ReportsBloc>()
-                            .add(const SelectAllFields());
-                      },
+                      availableFields: reportsState.availableFields, selectedFields: reportsState.selectedFields,
+                      onSelectionChanged: () => context.read<ReportsBloc>().add(const ClearReportMessages()),
+                      onToggleField: (fieldName) => context.read<ReportsBloc>().add(ToggleField(fieldName)),
+                      onResetFields: () => context.read<ReportsBloc>().add(const ResetFields()),
+                      onSelectAllFields: () => context.read<ReportsBloc>().add(const SelectAllFields()),
                     ),
                     const SizedBox(height: 24),
-
-                    ActionButtons(
-                      hasSelection:
-                          reportsState.selectedFields.isNotEmpty,
-                      onPreview: () => _previewReport(
-                          inventoryState, reportsState),
-                      onDownload: () => _generateAndSaveReport(
-                          inventoryState, reportsState),
-                    ),
-
+                    ActionButtons(hasSelection: reportsState.selectedFields.isNotEmpty, onPreview: () => _previewReport(inventoryState, reportsState), onDownload: () => _generateAndSaveReport(inventoryState, reportsState)),
                     if (reportsState.generatedCsv != null) ...[
                       const SizedBox(height: 16),
-                      GeneratedReportCard(
-                        fileName: reportsState.fileName,
-                        totalItems: reportsState.totalItems,
-                        csvData: reportsState.generatedCsv,
-                        onDownloadAgain: _downloadAgain,
-                        onCopyToClipboard: _copyToClipboard,
-                        csvService: null,
-                      ),
+                      GeneratedReportCard(fileName: reportsState.fileName, totalItems: reportsState.totalItems, csvData: reportsState.generatedCsv, onDownloadAgain: _downloadAgain, onCopyToClipboard: _copyToClipboard, csvService: null),
                     ],
-
-                    if (reportsState.previewData != null &&
-                        reportsState.previewData!.isNotEmpty) ...[
+                    if (reportsState.previewData != null && reportsState.previewData!.isNotEmpty) ...[
                       const SizedBox(height: 16),
-                      PreviewCard(
-                        previewData: reportsState.previewData!,
-                        totalItems: reportsState.totalItems,
-                        onClear: () {
-                          context
-                              .read<ReportsBloc>()
-                              .add(const ClearReportMessages());
-                        },
-                      ),
+                      PreviewCard(previewData: reportsState.previewData!, totalItems: reportsState.totalItems, onClear: () => context.read<ReportsBloc>().add(const ClearReportMessages())),
                     ],
                   ],
                 ),

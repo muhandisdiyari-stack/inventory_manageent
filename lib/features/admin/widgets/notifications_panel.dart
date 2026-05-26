@@ -13,7 +13,11 @@ class _NotificationsPanelState extends State<NotificationsPanel> {
   @override
   void initState() {
     super.initState();
-    context.read<AdminBloc>().add(const LoadNotifications());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AdminBloc>().add(const LoadNotifications());
+      }
+    });
   }
 
   IconData _getTypeIcon(String type) {
@@ -80,13 +84,14 @@ class _NotificationsPanelState extends State<NotificationsPanel> {
 
                             return Card(
                               margin: const EdgeInsets.only(bottom: 8),
-                              color: isRead ? null : Colors.blue.withOpacity(0.07),
+                              color: isRead ? null : Colors.blue.withValues(alpha: 0.07),
                               child: ListTile(
                                 leading: CircleAvatar(
-                                  backgroundColor: color.withOpacity(0.12),
+                                  backgroundColor: color.withValues(alpha: 0.12),
                                   child: Icon(_getTypeIcon(type), color: color, size: 20),
                                 ),
-                                title: Text(title, style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.w600)),
+                                title: Text(title,
+                                    style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.w600)),
                                 subtitle: Text(message, maxLines: 2, overflow: TextOverflow.ellipsis),
                                 trailing: isRead
                                     ? null
