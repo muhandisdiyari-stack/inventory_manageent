@@ -198,77 +198,93 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  void _showCreateUserDialog() {
-    final emailController = TextEditingController();
-    final passwordController = TextEditingController();
-    final nameController = TextEditingController();
-    String selectedRole = 'data_operator';
-    final formKey = GlobalKey<FormState>();
+void _showCreateUserDialog() {
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+  final nameController = TextEditingController();
+  String selectedRole = 'data_operator';
+  final formKey = GlobalKey<FormState>();
 
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Row(children: [
-            Icon(Icons.person_add), SizedBox(width: 8), Text('Create New User'),
-          ]),
-          content: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                TextFormField(
-                  controller: nameController,
-                  decoration: const InputDecoration(labelText: 'Display Name', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person)),
-                  validator: (v) => v?.isEmpty == true ? 'Required' : null,
+  showDialog(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setDialogState) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.person_add), SizedBox(width: 8), Text('Create New User'),
+        ]),
+        content: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Display Name',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.person),
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder(), prefixIcon: Icon(Icons.email)),
-                  validator: (v) => !(v?.contains('@') == true) ? 'Valid email required' : null,
+                validator: (v) => v?.isEmpty == true ? 'Required' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.email),
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder(), prefixIcon: Icon(Icons.lock), helperText: 'Min 8 characters'),
-                  validator: (v) => (v?.length ?? 0) < 8 ? 'Min 8 characters' : null,
+                validator: (v) => !(v?.contains('@') == true) ? 'Valid email required' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: passwordController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Password',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock),
+                  helperText: 'Min 8 characters',
                 ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: selectedRole,
-                  decoration: const InputDecoration(labelText: 'Role', border: OutlineInputBorder()),
-                  items: const [
-                    DropdownMenuItem(value: 'data_operator', child: Text('Data Operator')),
-                    DropdownMenuItem(value: 'admin', child: Text('Admin')),
-                    DropdownMenuItem(value: 'viewer', child: Text('Viewer')),
-                    DropdownMenuItem(value: 'owner', child: Text('Owner')),
-                  ],
-                  onChanged: (v) => setDialogState(() => selectedRole = v!),
+                validator: (v) => (v?.length ?? 0) < 8 ? 'Min 8 characters' : null,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: selectedRole,  // ✅ FIXED: use 'value' not 'initialValue'
+                decoration: const InputDecoration(
+                  labelText: 'Role',
+                  border: OutlineInputBorder(),
                 ),
-              ]),
-            ),
+                items: const [
+                  DropdownMenuItem(value: 'data_operator', child: Text('Data Operator')),
+                  DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                  DropdownMenuItem(value: 'viewer', child: Text('Viewer')),
+                  DropdownMenuItem(value: 'owner', child: Text('Owner')),
+                ],
+                onChanged: (v) => setDialogState(() => selectedRole = v!),
+              ),
+            ]),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            FilledButton.icon(
-              onPressed: () {
-                if (!formKey.currentState!.validate()) return;
-                Navigator.pop(ctx);
-                context.read<AdminBloc>().add(CreateAdminUser(
-                  email: emailController.text.trim(),
-                  password: passwordController.text,
-                  displayName: nameController.text.trim(),
-                  role: selectedRole,
-                ));
-              },
-              icon: const Icon(Icons.check),
-              label: const Text('Create'),
-            ),
-          ],
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton.icon(
+            onPressed: () {
+              if (!formKey.currentState!.validate()) return;
+              Navigator.pop(ctx);
+              context.read<AdminBloc>().add(CreateAdminUser(
+                email: emailController.text.trim(),
+                password: passwordController.text,
+                displayName: nameController.text.trim(),
+                role: selectedRole,
+              ));
+            },
+            icon: const Icon(Icons.check),
+            label: const Text('Create'),
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 }
