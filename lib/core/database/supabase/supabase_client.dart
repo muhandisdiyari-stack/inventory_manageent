@@ -3,21 +3,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/app_config.dart';
 
 /// Returns the correct redirect URL for email confirmation based on platform.
-///
-/// - Web:             uses the browser's current origin  → "https://yourapp.com/auth/callback"
-/// - Android/iOS:     custom URI scheme                  → "inventory://auth/callback"
-/// - Windows/macOS/Linux: custom URI scheme              → "inventory://auth/callback"
-///
-/// This value must be added to Supabase Dashboard → Authentication → URL Configuration
-/// → Redirect URLs.  The Site URL should be set to your web domain (or
-/// http://localhost:3000 for local dev).
 String _getEmailRedirectTo() {
   if (kIsWeb) {
     final origin = Uri.base.origin;
     final path = Uri.base.path;
-
-    // GitHub Pages (or any subdirectory host): preserve the base path
-    // so the redirect lands back inside the app, not at the domain root.
     if (path.length > 1) {
       return '$origin$path#/auth/callback';
     }
@@ -27,10 +16,6 @@ String _getEmailRedirectTo() {
 }
 
 /// Centralized Supabase client service.
-///
-/// Provides safe access to the Supabase client with proper initialization
-/// handling. Uses nullable `_client` instead of `late final` to prevent
-/// LateInitializationError when initialization fails.
 class SupabaseClientService {
   SupabaseClient? _client;
   bool _isInitialized = false;
@@ -65,8 +50,7 @@ class SupabaseClientService {
     }
   }
 
-  /// Returns the Supabase client.
-  /// Throws [SupabaseNotInitializedException] if not initialized.
+  /// Returns the Supabase client. Throws if not initialized.
   SupabaseClient get client {
     if (!_isInitialized || _client == null) {
       throw SupabaseNotInitializedException(
@@ -75,7 +59,7 @@ class SupabaseClientService {
     return _client!;
   }
 
-  /// Safe client access — returns null if not initialized instead of throwing.
+  /// Safe client access — returns null if not initialized.
   SupabaseClient? get safeClient =>
       (_isInitialized && _client != null) ? _client : null;
 
@@ -89,7 +73,7 @@ class SupabaseClientService {
       try {
         await _client!.auth.refreshSession();
       } catch (_) {
-        return null; // Session expired
+        return null;
       }
       return {
         'id': user.id,
@@ -112,7 +96,7 @@ class SupabaseClientService {
       final user = response.user;
       if (user == null) return null;
 
-      // Retry with exponential backoff — profile row may not exist yet
+      // Retry with exponential backoff for profile
       Map<String, dynamic>? profileData;
       int retries = 0;
       const maxRetries = 3;
@@ -147,7 +131,7 @@ class SupabaseClientService {
         'email': user.email,
         'display_name':
             profileData['display_name'] ?? user.userMetadata?['display_name'],
-        'role': profileData['role'] ?? 'staff',
+        'role': profileData['role'] ?? 'viewer',
         'company_id': profileData['company_id'],
         'is_approved': profileData['is_approved'] ?? false,
         'email_confirmed': user.emailConfirmedAt != null,
@@ -207,13 +191,49 @@ class SupabaseClientService {
     }
   }
 
+  /// Verifies the current session is valid.
+  /// Returns false only if definitively signed out, true otherwise.
   Future<bool> verifySession() async {
     if (!isConfigured) return false;
+
     try {
-      await _client!.auth.refreshSession();
-      return _client!.auth.currentSession != null;
+      // Check if there's an existing session without refreshing
+      final currentSession = _client!.auth.currentSession;
+      if (currentSession == null) {
+        debugPrint('🔍 verifySession: No current session');
+        return false;
+      }
+
+      // Check if session is still valid (not expired)
+      final expiresAt = currentSession.expiresAt;
+      final nowInSeconds =
+          DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+
+      if (expiresAt != null && expiresAt > nowInSeconds) {
+        // Session still valid, no need to refresh
+        debugPrint('🔍 verifySession: Session valid until ${DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000)}');
+        return true;
+      }
+
+      // Session expired or about to expire, try to refresh
+      debugPrint('🔍 verifySession: Session expired, attempting refresh...');
+      try {
+        await _client!.auth.refreshSession();
+        final newSession = _client!.auth.currentSession;
+        debugPrint('🔍 verifySession: Refresh ${newSession != null ? 'successful' : 'failed'}');
+        return newSession != null;
+      } catch (refreshError) {
+        debugPrint('🔍 verifySession: Refresh error: $refreshError');
+        // Check if there's still a current session despite refresh error
+        return _client!.auth.currentSession != null;
+      }
     } catch (e) {
-      return false;
+      debugPrint('🔍 verifySession: Unexpected error: $e');
+      try {
+        return _client!.auth.currentSession != null;
+      } catch (_) {
+        return false;
+      }
     }
   }
 
@@ -254,30 +274,7 @@ class SupabaseClientService {
       return result is Map && result['success'] == true;
     } catch (e) {
       debugPrint('Delete company error: $e');
-      try {
-        await _client!
-            .from('inventory_items')
-            .delete()
-            .eq('company_id', companyId);
-        await _client!.from('labels').delete().eq('company_id', companyId);
-        await _client!
-            .from('invitations')
-            .delete()
-            .eq('company_id', companyId);
-        await _client!
-            .from('inventory_members')
-            .delete()
-            .eq('company_id', companyId);
-        await _client!
-            .from('company_members')
-            .delete()
-            .eq('company_id', companyId);
-        await _client!.from('companies').delete().eq('id', companyId);
-        return true;
-      } catch (e2) {
-        debugPrint('Fallback delete company error: $e2');
-        return false;
-      }
+      return false;
     }
   }
 
@@ -317,49 +314,12 @@ class SupabaseClientService {
     if (!isConfigured) return [];
     try {
       final data = await _client!.rpc('get_user_companies');
-
       if (data is List) {
         return data
             .map((item) => Map<String, dynamic>.from(item as Map))
             .toList();
       }
-
-      final user = _client!.auth.currentUser;
-      if (user == null) return [];
-
-      final memberships = await _client!
-          .from('company_members')
-          .select('company_id, role, joined_at')
-          .eq('user_id', user.id)
-          .not('joined_at', 'is', null);
-
-      if (memberships.isEmpty) return [];
-
-      final companyIds = memberships
-          .map((m) => m['company_id'] as String)
-          .where((id) => id.isNotEmpty)
-          .toList();
-
-      if (companyIds.isEmpty) return [];
-
-      final companiesData = await _client!
-          .from('companies')
-          .select()
-          .inFilter('id', companyIds);
-
-      final membershipMap = <String, Map<String, dynamic>>{};
-      for (final m in memberships) {
-        membershipMap[m['company_id'] as String] = m;
-      }
-
-      return companiesData
-          .map((c) => {
-                'id': c['id'],
-                'name': c['name'],
-                'role': membershipMap[c['id']]?['role'] ?? 'staff',
-                'joined_at': membershipMap[c['id']]?['joined_at'],
-              })
-          .toList();
+      return [];
     } catch (e) {
       debugPrint('Get user companies error: $e');
       return [];

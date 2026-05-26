@@ -1,18 +1,17 @@
-﻿// ignore_for_file: unused_field
-
+﻿import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../database/supabase/supabase_client.dart';
 import '../models/user.dart';
 import '../config/app_config.dart';
 
-/// Result class for registration operations.
 class RegistrationResult {
   final bool success;
   final bool requiresEmailConfirmation;
   final String? email;
   final String? error;
 
-  RegistrationResult({
+  const RegistrationResult({
     required this.success,
     this.requiresEmailConfirmation = false,
     this.email,
@@ -35,10 +34,22 @@ class AuthService {
   bool get isEmailConfirmed => _emailConfirmed;
   bool get requiresAuth => AppConfig.requiresAuth;
 
+  // ─── Setters for AuthBloc access ─────────────────────────────
+
+  set currentUser(User? user) {
+    _currentUser = user;
+  }
+
+  set isAuthenticatedValue(bool value) {
+    _isAuthenticated = value;
+  }
+
   // ─── Initialize ───────────────────────────────────────────────
 
   Future<void> initialize() async {
-    // Development offline mode — skip auth entirely.
+    debugPrint('🔍 AuthService.initialize() called');
+
+    // Development offline mode — skip auth entirely
     if (!requiresAuth && AppConfig.isDevelopment) {
       _currentUser = User(
         id: 'local_user',
@@ -50,11 +61,13 @@ class AuthService {
       );
       _isAuthenticated = true;
       _emailConfirmed = true;
+      debugPrint('🔍 AuthService: Development offline mode - authenticated');
       return;
     }
 
     if (!requiresAuth) {
       _isAuthenticated = false;
+      debugPrint('🔍 AuthService: Auth not required');
       return;
     }
 
@@ -68,22 +81,32 @@ class AuthService {
         _emailConfirmed =
             authBox.get('email_confirmed', defaultValue: false) as bool? ??
                 false;
+        debugPrint('🔍 AuthService: Found cached user: ${_currentUser?.email}');
 
-        // Verify the Supabase session is still valid.
-        try {
-          final isValid = await _supabaseClient.verifySession();
-          if (!isValid) {
-            await _clearCache();
-            _isAuthenticated = false;
-          } else {
+        // Verify the Supabase session is still valid
+        if (AppConfig.useSupabase) {
+          try {
+            final isValid = await _supabaseClient.verifySession();
+            if (!isValid) {
+              debugPrint('⚠️ AuthService: Session invalid, will show login');
+              _isAuthenticated = false;
+            } else {
+              debugPrint('✅ AuthService: Session valid');
+              _isAuthenticated = true;
+            }
+          } catch (e) {
+            debugPrint('⚠️ AuthService: Session verification error: $e');
             _isAuthenticated = true;
           }
-        } catch (_) {
-          // Offline — trust cached session.
+        } else {
           _isAuthenticated = true;
         }
+      } else {
+        debugPrint('🔍 AuthService: No cached user found');
+        _isAuthenticated = false;
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('❌ AuthService.initialize error: $e');
       _isAuthenticated = false;
     }
   }
@@ -101,7 +124,8 @@ class AuthService {
   // ─── Sign In ──────────────────────────────────────────────────
 
   Future<bool> signIn(String email, String password) async {
-    // Offline / no-auth mode.
+    debugPrint('🔍 AuthService.signIn: $email');
+
     if (!requiresAuth) {
       _currentUser = User(
         id: email.hashCode.toString(),
@@ -123,40 +147,36 @@ class AuthService {
         _isAuthenticated = true;
         _emailConfirmed = userData['email_confirmed'] as bool? ?? true;
         await _cacheCurrentUser();
+        debugPrint('✅ AuthService.signIn: Success - ${_currentUser?.email}');
         return true;
       }
+      debugPrint('❌ AuthService.signIn: Failed - no user data');
       return false;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('❌ AuthService.signIn: Exception - $e');
       return false;
     }
   }
 
   // ─── Register ─────────────────────────────────────────────────
 
-  /// ✅ FIX: The [signUp] call in [SupabaseClientService] now passes
-  /// [emailRedirectTo], so the confirmation email contains a valid deep-link
-  /// back into the app.  The logic here correctly reads the
-  /// `email_confirmed` flag returned by [signUp]:
-  ///
-  ///   email_confirmed == false  →  user must click the confirmation link
-  ///                                before they can use the app.
-  ///   email_confirmed == true   →  Supabase email confirmation is disabled;
-  ///                                log the user in immediately.
   Future<RegistrationResult> register(
       String email, String password, String displayName) async {
-    // Offline / no-auth mode.
+    debugPrint('🔍 AuthService.register: $email');
+
     if (!requiresAuth) {
       _currentUser = User(
-  id: email.hashCode.toString(),
-  email: email,
-  role: UserRole.dataOperator,  // FIXED
-  isApproved: true,
-  createdAt: DateTime.now(),
-);
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        email: email,
+        displayName: displayName,
+        role: UserRole.dataOperator,
+        isApproved: false,
+        createdAt: DateTime.now(),
+      );
       _isAuthenticated = true;
       _emailConfirmed = true;
       await _cacheCurrentUser();
-      return RegistrationResult(
+      return const RegistrationResult(
           success: true, requiresEmailConfirmation: false);
     }
 
@@ -165,30 +185,24 @@ class AuthService {
           await _supabaseClient.signUp(email, password, displayName);
 
       if (userData == null) {
-        return RegistrationResult(
+        return const RegistrationResult(
             success: false, error: 'Registration failed. Please try again.');
       }
 
-      // ✅ FIX: supabase_client.dart now sets email_confirmed = !requiresConfirmation,
-      // so we read it directly — no inverted boolean bug.
       final emailConfirmed = userData['email_confirmed'] as bool? ?? false;
 
       if (!emailConfirmed) {
-        // Email confirmation is required.
-        // Do NOT create a session — user must click the link first.
         return RegistrationResult(
           success: true,
           requiresEmailConfirmation: true,
           email: email,
         );
       } else {
-        // Email confirmation is disabled in Supabase dashboard.
-        // Authenticate the user immediately.
         _currentUser = User.fromCloudJson(userData);
         _isAuthenticated = true;
         _emailConfirmed = true;
         await _cacheCurrentUser();
-        return RegistrationResult(
+        return const RegistrationResult(
             success: true, requiresEmailConfirmation: false);
       }
     } catch (e) {
@@ -199,6 +213,7 @@ class AuthService {
   // ─── Sign Out ─────────────────────────────────────────────────
 
   Future<void> signOut() async {
+    debugPrint('🔍 AuthService.signOut');
     _currentUser = null;
     _isAuthenticated = false;
     _emailConfirmed = false;
@@ -208,25 +223,25 @@ class AuthService {
 
   // ─── Permissions ──────────────────────────────────────────────
 
-  // LINE 213: The User model no longer has hasPermission().
-// Replace the entire method with:
-
-bool hasPermission(String permission) {
-  if (_currentUser == null) return false;
-  
-  // Check based on role
-  switch (_currentUser!.role) {
-    case UserRole.owner:
-      return true; // Owner has all permissions
-    case UserRole.admin:
-      return permission != 'manage_company'; // Admin can do everything except manage company
-    case UserRole.dataOperator:
-      return ['view_inventory', 'manage_inventory', 'export_reports', 'bulk_import']
-          .contains(permission);
-    case UserRole.viewer:
-      return ['view_inventory', 'export_reports'].contains(permission);
+  bool hasPermission(String permission) {
+    if (_currentUser == null) return false;
+    switch (_currentUser!.role) {
+      case UserRole.owner:
+        return true;
+      case UserRole.admin:
+        return permission != 'manage_company';
+      case UserRole.dataOperator:
+        return [
+          'view_inventory',
+          'manage_inventory',
+          'export_reports',
+          'bulk_import'
+        ].contains(permission);
+      case UserRole.viewer:
+        return ['view_inventory', 'export_reports'].contains(permission);
+    }
   }
-}
+
   // ─── Company operations ───────────────────────────────────────
 
   Future<Map<String, dynamic>?> createCompany(String name) async =>
@@ -285,7 +300,10 @@ bool hasPermission(String permission) {
       final authBox = await Hive.openBox('auth');
       await authBox.put('current_user', _currentUser!.toLocalJson());
       await authBox.put('email_confirmed', _emailConfirmed);
-    } catch (_) {}
+      debugPrint('🔍 AuthService: Cached user saved');
+    } catch (e) {
+      debugPrint('AuthService cache error: $e');
+    }
   }
 
   Future<void> _clearCache() async {
@@ -293,6 +311,9 @@ bool hasPermission(String permission) {
       final authBox = await Hive.openBox('auth');
       await authBox.delete('current_user');
       await authBox.delete('email_confirmed');
-    } catch (_) {}
+      debugPrint('🔍 AuthService: Cache cleared');
+    } catch (e) {
+      debugPrint('AuthService clear cache error: $e');
+    }
   }
 }

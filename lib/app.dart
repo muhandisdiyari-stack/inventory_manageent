@@ -9,10 +9,6 @@ import 'features/auth/screens/login_screen.dart';
 import 'features/company/screens/company_setup_screen.dart';
 import 'features/admin/screens/admin_dashboard_screen.dart';
 
-/// Root widget of the application.
-///
-/// Provides all BLoCs through [MultiBlocProvider] and handles
-/// authentication-based routing through [_AppEntryPoint].
 class InventoryProApp extends StatelessWidget {
   const InventoryProApp({super.key});
 
@@ -37,7 +33,6 @@ class InventoryProApp extends StatelessWidget {
 }
 
 // ─── App Entry Point ──────────────────────────────────────────────
-// Dispatches AuthCheckRequested on init and routes based on auth state.
 
 class _AppEntryPoint extends StatefulWidget {
   const _AppEntryPoint();
@@ -47,12 +42,15 @@ class _AppEntryPoint extends StatefulWidget {
 }
 
 class _AppEntryPointState extends State<_AppEntryPoint> {
+  bool _authCheckDispatched = false;
+
   @override
   void initState() {
     super.initState();
     // Dispatch auth check after first frame to ensure BLoC is available
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
+      if (mounted && !_authCheckDispatched) {
+        _authCheckDispatched = true;
         context.read<AuthBloc>().add(const AuthCheckRequested());
       }
     });
@@ -62,6 +60,7 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
   Widget build(BuildContext context) {
     return BlocBuilder<AuthBloc, AuthState>(
       builder: (context, state) {
+        debugPrint('🔍 _AppEntryPoint: AuthStatus = ${state.status}');
         return switch (state.status) {
           AuthStatus.unknown ||
           AuthStatus.initializing =>

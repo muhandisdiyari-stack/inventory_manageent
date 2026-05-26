@@ -14,6 +14,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthService _authService;
   final AdminService _adminService;
   StreamSubscription? _authSubscription;
+  bool _initialAuthCheckDone = false;
 
   AuthBloc({
     required AuthService authService,
@@ -36,6 +37,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     _authSubscription =
         Supabase.instance.client.auth.onAuthStateChange.listen(
       (data) {
+        debugPrint('🔍 AuthBloc: Auth state change: ${data.event}');
         if (data.event == AuthChangeEvent.signedIn ||
             data.event == AuthChangeEvent.userUpdated) {
           final user = data.session?.user;
@@ -43,7 +45,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             add(const EmailConfirmationReceived());
           }
         }
-        // When user signs out, reset to unauthenticated
         if (data.event == AuthChangeEvent.signedOut) {
           add(const AuthCheckRequested());
         }
@@ -53,24 +54,32 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   Future<void> _onAuthCheck(
       AuthCheckRequested event, Emitter<AuthState> emit) async {
+    debugPrint('🔍 AuthBloc._onAuthCheck: status=${state.status}');
+
+    if (_initialAuthCheckDone &&
+        state.status == AuthStatus.authenticated) {
+      debugPrint('🔍 AuthBloc: Already authenticated, skipping check');
+      return;
+    }
+
     if (state.status == AuthStatus.unknown) {
-      emit(state.copyWith(
-          status: AuthStatus.initializing, error: null));
+      emit(state.copyWith(status: AuthStatus.initializing, error: null));
     }
 
     try {
-      // Offline / no-auth mode
       if (!AppConfig.requiresAuth) {
         emit(state.copyWith(
             status: AuthStatus.authenticated, isAdmin: false));
+        _initialAuthCheckDone = true;
         return;
       }
 
       await _authService.initialize();
 
-      if (_authService.isAuthenticated) {
-        final user = _authService.currentUser;
-        if (user != null && !user.isApproved) {
+      if (_authService.isAuthenticated && _authService.currentUser != null) {
+        final user = _authService.currentUser!;
+
+        if (!user.isApproved) {
           emit(state.copyWith(
             status: AuthStatus.unauthenticated,
             error: 'Your account is pending approval.',
@@ -79,34 +88,75 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           return;
         }
 
-        // Try to check admin status, but don't fail if offline
         bool isAdmin = false;
         try {
           isAdmin = await _adminService.isAdmin();
         } catch (_) {
-          // Offline - use cached value or default to false
           isAdmin = false;
         }
 
+        _initialAuthCheckDone = true;
         emit(state.copyWith(
           status: AuthStatus.authenticated,
           user: user,
           isAdmin: isAdmin,
         ));
+        debugPrint('✅ AuthBloc: Authenticated as ${user.email}');
       } else {
-        // Not authenticated — show login screen
-        emit(const AuthState(status: AuthStatus.unauthenticated));
+        debugPrint('🔍 AuthBloc: Not authenticated via cache, checking Supabase...');
+        bool foundSession = false;
+
+        if (AppConfig.useSupabase) {
+          try {
+            final session =
+                Supabase.instance.client.auth.currentSession;
+            if (session != null) {
+              debugPrint('🔍 AuthBloc: Found Supabase session, refreshing...');
+              await Supabase.instance.client.auth.refreshSession();
+              final authUser =
+                  Supabase.instance.client.auth.currentUser;
+              if (authUser != null) {
+                _authService.currentUser = User(
+                  id: authUser.id,
+                  email: authUser.email ?? '',
+                  displayName:
+                      authUser.userMetadata?['display_name'],
+                  role: UserRole.dataOperator,
+                  isApproved: false,
+                );
+                _authService.isAuthenticatedValue = true;
+                foundSession = true;
+              }
+            }
+          } catch (e) {
+            debugPrint('🔍 AuthBloc: Supabase session check failed: $e');
+          }
+        }
+
+        if (foundSession) {
+          _initialAuthCheckDone = true;
+          emit(state.copyWith(
+            status: AuthStatus.authenticated,
+            user: _authService.currentUser,
+            isAdmin: false,
+          ));
+        } else {
+          debugPrint('🔍 AuthBloc: No valid session found, showing login');
+          _initialAuthCheckDone = true;
+          emit(const AuthState(status: AuthStatus.unauthenticated));
+        }
       }
     } catch (e) {
-      // If initialization fails completely, show login
+      debugPrint('❌ AuthBloc._onAuthCheck error: $e');
+      _initialAuthCheckDone = true;
       emit(const AuthState(status: AuthStatus.unauthenticated));
     }
   }
 
   Future<void> _onSignIn(
       SignInRequested event, Emitter<AuthState> emit) async {
-    emit(state.copyWith(
-        status: AuthStatus.authenticating, error: null));
+    debugPrint('🔍 AuthBloc._onSignIn: ${event.email}');
+    emit(state.copyWith(status: AuthStatus.authenticating, error: null));
 
     try {
       final success =
@@ -131,11 +181,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           isAdmin = false;
         }
 
+        _initialAuthCheckDone = true;
         emit(state.copyWith(
           status: AuthStatus.authenticated,
           user: user,
           isAdmin: isAdmin,
         ));
+        debugPrint('✅ AuthBloc: Sign in successful');
       } else {
         emit(state.copyWith(
           status: AuthStatus.unauthenticated,
@@ -143,17 +195,19 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         ));
       }
     } catch (e) {
+      debugPrint('❌ AuthBloc._onSignIn error: $e');
       emit(state.copyWith(
         status: AuthStatus.unauthenticated,
-        error: 'Sign in failed. Please check your credentials and internet connection.',
+        error:
+            'Sign in failed. Please check your credentials and internet connection.',
       ));
     }
   }
 
   Future<void> _onSignUp(
       SignUpRequested event, Emitter<AuthState> emit) async {
-    emit(state.copyWith(
-        status: AuthStatus.authenticating, error: null));
+    debugPrint('🔍 AuthBloc._onSignUp: ${event.email}');
+    emit(state.copyWith(status: AuthStatus.authenticating, error: null));
 
     try {
       final result = await _authService.register(
@@ -169,8 +223,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             pendingEmail: result.email ?? event.email,
           ));
         } else {
-          emit(state.copyWith(
-              status: AuthStatus.authenticated));
+          emit(state.copyWith(status: AuthStatus.authenticated));
         }
       } else {
         emit(state.copyWith(
@@ -179,26 +232,31 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         ));
       }
     } catch (e) {
+      debugPrint('❌ AuthBloc._onSignUp error: $e');
       emit(state.copyWith(
         status: AuthStatus.unauthenticated,
-        error: 'Registration failed. Please check your internet connection.',
+        error:
+            'Registration failed. Please check your internet connection.',
       ));
     }
   }
 
   Future<void> _onSignOut(
       SignOutRequested event, Emitter<AuthState> emit) async {
+    debugPrint('🔍 AuthBloc._onSignOut');
     try {
       await _authService.signOut();
+      _initialAuthCheckDone = false;
       emit(const AuthState(status: AuthStatus.unauthenticated));
     } catch (e) {
+      debugPrint('❌ AuthBloc._onSignOut error: $e');
       emit(state.copyWith(error: 'Sign out failed'));
     }
   }
 
   void _onEmailConfirmed(
-      EmailConfirmationReceived event,
-      Emitter<AuthState> emit) {
+      EmailConfirmationReceived event, Emitter<AuthState> emit) {
+    debugPrint('🔍 AuthBloc._onEmailConfirmed');
     emit(state.copyWith(status: AuthStatus.emailConfirmed));
   }
 
@@ -222,6 +280,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     try {
       await Supabase.instance.client.auth
           .getSessionFromUrl(event.uri);
+      _initialAuthCheckDone = false;
+      add(const AuthCheckRequested());
     } catch (e) {
       debugPrint('Deep link handling error: $e');
       if (state.status == AuthStatus.emailUnconfirmed) {
