@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'features/inventory_management/models/inventory_item.dart';
@@ -16,32 +17,27 @@ import 'app.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ─── Global Error Handling ──────────────────────────────────
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
     debugPrint('🔴 Flutter Error: ${details.exception}');
     debugPrint('    Stack: ${details.stack}');
-    // In production, send to crash reporting service (Sentry, Firebase Crashlytics, etc.)
     if (AppConfig.isProduction) {
       // CrashReportingService.recordError(details.exception, details.stack);
     }
   };
 
-  // Catch unhandled async errors
   PlatformDispatcher.instance.onError = (error, stack) {
     debugPrint('🔴 Unhandled Error: $error');
     debugPrint('    Stack: $stack');
-    // In production, send to crash reporting service
     if (AppConfig.isProduction) {
       // CrashReportingService.recordError(error, stack);
     }
-    return true; // Prevent app from crashing in production
+    return true;
   };
 
   try {
     AppConfig.validate();
 
-    // ─── Initialize Supabase ──────────────────────────────────
     if (AppConfig.useSupabase) {
       try {
         await Supabase.initialize(
@@ -55,7 +51,7 @@ void main() async {
       } catch (e) {
         debugPrint('⚠️ Supabase initialization failed: $e');
         if (AppConfig.isProduction) {
-          runApp(const _ErrorApp(
+          runApp(_ErrorApp(
               title: 'Connection Error',
               error: 'Failed to connect to server. Please check your internet connection and try again.',
               canRetry: true));
@@ -64,15 +60,12 @@ void main() async {
       }
     }
 
-    // ─── Initialize Hive ─────────────────────────────────────
     await Hive.initFlutter();
 
-    // Register adapters BEFORE opening any boxes
     Hive.registerAdapter(InventoryItemAdapter());
     Hive.registerAdapter(FieldConfigAdapter());
     Hive.registerAdapter(InventorySettingsAdapter());
 
-    // Open required boxes
     final boxesToOpen = [
       AppConstants.appSettingsBox,
       AppConstants.inventoriesListBox,
@@ -83,7 +76,6 @@ void main() async {
       try {
         await Hive.openBox(boxName);
       } catch (e) {
-        // Box might be corrupted, try to recover
         debugPrint('⚠️ Box $boxName failed to open: $e. Attempting recovery...');
         try {
           await Hive.deleteBoxFromDisk(boxName);
@@ -91,7 +83,7 @@ void main() async {
           debugPrint('✅ Box $boxName recovered');
         } catch (e2) {
           debugPrint('❌ Box $boxName recovery failed: $e2');
-          runApp(const _ErrorApp(
+          runApp(_ErrorApp(
               title: 'Storage Error',
               error: 'Failed to initialize local storage. Please restart the app.',
               canRetry: false));
@@ -100,16 +92,13 @@ void main() async {
       }
     }
 
-    // ─── Initialize Services ─────────────────────────────────
     await ActivityLogService().initialize();
     await InjectionContainer.initialize();
 
-    // ─── Log App Version ─────────────────────────────────────
     debugPrint('📱 App Version: ${AppConfig.appVersion}');
     debugPrint('🔧 Environment: ${AppConfig.environment}');
     debugPrint('☁️ Supabase: ${AppConfig.useSupabase ? "Enabled" : "Disabled"}');
 
-    // ─── Check Onboarding ────────────────────────────────────
     bool onboardingCompleted = false;
     try {
       final appSettings = Hive.box(AppConstants.appSettingsBox);
@@ -122,20 +111,36 @@ void main() async {
       onboardingCompleted = false;
     }
 
-    // ─── Run App ─────────────────────────────────────────────
+    // ✅ CRITICAL FIX: Provide BLoCs globally so all screens can access them
     runApp(
       AppLifecycleObserver(
-        child: MaterialApp(
-          debugShowCheckedModeBanner: false,
-          title: AppConfig.appName,
-          theme: ThemeData(
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-          ),
-          home: onboardingCompleted
-              ? const InventoryProApp()
-              : const SplashScreen(nextScreen: OnboardingScreen()),
-        ),
+        child: InjectionContainer.blocProviders.isNotEmpty
+            ? MultiBlocProvider(
+                providers: InjectionContainer.blocProviders,
+                child: MaterialApp(
+                  debugShowCheckedModeBanner: false,
+                  title: AppConfig.appName,
+                  theme: ThemeData(
+                    useMaterial3: true,
+                    colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+                  ),
+                  home: onboardingCompleted
+                      ? const InventoryProApp()
+                      : SplashScreen(nextScreen: const OnboardingScreen()),
+                ),
+              )
+            : MaterialApp(
+                debugShowCheckedModeBanner: false,
+                title: AppConfig.appName,
+                theme: ThemeData(
+                  useMaterial3: true,
+                  colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+                ),
+                home: const _ErrorApp(
+                    title: 'Initialization Error',
+                    error: 'BLoC providers not initialized.',
+                    canRetry: false),
+              ),
       ),
     );
   } catch (e, stack) {
@@ -147,8 +152,6 @@ void main() async {
         canRetry: true));
   }
 }
-
-// ─── Error App ────────────────────────────────────────────────────
 
 class _ErrorApp extends StatelessWidget {
   final String title;
@@ -211,9 +214,7 @@ class _ErrorApp extends StatelessWidget {
                 if (canRetry)
                   FilledButton.icon(
                     onPressed: () {
-                      // Re-run the app by calling main() again
-                      // This is handled by the platform restart mechanism
-                      debugPrint('Retry requested - restarting app');
+                      // Restart the app by calling main again
                     },
                     icon: const Icon(Icons.refresh),
                     label: const Text('Retry'),

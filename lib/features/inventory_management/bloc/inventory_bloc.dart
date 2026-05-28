@@ -4,6 +4,7 @@ import '../services/inventory_service.dart';
 import '../models/inventory_item.dart';
 import '../models/inventory_settings.dart';
 import '../../../core/services/activity_log_service.dart';
+import '../../../core/database/supabase/supabase_realtime_service.dart';
 
 part 'inventory_event.dart';
 part 'inventory_state.dart';
@@ -11,12 +12,15 @@ part 'inventory_state.dart';
 class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
   final InventoryService _inventoryService;
   final ActivityLogService _logService;
+  final SupabaseRealtimeService _realtimeService;
 
   InventoryBloc({
     required InventoryService inventoryService,
     required ActivityLogService logService,
+    required SupabaseRealtimeService realtimeService,
   })  : _inventoryService = inventoryService,
         _logService = logService,
+        _realtimeService = realtimeService,
         super(const InventoryState()) {
     on<InitializeInventory>(_onInitialize);
     on<LoadLabels>(_onLoadLabels);
@@ -33,7 +37,11 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
     on<SelectLabel>(_onSelectLabel);
     on<SetLabelSortType>(_onSetSortType);
     on<LoadAllItems>(_onLoadAllItems);
+    on<RealtimeItemsChanged>(_onRealtimeItemsChanged);
+    on<RealtimeLabelsChanged>(_onRealtimeLabelsChanged);
   }
+
+  String? _currentSubscribedInventory;
 
   Future<void> _onInitialize(
       InitializeInventory event, Emitter<InventoryState> emit) async {
@@ -47,6 +55,9 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
       final settings = _inventoryService.currentSettings;
       final inventoryName =
           _inventoryService.getInventoryName(event.inventoryId);
+
+      // ─── Setup Realtime Subscriptions ─────────────────────
+      _setupRealtimeSubscriptions(event.inventoryId);
 
       emit(state.copyWith(
         inventoryId: event.inventoryId,
@@ -69,23 +80,48 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
     }
   }
 
+  /// Subscribe to realtime changes for this inventory.
+  /// Unsubscribes from previous inventory if switching.
+  void _setupRealtimeSubscriptions(String inventoryId) {
+    if (_currentSubscribedInventory == inventoryId) return;
+
+    // Unsubscribe from previous inventory
+    if (_currentSubscribedInventory != null) {
+      _realtimeService.unsubscribeFromInventory(
+          _currentSubscribedInventory!);
+    }
+
+    _currentSubscribedInventory = inventoryId;
+
+    // Subscribe to items changes
+    _realtimeService.subscribeToInventoryItems(
+      inventoryId,
+      onChange: () => add(const RealtimeItemsChanged()),
+    );
+
+    // Subscribe to labels changes
+    _realtimeService.subscribeToLabels(
+      inventoryId,
+      onChange: () => add(const RealtimeLabelsChanged()),
+    );
+  }
+
   void _onLoadLabels(LoadLabels event, Emitter<InventoryState> emit) {
     final sortedLabels =
         _inventoryService.getSortedLabelNames(sortType: state.sortType);
     emit(state.copyWith(labels: sortedLabels));
   }
 
-Future<void> _onCreateLabel(
-    CreateLabel event, Emitter<InventoryState> emit) async {
-  try {
-    final label = await _inventoryService.createLabel(event.name);
-    final labelNames = _inventoryService.labelNames;
-    emit(state.copyWith(labels: labelNames, selectedLabel: label.name));
-    // _logService is available for future activity logging
-  } catch (e) {
-    emit(state.copyWith(error: 'Failed to create label: $e'));
+  Future<void> _onCreateLabel(
+      CreateLabel event, Emitter<InventoryState> emit) async {
+    try {
+      final label = await _inventoryService.createLabel(event.name);
+      final labelNames = _inventoryService.labelNames;
+      emit(state.copyWith(labels: labelNames, selectedLabel: label.name));
+    } catch (e) {
+      emit(state.copyWith(error: 'Failed to create label: $e'));
+    }
   }
-}
 
   Future<void> _onRenameLabel(
       RenameLabel event, Emitter<InventoryState> emit) async {
@@ -118,8 +154,7 @@ Future<void> _onCreateLabel(
   void _onLoadItems(LoadItems event, Emitter<InventoryState> emit) {
     try {
       final items = _inventoryService.getItemsByLabel(event.label);
-      emit(
-          state.copyWith(selectedLabel: event.label, currentItems: items));
+      emit(state.copyWith(selectedLabel: event.label, currentItems: items));
     } catch (e) {
       emit(state.copyWith(error: 'Failed to load items: $e'));
     }
@@ -185,8 +220,7 @@ Future<void> _onCreateLabel(
         emit(state.copyWith(searchResults: []));
         return;
       }
-      final results =
-          _inventoryService.searchAllInventories(event.query);
+      final results = _inventoryService.searchAllInventories(event.query);
       emit(state.copyWith(searchResults: results));
     } catch (e) {
       emit(state.copyWith(error: 'Search failed: $e'));
@@ -242,5 +276,26 @@ Future<void> _onCreateLabel(
     } catch (e) {
       emit(state.copyWith(error: 'Failed to load all items: $e'));
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Realtime Event Handlers
+  // ═══════════════════════════════════════════════════════════════
+
+  /// Called when realtime detects item changes.
+  /// Refreshes the current view from the cache (which was updated by the
+  /// realtime service).
+  void _onRealtimeItemsChanged(
+      RealtimeItemsChanged event, Emitter<InventoryState> emit) {
+    if (state.selectedLabel != null) {
+      add(LoadItems(state.selectedLabel!));
+    }
+  }
+
+  /// Called when realtime detects label changes.
+  /// Refreshes the label list from the cache.
+  void _onRealtimeLabelsChanged(
+      RealtimeLabelsChanged event, Emitter<InventoryState> emit) {
+    add(const LoadLabels());
   }
 }

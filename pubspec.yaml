@@ -42,18 +42,13 @@ dependencies:
   # Image Picking for Barcode Scanning
   image_picker: ^1.0.7
 
-  # Supabase
+  # Supabase (Backend-as-a-Service)
   supabase_flutter: ^2.12.4
 
   # Utilities
   uuid: ^4.5.3
 
-  # ✅ Deep link handling for Supabase email confirmation callback.
-  # Catches "inventory://auth/callback" on Android, iOS, Windows,
-  # macOS and Linux when the user taps the confirmation link in their
-  # email client (e.g. Gmail).  On web, supabase_flutter handles the
-  # token exchange automatically from the URL hash — app_links is not
-  # needed there but is a no-op so it's safe to include.
+  # Deep link handling for Supabase email confirmation
   app_links: ^6.0.0
 
 dev_dependencies:

@@ -1,4 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../features/theme/bloc/theme_bloc.dart';
 import '../../features/auth/bloc/auth_bloc.dart';
 import '../../features/company/bloc/company_bloc.dart';
@@ -10,9 +11,11 @@ import '../../features/activity_log/bloc/activity_log_bloc.dart';
 import '../services/auth_service.dart';
 import '../services/admin_service.dart';
 import '../services/activity_log_service.dart';
+import '../services/offline_sync_service.dart';
 import '../../features/inventory_management/services/inventory_service.dart';
 import '../../features/reports/services/csv_service.dart';
 import '../database/supabase/supabase_client.dart';
+import '../database/supabase/supabase_realtime_service.dart';
 
 /// Central dependency injection container.
 ///
@@ -25,6 +28,8 @@ class InjectionContainer {
 
   static final SupabaseClientService supabaseClient =
       SupabaseClientService();
+
+  static late final SupabaseRealtimeService realtimeService;
 
   static final AuthService authService = AuthService(
     supabaseClient: supabaseClient,
@@ -40,11 +45,30 @@ class InjectionContainer {
 
   static final CsvService csvService = CsvService();
 
+  static late final OfflineSyncService offlineSyncService;
+
   // ─── Initialization ────────────────────────────────────────────
 
   static Future<void> initialize() async {
+    // Initialize realtime service
+    realtimeService = SupabaseRealtimeService(
+      client: supabaseClient.safeClient ?? Supabase.instance.client,
+    );
+
+    // Initialize offline sync service
+    offlineSyncService = OfflineSyncService(
+      supabaseClient: supabaseClient,
+    );
+    await offlineSyncService.loadPendingMutations();
+
+    // Initialize other services
     await logService.initialize();
     await authService.initialize();
+
+    // Process any pending offline mutations
+    if (offlineSyncService.hasPendingMutations) {
+      offlineSyncService.processPendingMutations();
+    }
   }
 
   // ─── BLoC Providers ────────────────────────────────────────────
@@ -76,6 +100,7 @@ class InjectionContainer {
         create: (_) => InventoryBloc(
           inventoryService: inventoryService,
           logService: logService,
+          realtimeService: realtimeService,
         ),
       ),
       BlocProvider<AdminBloc>(
@@ -85,5 +110,11 @@ class InjectionContainer {
         create: (_) => ReportsBloc(csvService: csvService),
       ),
     ];
+  }
+
+  /// Dispose all services.
+  static void dispose() {
+    realtimeService.dispose();
+    offlineSyncService.dispose();
   }
 }

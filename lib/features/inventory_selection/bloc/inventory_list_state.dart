@@ -7,6 +7,7 @@ class InventoryListState {
   final bool isLoading;
   final bool isInitialized;
   final bool isOffline;
+  final bool isCacheOnly; // NEW: true when showing cached data (not confirmed from server)
   final String? error;
 
   const InventoryListState({
@@ -16,6 +17,7 @@ class InventoryListState {
     this.isLoading = false,
     this.isInitialized = false,
     this.isOffline = false,
+    this.isCacheOnly = false,
     this.error,
   });
 
@@ -26,6 +28,7 @@ class InventoryListState {
     bool? isLoading,
     bool? isInitialized,
     bool? isOffline,
+    bool? isCacheOnly,
     String? error,
   }) {
     return InventoryListState(
@@ -37,6 +40,7 @@ class InventoryListState {
       isLoading: isLoading ?? this.isLoading,
       isInitialized: isInitialized ?? this.isInitialized,
       isOffline: isOffline ?? this.isOffline,
+      isCacheOnly: isCacheOnly ?? this.isCacheOnly,
       error: error,
     );
   }
@@ -52,6 +56,7 @@ class InventoryListState {
           isLoading == other.isLoading &&
           isInitialized == other.isInitialized &&
           isOffline == other.isOffline &&
+          isCacheOnly == other.isCacheOnly &&
           error == other.error;
 
   @override
@@ -61,6 +66,7 @@ class InventoryListState {
         isLoading,
         isInitialized,
         isOffline,
+        isCacheOnly,
         error,
       );
 }

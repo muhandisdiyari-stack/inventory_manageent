@@ -80,3 +80,15 @@ class LoadAllItems extends InventoryEvent {
   final String inventoryId;
   const LoadAllItems(this.inventoryId);
 }
+
+// ─── NEW: Realtime Events ─────────────────────────────────────────
+
+/// Triggered when realtime service detects item changes from Supabase.
+class RealtimeItemsChanged extends InventoryEvent {
+  const RealtimeItemsChanged();
+}
+
+/// Triggered when realtime service detects label changes from Supabase.
+class RealtimeLabelsChanged extends InventoryEvent {
+  const RealtimeLabelsChanged();
+}

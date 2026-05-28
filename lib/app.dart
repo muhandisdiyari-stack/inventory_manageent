@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'core/theme/app_theme.dart';
 import 'core/constants/app_constants.dart';
-import 'core/di/injection_container.dart';
 import 'features/theme/bloc/theme_bloc.dart';
 import 'features/auth/bloc/auth_bloc.dart';
 import 'features/auth/screens/login_screen.dart';
@@ -14,25 +13,20 @@ class InventoryProApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MultiBlocProvider(
-      providers: InjectionContainer.blocProviders,
-      child: BlocBuilder<ThemeBloc, ThemeState>(
-        builder: (context, themeState) {
-          return MaterialApp(
-            title: AppConstants.appName,
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.lightTheme,
-            darkTheme: AppTheme.darkTheme,
-            themeMode: themeState.mode,
-            home: const _AppEntryPoint(),
-          );
-        },
-      ),
+    return BlocBuilder<ThemeBloc, ThemeState>(
+      builder: (context, themeState) {
+        return MaterialApp(
+          title: AppConstants.appName,
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: themeState.mode,
+          home: const _AppEntryPoint(),
+        );
+      },
     );
   }
 }
-
-// ─── App Entry Point ──────────────────────────────────────────────
 
 class _AppEntryPoint extends StatefulWidget {
   const _AppEntryPoint();
@@ -47,7 +41,6 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
   @override
   void initState() {
     super.initState();
-    // Dispatch auth check after first frame to ensure BLoC is available
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_authCheckDispatched) {
         _authCheckDispatched = true;

@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/activity_log_entry.dart';
+import '../config/app_config.dart';
 import '../utils/file_export.dart';
 
 class ActivityLogService {
@@ -32,7 +34,7 @@ class ActivityLogService {
       if (!_logBox!.containsKey(_logKey)) {
         await _logBox!.put(_logKey, <String>[]);
       }
-      
+
       _initialized = true;
       _cache = null; // Force reload on next read
     } catch (e) {
@@ -70,24 +72,26 @@ class ActivityLogService {
     _cache ??= _loadAllLogs();
 
     var result = _cache!;
-    
+
     if (inventoryId != null) {
-      result = result.where((l) => l.inventoryId == inventoryId).toList();
+      result =
+          result.where((l) => l.inventoryId == inventoryId).toList();
     }
     if (entityType != null) {
-      result = result.where((l) => l.entityType == entityType).toList();
+      result =
+          result.where((l) => l.entityType == entityType).toList();
     }
-    
+
     return result;
   }
 
   List<ActivityLogEntry> _loadAllLogs() {
     if (_logBox == null) return [];
-    
+
     try {
       final raw = _logBox!.get(_logKey, defaultValue: <String>[]) as List;
       final parsed = <ActivityLogEntry>[];
-      
+
       for (final json in raw) {
         try {
           if (json is String && json.isNotEmpty) {
@@ -97,7 +101,7 @@ class ActivityLogService {
           // Skip malformed entries
         }
       }
-      
+
       parsed.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       return parsed;
     } catch (e) {
@@ -116,7 +120,7 @@ class ActivityLogService {
       final rawLogs = List<String>.from(
         _logBox!.get(_logKey, defaultValue: <String>[]) as List,
       );
-      
+
       rawLogs.add(jsonEncode(entry.toJson()));
 
       // Prune oldest entries if we exceed the cap
@@ -125,14 +129,102 @@ class ActivityLogService {
       }
 
       await _logBox!.put(_logKey, rawLogs);
-      
-      // Update cache incrementally instead of invalidating
+
+      // Update cache incrementally
       _cache?.insert(0, entry);
       if (_cache != null && _cache!.length > _maxLogEntries) {
         _cache = _cache!.sublist(0, _maxLogEntries);
       }
+
+      // Sync to Supabase if enabled
+      await _syncLogToSupabase(entry);
     } catch (e) {
       debugPrint('Error adding log: $e');
+    }
+  }
+
+  /// Sync a single log entry to Supabase for cross-device visibility.
+  Future<void> _syncLogToSupabase(ActivityLogEntry entry) async {
+    if (!AppConfig.useSupabase) return;
+
+    try {
+      await Supabase.instance.client.from('activity_log').insert({
+        'id': entry.id,
+        'company_id': entry.inventoryId, // Will be updated by trigger
+        'inventory_id': entry.inventoryId,
+        'action': entry.action,
+        'entity_type': entry.entityType,
+        'entity_name': entry.entityName,
+        'label_name': entry.labelName,
+        'details': entry.details,
+        'changes': entry.changes?.map(
+            (key, value) => MapEntry(key, value.toJson())),
+        'created_at': entry.timestamp.toUtc().toIso8601String(),
+      });
+    } catch (e) {
+      // Silent — local storage is primary for activity logs
+      debugPrint('Activity log sync to Supabase failed: $e');
+    }
+  }
+
+  /// Fetch activity logs from Supabase and merge with local.
+  Future<void> syncLogsFromSupabase(String inventoryId) async {
+    if (!AppConfig.useSupabase) return;
+
+    try {
+      final data = await Supabase.instance.client
+          .from('activity_log')
+          .select()
+          .eq('inventory_id', inventoryId)
+          .order('created_at', ascending: false)
+          .limit(_maxLogEntries);
+
+      await _ensureInitialized();
+      if (_logBox == null) return;
+
+      final rawLogs = List<String>.from(
+        _logBox!.get(_logKey, defaultValue: <String>[]) as List,
+      );
+
+      // Track existing IDs to avoid duplicates
+      final existingIds = <String>{};
+      for (final raw in rawLogs) {
+        try {
+          final decoded = jsonDecode(raw) as Map<String, dynamic>;
+          existingIds.add(decoded['id'] as String);
+        } catch (_) {}
+      }
+
+      // Add new entries from Supabase
+      for (final row in data) {
+        final id = row['id']?.toString() ?? '';
+        if (existingIds.contains(id)) continue;
+
+        final entry = ActivityLogEntry(
+          id: id,
+          timestamp: row['created_at'] != null
+              ? DateTime.parse(row['created_at'] as String)
+              : DateTime.now(),
+          action: row['action'] as String? ?? 'modified',
+          entityType: row['entity_type'] as String? ?? 'unknown',
+          entityName: row['entity_name'] as String? ?? 'Unknown',
+          inventoryId: row['inventory_id'] as String?,
+          labelName: row['label_name'] as String?,
+          details: row['details'] as String?,
+        );
+
+        rawLogs.add(jsonEncode(entry.toJson()));
+      }
+
+      // Prune if over limit
+      while (rawLogs.length > _maxLogEntries) {
+        rawLogs.removeAt(0);
+      }
+
+      await _logBox!.put(_logKey, rawLogs);
+      _cache = null; // Force cache refresh
+    } catch (e) {
+      debugPrint('Activity log sync from Supabase failed: $e');
     }
   }
 
@@ -145,7 +237,7 @@ class ActivityLogService {
         final rawLogs = List<String>.from(
           _logBox!.get(_logKey, defaultValue: <String>[]) as List,
         );
-        
+
         final kept = rawLogs.where((json) {
           try {
             final decoded = jsonDecode(json) as Map<String, dynamic>;
@@ -154,19 +246,19 @@ class ActivityLogService {
             return true; // Keep unparseable entries
           }
         }).toList();
-        
+
         await _logBox!.put(_logKey, kept);
       } else {
         await _logBox!.put(_logKey, <String>[]);
       }
-      
+
       _cache = null; // Full cache invalidation needed
     } catch (e) {
       debugPrint('Error clearing logs: $e');
     }
   }
 
-  // ─── Export ────────────────────────────────────────────────────
+  // ─── Export (unchanged) ────────────────────────────────────────
 
   String exportLogsAsText({String? inventoryId}) {
     final logs = getLogs(inventoryId: inventoryId);

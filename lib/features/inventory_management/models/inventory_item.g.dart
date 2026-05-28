@@ -17,6 +17,7 @@ class InventoryItemAdapter extends TypeAdapter<InventoryItem> {
       for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
     };
     return InventoryItem(
+      id: fields[14] as String?,
       name: fields[0] as String,
       code: fields[1] as String,
       barcode: fields[2] as String,
@@ -37,7 +38,7 @@ class InventoryItemAdapter extends TypeAdapter<InventoryItem> {
   @override
   void write(BinaryWriter writer, InventoryItem obj) {
     writer
-      ..writeByte(14)
+      ..writeByte(15)
       ..writeByte(0)
       ..write(obj.name)
       ..writeByte(1)
@@ -65,7 +66,9 @@ class InventoryItemAdapter extends TypeAdapter<InventoryItem> {
       ..writeByte(12)
       ..write(obj.label)
       ..writeByte(13)
-      ..write(obj.createdAt);
+      ..write(obj.createdAt)
+      ..writeByte(14)
+      ..write(obj.id);
   }
 
   @override

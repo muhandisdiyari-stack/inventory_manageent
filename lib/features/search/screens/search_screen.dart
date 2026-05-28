@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../inventory_management/bloc/inventory_bloc.dart';
 import '../../inventory_management/models/inventory_item.dart';
 import '../../inventory_selection/bloc/inventory_list_bloc.dart';
@@ -21,7 +22,17 @@ class _SearchScreenState extends State<SearchScreen> {
   Timer? _debounce;
   bool _isSearching = false;
   bool _hasSearched = false;
+  bool _isServerSearch = true; // Prefer server search over local
   InventoryPermissions? _permissions;
+
+  // Server search results (RLS-enforced)
+  List<Map<String, dynamic>> _serverResults = [];
+
+  // Local search results (fallback)
+  List<Map<String, dynamic>> get _localResults {
+    final state = context.read<InventoryBloc>().state;
+    return state.searchResults;
+  }
 
   @override
   void initState() {
@@ -61,17 +72,136 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         _isSearching = false;
         _hasSearched = false;
+        _serverResults = [];
       });
       return;
     }
+
     setState(() => _isSearching = true);
+
     _debounce = Timer(const Duration(milliseconds: 300), () {
       if (!mounted) return;
-      context.read<InventoryBloc>().add(SearchItems(query.trim()));
+
+      if (_isServerSearch) {
+        _performServerSearch(query.trim());
+      } else {
+        _performLocalSearch(query.trim());
+      }
+    });
+  }
+
+  /// Performs a server-side search using Supabase RLS.
+  /// The RLS policies ensure users only see items from inventories they are members of.
+  Future<void> _performServerSearch(String query) async {
+    try {
+      final client = Supabase.instance.client;
+
+      // Search across all items the user has access to (RLS-enforced)
+      // Uses ilike for case-insensitive matching across multiple fields
+      final data = await client
+          .from('inventory_items')
+          .select('*, inventories(name)')
+          .or(
+            'name.ilike.%$query%,'
+            'code.ilike.%$query%,'
+            'barcode.ilike.%$query%,'
+            'size.ilike.%$query%,'
+            'color.ilike.%$query%,'
+            'material.ilike.%$query%',
+          )
+          .eq('is_deleted', false)
+          .order('updated_at', ascending: false)
+          .limit(50);
+
+      if (!mounted) return;
+
+      final results = <Map<String, dynamic>>[];
+
+      for (final row in data) {
+        final itemData = Map<String, dynamic>.from(row);
+        final inventoryName =
+            itemData['inventories']?['name']?.toString() ?? 'Unknown';
+
+        // Build InventoryItem from server data
+        final item = _buildItemFromServerData(itemData);
+
+        results.add({
+          'item': item,
+          'inventoryId': itemData['inventory_id']?.toString() ?? '',
+          'inventoryName': inventoryName,
+        });
+      }
+
       setState(() {
+        _serverResults = results;
         _isSearching = false;
         _hasSearched = true;
       });
+    } catch (e) {
+      debugPrint('⚠️ Server search failed, falling back to local: $e');
+
+      // Fall back to local search
+      if (mounted) {
+        _performLocalSearch(query);
+      }
+    }
+  }
+
+  /// Builds an InventoryItem from Supabase server data.
+  InventoryItem _buildItemFromServerData(Map<String, dynamic> data) {
+    final customFields = <String, String>{};
+    final rawCustom = data['custom_fields'];
+    if (rawCustom is Map) {
+      for (final entry in rawCustom.entries) {
+        customFields[entry.key.toString()] = entry.value.toString();
+      }
+    }
+
+    final item = InventoryItem(
+      id: data['id']?.toString(),
+      name: data['name']?.toString() ?? '',
+      code: data['code']?.toString() ?? '',
+      barcode: data['barcode']?.toString() ?? '',
+      color: data['color']?.toString() ?? '',
+      material: data['material']?.toString() ?? '',
+      size: data['size']?.toString() ?? '',
+      quantity: data['quantity'] as int? ?? 0,
+      label: data['label']?.toString() ?? '',
+      note: data['note']?.toString() ?? '',
+      customFields: customFields,
+      productionDate: data['production_date'] != null
+          ? DateTime.tryParse(data['production_date'] as String)
+          : null,
+      expireDate: data['expire_date'] != null
+          ? DateTime.tryParse(data['expire_date'] as String)
+          : null,
+      createdAt: data['created_at'] != null
+          ? DateTime.parse(data['created_at'] as String)
+          : DateTime.now(),
+      modified: data['updated_at'] != null
+          ? DateTime.parse(data['updated_at'] as String)
+          : DateTime.now(),
+    );
+
+    item.supabaseId = data['id']?.toString();
+    item.createdBy = data['created_by']?.toString();
+    item.createdByName = data['created_by_name']?.toString();
+    item.updatedBy = data['updated_by']?.toString();
+    item.updatedByName = data['updated_by_name']?.toString();
+    item.rowVersion = data['row_version'] as int? ?? 1;
+    item.companyId = data['company_id']?.toString();
+    item.inventoryId = data['inventory_id']?.toString();
+
+    return item;
+  }
+
+  /// Fallback local search using Hive cache.
+  void _performLocalSearch(String query) {
+    if (!mounted) return;
+    context.read<InventoryBloc>().add(SearchItems(query.trim()));
+    setState(() {
+      _isSearching = false;
+      _hasSearched = true;
     });
   }
 
@@ -82,6 +212,7 @@ class _SearchScreenState extends State<SearchScreen> {
         const SnackBar(
           content: Text('You do not have permission to edit items'),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
@@ -109,10 +240,19 @@ class _SearchScreenState extends State<SearchScreen> {
         const SnackBar(
           content: Text('You do not have permission to update quantities'),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
     }
+
+    // Perform optimistic update
+    final newQuantity =
+        (item.quantity + delta).clamp(0, InventoryItem.maxQuantity);
+    if (newQuantity == item.quantity) return;
+
+    item.quantity = newQuantity;
+    item.modified = DateTime.now();
     context.read<InventoryBloc>().add(AdjustQuantity(item, delta));
   }
 
@@ -137,15 +277,42 @@ class _SearchScreenState extends State<SearchScreen> {
           decoration: InputDecoration(
             hintText: 'Search across all inventories...',
             border: InputBorder.none,
-            suffixIcon: _searchController.text.isNotEmpty
-                ? IconButton(
+            suffixIcon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Toggle search mode (server vs local)
+                if (_searchController.text.isNotEmpty)
+                  IconButton(
+                    icon: Icon(
+                      _isServerSearch
+                          ? Icons.cloud_done
+                          : Icons.cloud_off,
+                      size: 18,
+                      color: _isServerSearch
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.orange,
+                    ),
+                    tooltip: _isServerSearch
+                        ? 'Searching server (tap for local)'
+                        : 'Searching local cache (tap for server)',
+                    onPressed: () {
+                      setState(() => _isServerSearch = !_isServerSearch);
+                      if (_searchController.text.isNotEmpty) {
+                        _performSearch(_searchController.text);
+                      }
+                    },
+                  ),
+                if (_searchController.text.isNotEmpty)
+                  IconButton(
                     icon: const Icon(Icons.clear),
                     onPressed: () {
                       _searchController.clear();
                       _performSearch('');
                     },
-                  )
-                : const Icon(Icons.search, size: 20),
+                  ),
+                const Icon(Icons.search, size: 20),
+              ],
+            ),
           ),
           onChanged: _performSearch,
           onSubmitted: _performSearch,
@@ -161,6 +328,11 @@ class _SearchScreenState extends State<SearchScreen> {
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
                   Text('Searching...'),
+                  SizedBox(height: 8),
+                  Text(
+                    'Checking across all your inventories',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
                 ],
               ),
             );
@@ -170,7 +342,11 @@ class _SearchScreenState extends State<SearchScreen> {
             return _buildInitialState();
           }
 
-          if (state.searchResults.isEmpty && _hasSearched) {
+          // Prefer server results if available
+          final displayResults =
+              _serverResults.isNotEmpty ? _serverResults : _localResults;
+
+          if (displayResults.isEmpty && _hasSearched) {
             return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -181,12 +357,29 @@ class _SearchScreenState extends State<SearchScreen> {
                   Text('No results found',
                       style: TextStyle(
                           color: Colors.grey[600], fontSize: 16)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Try a different search term or check spelling',
+                    style: TextStyle(
+                        color: Colors.grey[400], fontSize: 13),
+                  ),
+                  if (!_isServerSearch) ...[
+                    const SizedBox(height: 16),
+                    TextButton.icon(
+                      onPressed: () {
+                        setState(() => _isServerSearch = true);
+                        _performSearch(_searchController.text);
+                      },
+                      icon: const Icon(Icons.cloud, size: 16),
+                      label: const Text('Try searching online'),
+                    ),
+                  ],
                 ],
               ),
             );
           }
 
-          return _buildResults(state.searchResults);
+          return _buildResults(displayResults);
         },
       ),
     );
@@ -194,35 +387,85 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildInitialState() {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.search, size: 64, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text('Search Across All Inventories',
-              style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[600])),
-          const SizedBox(height: 8),
-          Text('Search by name, code, barcode, or size',
-              style: TextStyle(color: Colors.grey[500])),
-          const SizedBox(height: 24),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: ['name', 'code', 'barcode', 'size', 'color', 'material']
-                .map((f) => Chip(
-                    label: Text(f, style: const TextStyle(fontSize: 12)),
-                    visualDensity: VisualDensity.compact))
-                .toList(),
-          ),
-        ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text('Search Across All Inventories',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[600])),
+            const SizedBox(height: 8),
+            Text('Search by name, code, barcode, size, color, or material',
+                style: TextStyle(color: Colors.grey[500]),
+                textAlign: TextAlign.center),
+            const SizedBox(height: 24),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                'name',
+                'code',
+                'barcode',
+                'size',
+                'color',
+                'material',
+                'note'
+              ]
+                  .map((f) => Chip(
+                      label: Text(f,
+                          style: const TextStyle(fontSize: 12)),
+                      visualDensity: VisualDensity.compact))
+                  .toList(),
+            ),
+            const SizedBox(height: 32),
+            // Server/local indicator
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _isServerSearch
+                    ? Colors.blue.withValues(alpha: 0.05)
+                    : Colors.orange.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _isServerSearch
+                      ? Colors.blue.withValues(alpha: 0.2)
+                      : Colors.orange.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _isServerSearch ? Icons.cloud : Icons.cloud_off,
+                    size: 16,
+                    color: _isServerSearch ? Colors.blue : Colors.orange,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _isServerSearch
+                        ? 'Searching across all your inventories (online)'
+                        : 'Searching local cache only',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: _isServerSearch ? Colors.blue : Colors.orange,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildResults(List<Map<String, dynamic>> results) {
+    // Group results by inventory
     final groupedResults = <String, List<Map<String, dynamic>>>{};
     for (var result in results) {
       final inventoryName =
@@ -232,6 +475,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     return Column(
       children: [
+        // Results header
         Container(
           padding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -244,12 +488,28 @@ class _SearchScreenState extends State<SearchScreen> {
                 size: 16,
                 color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 8),
-            Text(
-                'Found ${results.length} ${results.length == 1 ? 'item' : 'items'} in ${groupedResults.length} ${groupedResults.length == 1 ? 'inventory' : 'inventories'}',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: Theme.of(context).colorScheme.primary)),
+            Expanded(
+              child: Text(
+                  'Found ${results.length} ${results.length == 1 ? 'item' : 'items'} in ${groupedResults.length} ${groupedResults.length == 1 ? 'inventory' : 'inventories'}',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: Theme.of(context).colorScheme.primary)),
+            ),
+            if (!_isServerSearch)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text('Local',
+                    style: TextStyle(
+                        fontSize: 9,
+                        color: Colors.orange,
+                        fontWeight: FontWeight.w600)),
+              ),
           ]),
         ),
         Expanded(
@@ -325,6 +585,8 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildItemCard(InventoryItem item, String inventoryName) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Card(
       margin:
           const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -336,14 +598,14 @@ class _SearchScreenState extends State<SearchScreen> {
               ? Colors.red.shade100
               : item.isExpiringSoon
                   ? Colors.orange.shade100
-                  : Theme.of(context).colorScheme.primaryContainer,
+                  : colorScheme.primaryContainer,
           child: Icon(Icons.inventory_2,
               size: 20,
               color: item.isExpired
                   ? Colors.red
                   : item.isExpiringSoon
                       ? Colors.orange
-                      : Theme.of(context).colorScheme.primary),
+                      : colorScheme.primary),
         ),
         title: Row(children: [
           Expanded(
@@ -371,16 +633,12 @@ class _SearchScreenState extends State<SearchScreen> {
                 _buildInfoChip(
                     Icons.label,
                     item.label,
-                    Theme.of(context)
-                        .colorScheme
-                        .secondaryContainer),
+                    colorScheme.secondaryContainer),
                 const SizedBox(width: 8),
                 _buildInfoChip(
                     Icons.inventory_2,
                     inventoryName,
-                    Theme.of(context)
-                        .colorScheme
-                        .tertiaryContainer),
+                    colorScheme.tertiaryContainer),
               ]),
               const SizedBox(height: 2),
               Text('👤 ${item.creatorDisplayName}',
@@ -459,13 +717,9 @@ class _SearchScreenState extends State<SearchScreen> {
                                 size: 20),
                             style: IconButton.styleFrom(
                                 backgroundColor:
-                                    Theme.of(context)
-                                        .colorScheme
-                                        .errorContainer,
+                                    colorScheme.errorContainer,
                                 foregroundColor:
-                                    Theme.of(context)
-                                        .colorScheme
-                                        .error),
+                                    colorScheme.error),
                           ),
                           Text('${item.quantity}',
                               style: Theme.of(context)
@@ -485,13 +739,9 @@ class _SearchScreenState extends State<SearchScreen> {
                                 size: 20),
                             style: IconButton.styleFrom(
                                 backgroundColor:
-                                    Theme.of(context)
-                                        .colorScheme
-                                        .primaryContainer,
+                                    colorScheme.primaryContainer,
                                 foregroundColor:
-                                    Theme.of(context)
-                                        .colorScheme
-                                        .primary),
+                                    colorScheme.primary),
                           ),
                           IconButton(
                               onPressed: () =>
