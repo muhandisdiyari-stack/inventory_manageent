@@ -1,5 +1,7 @@
 ﻿import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+// ✅ FIXED: Hide Supabase's User class to avoid conflict with our custom User model
+import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../database/supabase/supabase_client.dart';
 import '../models/user.dart';
 import '../config/app_config.dart';
@@ -28,12 +30,12 @@ class AuthService {
   AuthService({required SupabaseClientService supabaseClient})
       : _supabaseClient = supabaseClient;
 
+  // These getters/setters are intentionally kept as methods
+  // because AuthBloc needs to modify these values externally
   User? get currentUser => _currentUser;
   bool get isAuthenticated => _isAuthenticated;
   bool get isEmailConfirmed => _emailConfirmed;
   bool get requiresAuth => AppConfig.requiresAuth;
-
-  // ─── Setters for AuthBloc access ─────────────────────────────
 
   set currentUser(User? user) {
     _currentUser = user;
@@ -80,22 +82,34 @@ class AuthService {
         _emailConfirmed =
             authBox.get('email_confirmed', defaultValue: false) as bool? ??
                 false;
-        debugPrint('🔍 AuthService: Found cached user: ${_currentUser?.email}');
+        debugPrint(
+            '🔍 AuthService: Found cached user: ${_currentUser?.email}');
 
         // Verify the Supabase session is still valid
         if (AppConfig.useSupabase) {
           try {
             final isValid = await _supabaseClient.verifySession();
             if (!isValid) {
-              debugPrint('⚠️ AuthService: Session invalid, will show login');
+              debugPrint(
+                  '⚠️ AuthService: Session invalid, clearing cache');
+              await _clearCache();
               _isAuthenticated = false;
+              _currentUser = null;
             } else {
               debugPrint('✅ AuthService: Session valid');
               _isAuthenticated = true;
             }
           } catch (e) {
-            debugPrint('⚠️ AuthService: Session verification error: $e');
-            _isAuthenticated = true;
+            debugPrint(
+                '⚠️ AuthService: Session verification error: $e');
+            // Keep cached user if we have one despite verification error
+            if (_currentUser != null) {
+              debugPrint(
+                  '⚠️ AuthService: Keeping cached user despite verification error');
+              _isAuthenticated = true;
+            } else {
+              _isAuthenticated = false;
+            }
           }
         } else {
           _isAuthenticated = true;
@@ -141,16 +155,34 @@ class AuthService {
 
     try {
       final userData = await _supabaseClient.signIn(email, password);
+
       if (userData != null) {
         _currentUser = User.fromCloudJson(userData);
         _isAuthenticated = true;
         _emailConfirmed = userData['email_confirmed'] as bool? ?? true;
+
+        // Check if user is approved
+        final isApproved = userData['is_approved'] as bool? ?? false;
+        if (!isApproved) {
+          debugPrint('⚠️ AuthService: User not approved yet');
+          _currentUser = null;
+          _isAuthenticated = false;
+          await _clearCache();
+          return false;
+        }
+
         await _cacheCurrentUser();
-        debugPrint('✅ AuthService.signIn: Success - ${_currentUser?.email}');
+        debugPrint(
+            '✅ AuthService.signIn: Success - ${_currentUser?.email}');
         return true;
       }
+
       debugPrint('❌ AuthService.signIn: Failed - no user data');
       return false;
+    } on AuthException catch (e) {
+      // AuthException is from supabase_flutter (now importable since we hide User only)
+      debugPrint('❌ AuthService.signIn: AuthException - ${e.message}');
+      rethrow;
     } catch (e) {
       debugPrint('❌ AuthService.signIn: Exception - $e');
       return false;
@@ -185,7 +217,8 @@ class AuthService {
 
       if (userData == null) {
         return const RegistrationResult(
-            success: false, error: 'Registration failed. Please try again.');
+            success: false,
+            error: 'Registration failed. Please try again.');
       }
 
       final emailConfirmed = userData['email_confirmed'] as bool? ?? false;
@@ -204,8 +237,14 @@ class AuthService {
         return const RegistrationResult(
             success: true, requiresEmailConfirmation: false);
       }
+    } on AuthException catch (e) {
+      debugPrint(
+          '❌ AuthService.register: AuthException - ${e.message}');
+      return RegistrationResult(success: false, error: e.message);
     } catch (e) {
-      return RegistrationResult(success: false, error: e.toString());
+      debugPrint('❌ AuthService.register: Exception - $e');
+      return RegistrationResult(
+          success: false, error: e.toString());
     }
   }
 

@@ -29,6 +29,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<EmailConfirmationReceived>(_onEmailConfirmed);
     on<AdminCheckRequested>(_onAdminCheck);
     on<DeepLinkReceived>(_onDeepLink);
+    on<ClearAuthError>(_onClearError);
 
     _setupAuthListener();
   }
@@ -103,7 +104,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         ));
         debugPrint('✅ AuthBloc: Authenticated as ${user.email}');
       } else {
-        debugPrint('🔍 AuthBloc: Not authenticated via cache, checking Supabase...');
+        debugPrint('🔍 AuthBloc: Not authenticated, checking Supabase session...');
         bool foundSession = false;
 
         if (AppConfig.useSupabase) {
@@ -116,14 +117,32 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
               final authUser =
                   Supabase.instance.client.auth.currentUser;
               if (authUser != null) {
-                _authService.currentUser = User(
-                  id: authUser.id,
-                  email: authUser.email ?? '',
-                  displayName:
-                      authUser.userMetadata?['display_name'],
-                  role: UserRole.dataOperator,
-                  isApproved: false,
-                );
+                try {
+                  final profileData = await Supabase.instance.client
+                      .from('profiles')
+                      .select()
+                      .eq('id', authUser.id)
+                      .maybeSingle();
+
+                  _authService.currentUser = User(
+                    id: authUser.id,
+                    email: authUser.email ?? '',
+                    displayName: profileData?['display_name'] as String? ??
+                        authUser.userMetadata?['display_name'] as String?,
+                    role: UserRole.fromString(
+                        profileData?['role'] as String? ?? 'viewer'),
+                    isApproved: profileData?['is_approved'] as bool? ?? false,
+                  );
+                } catch (_) {
+                  _authService.currentUser = User(
+                    id: authUser.id,
+                    email: authUser.email ?? '',
+                    displayName:
+                        authUser.userMetadata?['display_name'] as String?,
+                    role: UserRole.dataOperator,
+                    isApproved: false,
+                  );
+                }
                 _authService.isAuthenticatedValue = true;
                 foundSession = true;
               }
@@ -135,11 +154,26 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
         if (foundSession) {
           _initialAuthCheckDone = true;
-          emit(state.copyWith(
-            status: AuthStatus.authenticated,
-            user: _authService.currentUser,
-            isAdmin: false,
-          ));
+          final user = _authService.currentUser;
+          if (user != null && user.isApproved) {
+            emit(state.copyWith(
+              status: AuthStatus.authenticated,
+              user: user,
+              isAdmin: false,
+            ));
+          } else if (user != null && !user.isApproved) {
+            emit(state.copyWith(
+              status: AuthStatus.unauthenticated,
+              error: 'Your account is pending approval.',
+            ));
+            await _authService.signOut();
+          } else {
+            emit(state.copyWith(
+              status: AuthStatus.authenticated,
+              user: user,
+              isAdmin: false,
+            ));
+          }
         } else {
           debugPrint('🔍 AuthBloc: No valid session found, showing login');
           _initialAuthCheckDone = true;
@@ -168,7 +202,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         if (!user.isApproved) {
           emit(state.copyWith(
             status: AuthStatus.unauthenticated,
-            error: 'Your account is pending approval.',
+            error: 'Your account is pending approval. Please wait for an admin to approve your account.',
           ));
           await _authService.signOut();
           return;
@@ -191,15 +225,36 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       } else {
         emit(state.copyWith(
           status: AuthStatus.unauthenticated,
-          error: 'Invalid email or password',
+          error: 'Invalid email or password. Please check your credentials and try again.',
         ));
       }
+    } on AuthException catch (e) {
+      // ✅ FIXED: AuthException is from supabase_flutter package
+      debugPrint('❌ AuthBloc._onSignIn AuthException: ${e.message}');
+      String errorMessage;
+      switch (e.message.toLowerCase()) {
+        case 'invalid login credentials':
+        case 'invalid email or password':
+          errorMessage = 'Invalid email or password. Please try again.';
+          break;
+        case 'email not confirmed':
+          errorMessage = 'Please confirm your email address before signing in. Check your inbox for the confirmation link.';
+          break;
+        case 'user not found':
+          errorMessage = 'No account found with this email. Please sign up first.';
+          break;
+        default:
+          errorMessage = e.message;
+      }
+      emit(state.copyWith(
+        status: AuthStatus.unauthenticated,
+        error: errorMessage,
+      ));
     } catch (e) {
       debugPrint('❌ AuthBloc._onSignIn error: $e');
       emit(state.copyWith(
         status: AuthStatus.unauthenticated,
-        error:
-            'Sign in failed. Please check your credentials and internet connection.',
+        error: 'Sign in failed. Please check your internet connection and try again.',
       ));
     }
   }
@@ -231,12 +286,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           error: result.error ?? 'Registration failed',
         ));
       }
+    } on AuthException catch (e) {
+      debugPrint('❌ AuthBloc._onSignUp AuthException: ${e.message}');
+      emit(state.copyWith(
+        status: AuthStatus.unauthenticated,
+        error: e.message,
+      ));
     } catch (e) {
       debugPrint('❌ AuthBloc._onSignUp error: $e');
       emit(state.copyWith(
         status: AuthStatus.unauthenticated,
-        error:
-            'Registration failed. Please check your internet connection.',
+        error: 'Registration failed. Please check your internet connection.',
       ));
     }
   }
@@ -287,11 +347,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (state.status == AuthStatus.emailUnconfirmed) {
         emit(state.copyWith(
           status: AuthStatus.unauthenticated,
-          error:
-              'Email confirmation failed. Please try again or contact support.',
+          error: 'Email confirmation failed. Please try again or contact support.',
         ));
       }
     }
+  }
+
+  void _onClearError(ClearAuthError event, Emitter<AuthState> emit) {
+    emit(state.copyWith(error: null));
   }
 
   @override

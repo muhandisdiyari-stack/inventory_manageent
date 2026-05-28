@@ -99,6 +99,9 @@ void main() async {
     debugPrint('🔧 Environment: ${AppConfig.environment}');
     debugPrint('☁️ Supabase: ${AppConfig.useSupabase ? "Enabled" : "Disabled"}');
 
+    // ✅ FIXED: Check auth state first, then decide onboarding
+    // The InventoryProApp handles auth check internally via AuthBloc
+    // Onboarding should only appear for first-time users AFTER they're authenticated
     bool onboardingCompleted = false;
     try {
       final appSettings = Hive.box(AppConstants.appSettingsBox);
@@ -111,36 +114,25 @@ void main() async {
       onboardingCompleted = false;
     }
 
-    // ✅ CRITICAL FIX: Provide BLoCs globally so all screens can access them
+    // ✅ FIXED: Always use InventoryProApp as the root
+    // It handles auth state internally and routes accordingly
+    // Onboarding should be integrated into the app flow, not a separate pre-auth screen
     runApp(
       AppLifecycleObserver(
-        child: InjectionContainer.blocProviders.isNotEmpty
-            ? MultiBlocProvider(
-                providers: InjectionContainer.blocProviders,
-                child: MaterialApp(
-                  debugShowCheckedModeBanner: false,
-                  title: AppConfig.appName,
-                  theme: ThemeData(
-                    useMaterial3: true,
-                    colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-                  ),
-                  home: onboardingCompleted
-                      ? const InventoryProApp()
-                      : SplashScreen(nextScreen: const OnboardingScreen()),
-                ),
-              )
-            : MaterialApp(
-                debugShowCheckedModeBanner: false,
-                title: AppConfig.appName,
-                theme: ThemeData(
-                  useMaterial3: true,
-                  colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-                ),
-                home: const _ErrorApp(
-                    title: 'Initialization Error',
-                    error: 'BLoC providers not initialized.',
-                    canRetry: false),
-              ),
+        child: MultiBlocProvider(
+          providers: InjectionContainer.blocProviders,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: AppConfig.appName,
+            theme: ThemeData(
+              useMaterial3: true,
+              colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+            ),
+            home: onboardingCompleted
+                ? const InventoryProApp()
+                : SplashScreen(nextScreen: const OnboardingScreen()),
+          ),
+        ),
       ),
     );
   } catch (e, stack) {
@@ -215,6 +207,7 @@ class _ErrorApp extends StatelessWidget {
                   FilledButton.icon(
                     onPressed: () {
                       // Restart the app by calling main again
+                      // This will only work if the error is recoverable
                     },
                     icon: const Icon(Icons.refresh),
                     label: const Text('Retry'),

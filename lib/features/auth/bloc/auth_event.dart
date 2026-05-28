@@ -41,3 +41,8 @@ class DeepLinkReceived extends AuthEvent {
   final Uri uri;
   const DeepLinkReceived(this.uri);
 }
+
+// ✅ NEW: Clear error message event
+class ClearAuthError extends AuthEvent {
+  const ClearAuthError();
+}

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'core/theme/app_theme.dart';
 import 'core/constants/app_constants.dart';
 import 'features/theme/bloc/theme_bloc.dart';
@@ -7,6 +8,7 @@ import 'features/auth/bloc/auth_bloc.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/company/screens/company_setup_screen.dart';
 import 'features/admin/screens/admin_dashboard_screen.dart';
+import 'features/onboarding/screens/onboarding_screen.dart';
 
 class InventoryProApp extends StatelessWidget {
   const InventoryProApp({super.key});
@@ -54,6 +56,8 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
     return BlocBuilder<AuthBloc, AuthState>(
       builder: (context, state) {
         debugPrint('🔍 _AppEntryPoint: AuthStatus = ${state.status}');
+
+        // ✅ FIXED: Handle onboarding here - check after authentication
         return switch (state.status) {
           AuthStatus.unknown ||
           AuthStatus.initializing =>
@@ -70,9 +74,7 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
                   Text('Please wait...'),
                 ]))),
           AuthStatus.unauthenticated => const LoginScreen(),
-          AuthStatus.authenticated => state.isAdmin
-              ? const _AdminGate()
-              : const CompanySetupScreen(),
+          AuthStatus.authenticated => _buildAuthenticatedFlow(state),
           AuthStatus.emailUnconfirmed =>
             const _EmailConfirmationScreen(),
           AuthStatus.emailConfirmed => const _EmailConfirmedScreen(),
@@ -95,6 +97,36 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
         };
       },
     );
+  }
+
+  /// ✅ NEW: Check onboarding state after authentication
+  Widget _buildAuthenticatedFlow(AuthState state) {
+    // Check if onboarding has been completed
+    final onboardingCompleted = _isOnboardingCompleted();
+
+    if (!onboardingCompleted) {
+      // Show onboarding for first-time users
+      return const OnboardingScreen();
+    }
+
+    // Normal authenticated flow
+    if (state.isAdmin) {
+      return const _AdminGate();
+    }
+    return const CompanySetupScreen();
+  }
+
+  bool _isOnboardingCompleted() {
+    try {
+      final appSettings = Hive.box(AppConstants.appSettingsBox);
+      return appSettings.get(
+            AppConstants.onboardingCompletedKey,
+            defaultValue: false,
+          ) as bool? ??
+          false;
+    } catch (_) {
+      return false;
+    }
   }
 }
 

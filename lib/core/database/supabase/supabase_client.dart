@@ -86,63 +86,49 @@ class SupabaseClientService {
     }
   }
 
+// In the signIn method, change the catch block:
+
   Future<Map<String, dynamic>?> signIn(String email, String password) async {
     if (!isConfigured) return null;
     try {
       final response = await _client!.auth
           .signInWithPassword(email: email, password: password)
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 15)); // Increased timeout
 
       final user = response.user;
       if (user == null) return null;
 
-      // Retry with exponential backoff for profile
+      // Get profile data
       Map<String, dynamic>? profileData;
-      int retries = 0;
-      const maxRetries = 3;
-
-      while (retries < maxRetries) {
-        try {
-          profileData = await _client!
-              .from('profiles')
-              .select()
-              .eq('id', user.id)
-              .maybeSingle();
-
-          if (profileData != null) break;
-
-          retries++;
-          if (retries < maxRetries) {
-            await Future.delayed(
-                Duration(milliseconds: 300 * (retries + 1)));
-          }
-        } catch (e) {
-          retries++;
-          if (retries >= maxRetries) rethrow;
-        }
-      }
-
-      if (profileData == null) {
-        throw Exception('Profile not found after $maxRetries retries');
+      try {
+        profileData = await _client!
+            .from('profiles')
+            .select()
+            .eq('id', user.id)
+            .maybeSingle();
+      } catch (e) {
+        debugPrint('⚠️ Profile fetch error: $e');
+        // Continue even if profile fetch fails
       }
 
       return {
         'id': user.id,
         'email': user.email,
         'display_name':
-            profileData['display_name'] ?? user.userMetadata?['display_name'],
-        'role': profileData['role'] ?? 'viewer',
-        'company_id': profileData['company_id'],
-        'is_approved': profileData['is_approved'] ?? false,
+            profileData?['display_name'] ?? user.userMetadata?['display_name'],
+        'role': profileData?['role'] ?? 'viewer',
+        'company_id': profileData?['company_id'],
+        'is_approved': profileData?['is_approved'] ?? false,
         'email_confirmed': user.emailConfirmedAt != null,
         'created_at': user.createdAt,
-        'permissions': profileData['permissions'] ?? {},
+        'permissions': profileData?['permissions'] ?? {},
       };
-    } on AuthException catch (e) {
-      debugPrint('Auth error: ${e.message}');
+    } on AuthException {
+      // ✅ FIXED: Re-throw AuthException so AuthBloc can handle it properly
       rethrow;
     } catch (e) {
       debugPrint('Sign in error: $e');
+      // ✅ FIXED: Return null for non-auth errors (network issues, etc.)
       return null;
     }
   }
