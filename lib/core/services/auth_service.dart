@@ -1,6 +1,5 @@
 ﻿import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../database/supabase/supabase_client.dart';
 import '../models/user.dart';
 import '../config/app_config.dart';

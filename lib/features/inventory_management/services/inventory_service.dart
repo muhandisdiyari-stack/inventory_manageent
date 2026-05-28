@@ -184,7 +184,6 @@ class InventoryService {
     item.createdByName = row['created_by_name'] as String?;
     item.updatedBy = row['updated_by'] as String?;
     item.updatedByName = row['updated_by_name'] as String?;
-    item.updateCount = row['update_count'] as int? ?? 0;
     item.rowVersion = row['row_version'] as int? ?? 1;
 
     return item;
@@ -324,91 +323,69 @@ class InventoryService {
     await _syncItemToSupabase(item);
   }
 
-  Future<void> _syncItemToSupabase(InventoryItem item) async {
-    if (!AppConfig.useSupabase) return;
-    final companyId = _currentCompanyId;
-    if (companyId == null || _currentInventoryId == null) return;
+Future<void> _syncItemToSupabase(InventoryItem item) async {
+  if (!AppConfig.useSupabase) return;
+  final companyId = _currentCompanyId;
+  if (companyId == null || _currentInventoryId == null) return;
 
-    try {
-      final client = Supabase.instance.client;
-      final user = client.auth.currentUser;
-      final now = DateTime.now().toUtc().toIso8601String();
+  try {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    final now = DateTime.now().toUtc().toIso8601String();
 
-      final supabaseId = item.supabaseId;
-      final userName = user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown';
+    final data = <String, dynamic>{
+      'company_id': companyId,
+      'inventory_id': _currentInventoryId,
+      'name': item.name, 'code': item.code, 'barcode': item.barcode,
+      'color': item.color, 'material': item.material, 'size': item.size,
+      'quantity': item.quantity, 'label': item.label, 'note': item.note,
+      'custom_fields': item.customFields,
+      'production_date': item.productionDate?.toIso8601String(),
+      'expire_date': item.expireDate?.toIso8601String(),
+      'created_by': user?.id,
+      'created_by_name': user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown',
+      'updated_at': now,
+    };
 
-      if (supabaseId != null && supabaseId.isNotEmpty) {
-        // 🔑 Use version-checked update
-        final result = await client.rpc('update_item_with_version_check', params: {
-          'p_item_id': supabaseId,
-          'p_data': {
-            'name': item.name,
-            'code': item.code,
-            'barcode': item.barcode,
-            'color': item.color,
-            'material': item.material,
-            'size': item.size,
-            'quantity': item.quantity,
-            'label': item.label,
-            'note': item.note,
-            'custom_fields': item.customFields,
-            'production_date': item.productionDate?.toIso8601String(),
-            'expire_date': item.expireDate?.toIso8601String(),
-          },
-          'p_expected_version': item.rowVersion,
-          'p_updated_by': user?.id,
-          'p_updated_by_name': userName,
-        });
+    final supabaseId = item.supabaseId;
+    final userName = user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown';
 
-        final resultMap = Map<String, dynamic>.from(result as Map);
-        if (resultMap['success'] == true) {
-          item.rowVersion = resultMap['new_version'] as int? ?? item.rowVersion + 1;
-          item.updateCount = resultMap['update_count'] as int? ?? item.updateCount + 1;
-          item.updatedBy = user?.id;
-          item.updatedByName = userName;
-          await item.save();
-        } else {
-          debugPrint('⚠️ Optimistic lock failed: ${resultMap['message']}');
-          // Refresh from Supabase to get latest version
-          await _syncItemsFromSupabase(_currentInventoryId!);
-          throw Exception(resultMap['message'] ?? 'Update conflict');
-        }
-      } else {
-        // New item — insert
-        final newId = _uuid.v4();
-        await client.from('inventory_items').insert({
-          'id': newId,
-          'company_id': companyId,
-          'inventory_id': _currentInventoryId,
-          'name': item.name,
-          'code': item.code,
-          'barcode': item.barcode,
-          'color': item.color,
-          'material': item.material,
-          'size': item.size,
-          'quantity': item.quantity,
-          'label': item.label,
-          'note': item.note,
-          'custom_fields': item.customFields,
-          'production_date': item.productionDate?.toIso8601String(),
-          'expire_date': item.expireDate?.toIso8601String(),
-          'created_by': user?.id,
-          'created_by_name': userName,
-          'created_at': item.createdAt.toUtc().toIso8601String(),
-          'updated_at': now,
-        });
-        item.supabaseId = newId;
-        item.createdBy = user?.id;
-        item.createdByName = userName;
-        item.rowVersion = 1;
-        item.updateCount = 0;
+    if (supabaseId != null && supabaseId.isNotEmpty) {
+      final result = await client.rpc('update_item_with_version_check', params: {
+        'p_item_id': supabaseId,
+        'p_data': data,
+        'p_expected_version': item.rowVersion,
+        'p_updated_by': user?.id,
+        'p_updated_by_name': userName,
+      });
+
+      final resultMap = Map<String, dynamic>.from(result as Map);
+      if (resultMap['success'] == true) {
+        item.rowVersion = resultMap['new_version'] as int? ?? item.rowVersion + 1;
+        item.updatedBy = user?.id;
+        item.updatedByName = userName;
         await item.save();
+      } else {
+        debugPrint('⚠️ Optimistic lock conflict: ${resultMap['message']}');
+        await _syncItemsFromSupabase(_currentInventoryId!);
+        throw Exception(resultMap['message'] ?? 'Update conflict. Please refresh.');
       }
-    } catch (e) {
-      debugPrint('❌ Sync error for ${item.name}: $e');
-      rethrow;
+    } else {
+      final newId = _uuid.v4();
+      data['id'] = newId;
+      data['created_at'] = item.createdAt.toUtc().toIso8601String();
+      await client.from('inventory_items').insert(data);
+      item.supabaseId = newId;
+      item.createdBy = user?.id;
+      item.createdByName = userName;
+      item.rowVersion = 1;
+      await item.save();
     }
+  } catch (e) {
+    debugPrint('❌ Sync error for ${item.name}: $e');
+    rethrow;
   }
+}
 
   Future<int> importItems(String label, List<InventoryItem> newItems) async {
     if (_currentInventoryId == null) return 0;
