@@ -47,7 +47,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             }
           }
           if (data.event == AuthChangeEvent.signedOut) {
-            // ✅ FIXED: Reset the flag on sign out
             _initialAuthCheckDone = false;
             add(const AuthCheckRequested());
           }
@@ -62,8 +61,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       AuthCheckRequested event, Emitter<AuthState> emit) async {
     debugPrint('🔍 AuthBloc._onAuthCheck: status=${state.status}');
 
-    // ✅ FIXED: Only skip if actually authenticated AND the flag is set
-    // Force re-check allows re-authentication after logout
     if (_initialAuthCheckDone && state.status == AuthStatus.authenticated) {
       debugPrint('🔍 AuthBloc: Already authenticated, skipping check');
       return;
@@ -114,7 +111,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
     } catch (e) {
       debugPrint('❌ AuthBloc._onAuthCheck error: $e');
-      // ✅ FIXED: Show the error instead of silently going to login
       emit(state.copyWith(
         status: AuthStatus.error,
         error: 'Connection failed. Please check your internet and try again.',
@@ -140,6 +136,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           ));
           await _authService.signOut();
           return;
+        }
+
+        // ✅ NEW: Auto-join any pending invitations
+        try {
+          final result = await Supabase.instance.client
+              .rpc('auto_join_pending_invitations');
+          debugPrint('🔍 Auto-join result: $result');
+        } catch (e) {
+          debugPrint('⚠️ Auto-join failed: $e');
         }
 
         bool isAdmin = false;
