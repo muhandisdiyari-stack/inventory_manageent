@@ -59,8 +59,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       if (user?.inventoryPermissions != null) {
         setState(() => _permissions = user!.inventoryPermissions);
       } else {
-        // ✅ FIXED: Default permissions allow basic operations
-        // RLS enforces actual restrictions server-side
         final role = user?.role ?? UserRole.viewer;
         setState(() => _permissions = InventoryPermissions(
               canCreate: role == UserRole.owner ||
@@ -77,7 +75,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
             ));
       }
     } catch (_) {
-      // ✅ FIXED: Default to allowing operations
       setState(() => _permissions = const InventoryPermissions(
             canCreate: true,
             canUpdate: true,
@@ -90,10 +87,11 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     }
   }
 
-  // ✅ FIXED: Default to true for create/update
   bool get _canCreate => _permissions?.canCreate ?? true;
   bool get _canUpdate => _permissions?.canUpdate ?? true;
   bool get _canDelete => _permissions?.canDelete ?? false;
+  bool get _canExport => _permissions?.canExport ?? true;
+  bool get _canManageSettings => _permissions?.canManageSettings ?? false;
 
   void _selectLabel(String label) {
     context.read<InventoryBloc>().add(SelectLabel(label));
@@ -222,6 +220,19 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
         margin: const EdgeInsets.all(20),
       ));
+  }
+
+  /// ✅ NEW: Refresh items for the currently selected label
+  Future<void> _refreshItems() async {
+    final state = context.read<InventoryBloc>().state;
+    if (state.selectedLabel != null) {
+      context.read<InventoryBloc>().add(LoadItems(state.selectedLabel!));
+    }
+  }
+
+  /// ✅ NEW: Refresh labels list
+  Future<void> _refreshLabels() async {
+    context.read<InventoryBloc>().add(const LoadLabels());
   }
 
   @override
@@ -455,18 +466,21 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
                     ),
                   ),
                   Expanded(
-                    child: LabelListWidget(
-                      labels: state.labels,
-                      currentLabel: state.selectedLabel,
-                      searchController: _labelSearchController,
-                      onSelectLabel: _selectLabel,
-                      onRenameLabel: (oldName) => _showRenameDialog(oldName),
-                      onDeleteLabel: (label) => _deleteLabel(label),
-                      sortType: state.sortType,
-                      onSortChanged: (sortType) {
-                        context.read<InventoryBloc>().add(SetLabelSortType(sortType));
-                      },
-                      inventoryService: InjectionContainer.inventoryService,
+                    child: RefreshIndicator(
+                      onRefresh: _refreshLabels,
+                      child: LabelListWidget(
+                        labels: state.labels,
+                        currentLabel: state.selectedLabel,
+                        searchController: _labelSearchController,
+                        onSelectLabel: _selectLabel,
+                        onRenameLabel: (oldName) => _showRenameDialog(oldName),
+                        onDeleteLabel: (label) => _deleteLabel(label),
+                        sortType: state.sortType,
+                        onSortChanged: (sortType) {
+                          context.read<InventoryBloc>().add(SetLabelSortType(sortType));
+                        },
+                        inventoryService: InjectionContainer.inventoryService,
+                      ),
                     ),
                   ),
                 ],
@@ -501,6 +515,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
                       onDeleteItem: _deleteItem,
                       onAddItem: () => _showAddItemDialog(),
                       onEditItem: (item) => _showAddItemDialog(existingItem: item),
+                      onRefresh: _refreshItems,
                     ),
               if (state.selectedLabel != null)
                 Positioned(
@@ -535,6 +550,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
             onDeleteItem: _deleteItem,
             onAddItem: () => _showAddItemDialog(),
             onEditItem: (item) => _showAddItemDialog(existingItem: item),
+            onRefresh: _refreshItems,
           ),
           Positioned(
             bottom: AppConstants.fabBottomMargin,
@@ -573,18 +589,21 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
               ),
             ),
             Expanded(
-              child: LabelListWidget(
-                labels: state.labels,
-                currentLabel: state.selectedLabel,
-                searchController: _labelSearchController,
-                onSelectLabel: _selectLabel,
-                onRenameLabel: (oldName) => _showRenameDialog(oldName),
-                onDeleteLabel: (label) => _deleteLabel(label),
-                sortType: state.sortType,
-                onSortChanged: (sortType) {
-                  context.read<InventoryBloc>().add(SetLabelSortType(sortType));
-                },
-                inventoryService: InjectionContainer.inventoryService,
+              child: RefreshIndicator(
+                onRefresh: _refreshLabels,
+                child: LabelListWidget(
+                  labels: state.labels,
+                  currentLabel: state.selectedLabel,
+                  searchController: _labelSearchController,
+                  onSelectLabel: _selectLabel,
+                  onRenameLabel: (oldName) => _showRenameDialog(oldName),
+                  onDeleteLabel: (label) => _deleteLabel(label),
+                  sortType: state.sortType,
+                  onSortChanged: (sortType) {
+                    context.read<InventoryBloc>().add(SetLabelSortType(sortType));
+                  },
+                  inventoryService: InjectionContainer.inventoryService,
+                ),
               ),
             ),
           ],
@@ -653,7 +672,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
               bloc.add(DeleteLabel(label));
               _labelSearchController.clear();
               setState(() => _showItemsView = false);
-              _showSnackBar(' "$label" deleted');
+              _showSnackBar('🗑️ "$label" deleted');
             },
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
@@ -664,23 +683,41 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-                color: Colors.grey[200], borderRadius: BorderRadius.circular(20)),
-            child: const Icon(Icons.folder_open, size: 28, color: Colors.grey),
-          ),
-          const SizedBox(height: 16),
-          const Text('No label selected',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          Text('Choose a label or create one',
-              style: TextStyle(color: Colors.grey[500], fontSize: 13)),
-        ],
+      child: RefreshIndicator(
+        onRefresh: _refreshItems,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.6,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                          color: Colors.grey[200], borderRadius: BorderRadius.circular(20)),
+                      child: const Icon(Icons.folder_open, size: 28, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('No label selected',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    Text('Choose a label or create one',
+                        style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                    const SizedBox(height: 16),
+                    Text('Pull down to refresh',
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
+                            fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
