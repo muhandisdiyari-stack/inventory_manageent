@@ -58,7 +58,7 @@ class InventoryService {
 
       if (AppConfig.useSupabase && _currentCompanyId != null) {
         debugPrint('🔄 Syncing inventory $inventoryId for company $_currentCompanyId');
-        await _syncLabelsFromSupabase(inventoryId);
+        await syncLabelsFromSupabase(inventoryId);
         await _syncItemsFromSupabase(inventoryId);
       } else {
         _loadLabelsFromCache(inventoryId);
@@ -111,7 +111,7 @@ class InventoryService {
 
   // ─── Supabase Sync ──────────────────────────────────────────────
 
-  Future<void> _syncLabelsFromSupabase(String inventoryId) async {
+  Future<void> syncLabelsFromSupabase(String inventoryId) async {
     if (!AppConfig.useSupabase) return;
     final companyId = _currentCompanyId;
     if (companyId == null) return;

@@ -1,12 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import '../../config/app_config.dart';
 
 /// Handles Supabase Realtime subscriptions for live data synchronization.
 class SupabaseRealtimeService {
   final _client = Supabase.instance.client;
 
-  // Track active channels by key so we can unsubscribe later
   final Map<String, RealtimeChannel> _channels = {};
   final Map<String, List<void Function()>> _listeners = {};
 
@@ -21,8 +21,6 @@ class SupabaseRealtimeService {
     VoidCallback? onChange,
   }) {
     final key = 'items_$inventoryId';
-
-    // Remove existing channel for this key if any
     _removeChannel(key);
 
     try {
@@ -38,15 +36,16 @@ class SupabaseRealtimeService {
               value: inventoryId,
             ),
             callback: (payload) {
-              debugPrint('🔄 Realtime: items changed for $inventoryId');
+              debugPrint('🔄 Realtime items: ${payload.eventType} for $inventoryId');
+              _handleItemCacheUpdate(inventoryId, payload);
               _notifyListeners(key);
             },
           )
           .subscribe((status, [error]) {
             if (error != null) {
-              debugPrint('❌ Realtime items subscription error: $error');
+              debugPrint('❌ Items subscription error: $error');
             } else {
-              debugPrint('✅ Realtime items subscribed: $status');
+              debugPrint('✅ Items subscribed: $status for $inventoryId');
             }
           });
 
@@ -55,7 +54,7 @@ class SupabaseRealtimeService {
         _addListener(key, onChange);
       }
     } catch (e) {
-      debugPrint('❌ Realtime items subscription failed: $e');
+      debugPrint('❌ Items subscription failed: $e');
     }
   }
 
@@ -64,7 +63,6 @@ class SupabaseRealtimeService {
     VoidCallback? onChange,
   }) {
     final key = 'labels_$inventoryId';
-
     _removeChannel(key);
 
     try {
@@ -80,15 +78,16 @@ class SupabaseRealtimeService {
               value: inventoryId,
             ),
             callback: (payload) {
-              debugPrint('🔄 Realtime: labels changed for $inventoryId');
+              debugPrint('🔄 Realtime labels: ${payload.eventType} for $inventoryId');
+              _handleLabelCacheUpdate(inventoryId, payload);
               _notifyListeners(key);
             },
           )
           .subscribe((status, [error]) {
             if (error != null) {
-              debugPrint('❌ Realtime labels subscription error: $error');
+              debugPrint('❌ Labels subscription error: $error');
             } else {
-              debugPrint('✅ Realtime labels subscribed: $status');
+              debugPrint('✅ Labels subscribed: $status for $inventoryId');
             }
           });
 
@@ -97,7 +96,7 @@ class SupabaseRealtimeService {
         _addListener(key, onChange);
       }
     } catch (e) {
-      debugPrint('❌ Realtime labels subscription failed: $e');
+      debugPrint('❌ Labels subscription failed: $e');
     }
   }
 
@@ -106,7 +105,6 @@ class SupabaseRealtimeService {
     VoidCallback? onChange,
   }) {
     final key = 'members_$inventoryId';
-
     _removeChannel(key);
 
     try {
@@ -122,15 +120,15 @@ class SupabaseRealtimeService {
               value: inventoryId,
             ),
             callback: (payload) {
-              debugPrint('🔄 Realtime: members changed for $inventoryId');
+              debugPrint('🔄 Realtime members: ${payload.eventType}');
               _notifyListeners(key);
             },
           )
           .subscribe((status, [error]) {
             if (error != null) {
-              debugPrint('❌ Realtime members subscription error: $error');
+              debugPrint('❌ Members subscription error: $error');
             } else {
-              debugPrint('✅ Realtime members subscribed: $status');
+              debugPrint('✅ Members subscribed: $status');
             }
           });
 
@@ -139,7 +137,7 @@ class SupabaseRealtimeService {
         _addListener(key, onChange);
       }
     } catch (e) {
-      debugPrint('❌ Realtime members subscription failed: $e');
+      debugPrint('❌ Members subscription failed: $e');
     }
   }
 
@@ -148,7 +146,6 @@ class SupabaseRealtimeService {
     VoidCallback? onChange,
   }) {
     final key = 'activity_$inventoryId';
-
     _removeChannel(key);
 
     try {
@@ -164,15 +161,15 @@ class SupabaseRealtimeService {
               value: inventoryId,
             ),
             callback: (payload) {
-              debugPrint('🔄 Realtime: activity for $inventoryId');
+              debugPrint('🔄 Realtime activity for $inventoryId');
               _notifyListeners(key);
             },
           )
           .subscribe((status, [error]) {
             if (error != null) {
-              debugPrint('❌ Realtime activity subscription error: $error');
+              debugPrint('❌ Activity subscription error: $error');
             } else {
-              debugPrint('✅ Realtime activity subscribed: $status');
+              debugPrint('✅ Activity subscribed: $status');
             }
           });
 
@@ -181,9 +178,133 @@ class SupabaseRealtimeService {
         _addListener(key, onChange);
       }
     } catch (e) {
-      debugPrint('❌ Realtime activity subscription failed: $e');
+      debugPrint('❌ Activity subscription failed: $e');
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Cache Updates from Realtime Events
+  // ═══════════════════════════════════════════════════════════════
+
+  Future<void> _handleItemCacheUpdate(
+      String inventoryId, PostgresChangePayload payload) async {
+    try {
+      final box = await Hive.openBox('items_$inventoryId');
+
+      switch (payload.eventType) {
+        case PostgresChangeEvent.insert:
+          debugPrint('📦 New item detected via realtime');
+          break;
+
+        case PostgresChangeEvent.update:
+          if (payload.newRecord['id'] != null) {
+            final keys = box.keys.toList();
+            for (final key in keys) {
+              final item = box.get(key);
+              if (item is Map &&
+                  item['customFields'] is Map &&
+                  (item['customFields'] as Map)['_supabase_id'] == payload.newRecord['id']) {
+                // Update cache with new values
+                item['name'] = payload.newRecord['name'] ?? item['name'];
+                item['quantity'] = payload.newRecord['quantity'] ?? item['quantity'];
+                item['label'] = payload.newRecord['label'] ?? item['label'];
+                item['barcode'] = payload.newRecord['barcode'] ?? item['barcode'];
+                item['code'] = payload.newRecord['code'] ?? item['code'];
+                item['color'] = payload.newRecord['color'] ?? item['color'];
+                item['material'] = payload.newRecord['material'] ?? item['material'];
+                item['size'] = payload.newRecord['size'] ?? item['size'];
+                item['note'] = payload.newRecord['note'] ?? item['note'];
+                if (item['customFields'] is Map) {
+                  (item['customFields'] as Map)['_row_version'] =
+                      (payload.newRecord['row_version'] ?? 1).toString();
+                }
+                await box.put(key, item);
+                break;
+              }
+            }
+          }
+          break;
+
+        case PostgresChangeEvent.delete:
+          if (payload.oldRecord['id'] != null) {
+            final deletedId = payload.oldRecord['id'];
+            final keys = box.keys.toList();
+            for (final key in keys) {
+              final item = box.get(key);
+              if (item is Map &&
+                  item['customFields'] is Map &&
+                  (item['customFields'] as Map)['_supabase_id'] == deletedId) {
+                await box.delete(key);
+                break;
+              }
+            }
+          }
+          break;
+
+        default:
+          break;
+      }
+    } catch (e) {
+      debugPrint('❌ Cache update error: $e');
+    }
+  }
+
+  Future<void> _handleLabelCacheUpdate(
+      String inventoryId, PostgresChangePayload payload) async {
+    try {
+      final box = await Hive.openBox('labels_$inventoryId');
+      final cachedList = List<Map>.from(
+        box.get('labels_cache', defaultValue: <Map>[]) as List,
+      );
+
+      switch (payload.eventType) {
+        case PostgresChangeEvent.insert:
+          if (payload.newRecord['id'] != null) {
+            final exists = cachedList.any((l) => l['id'] == payload.newRecord['id']);
+            if (!exists) {
+              cachedList.add(Map.from(payload.newRecord));
+              await box.put('labels_cache', cachedList);
+              // Update label names too
+              final labelNames = cachedList.map((l) => l['name'] as String).toList();
+              await box.put('label_names', labelNames);
+            }
+          }
+          break;
+
+        case PostgresChangeEvent.update:
+          if (payload.newRecord['id'] != null) {
+            final idx = cachedList.indexWhere(
+              (l) => l['id'] == payload.newRecord['id'],
+            );
+            if (idx != -1) {
+              cachedList[idx] = Map.from(payload.newRecord);
+              await box.put('labels_cache', cachedList);
+              final labelNames = cachedList.map((l) => l['name'] as String).toList();
+              await box.put('label_names', labelNames);
+            }
+          }
+          break;
+
+        case PostgresChangeEvent.delete:
+          if (payload.oldRecord['id'] != null) {
+            cachedList.removeWhere((l) => l['id'] == payload.oldRecord['id']);
+            await box.put('labels_cache', cachedList);
+            final labelNames = cachedList.map((l) => l['name'] as String).toList();
+            await box.put('label_names', labelNames);
+          }
+          break;
+
+        default:
+          break;
+      }
+    } catch (e) {
+      debugPrint('❌ Label cache update error: $e');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Cleanup
+  // ═══════════════════════════════════════════════════════════════
 
   void unsubscribeFromInventory(String inventoryId) {
     _removeChannel('items_$inventoryId');
