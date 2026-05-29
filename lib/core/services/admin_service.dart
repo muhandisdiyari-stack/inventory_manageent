@@ -7,12 +7,11 @@ class AdminService {
   AdminService({SupabaseClient? client}) : _client = client;
 
   /// Returns the Supabase client safely.
-  /// Falls back to Supabase.instance.client if injected client is null.
-SupabaseClient get _safeClient {
-  final client = _client;
-  if (client != null) return client;
-  return Supabase.instance.client;
-}
+  SupabaseClient get _safeClient {
+    final client = _client;
+    if (client != null) return client;
+    return Supabase.instance.client;
+  }
 
   // ---------------------------------------------------------------------------
   // Auth helpers

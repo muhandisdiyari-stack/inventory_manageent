@@ -1,5 +1,4 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../features/theme/bloc/theme_bloc.dart';
 import '../../features/auth/bloc/auth_bloc.dart';
 import '../../features/company/bloc/company_bloc.dart';
@@ -18,11 +17,6 @@ import '../database/supabase/supabase_client.dart';
 import '../database/supabase/supabase_realtime_service.dart';
 
 /// Central dependency injection container.
-///
-/// All services and BLoCs are created here to ensure consistent dependency
-/// injection throughout the app. SupabaseClientService is the single source
-/// for Supabase access; all other services receive their client through
-/// constructor injection.
 class InjectionContainer {
   // ─── Services ──────────────────────────────────────────────────
 
@@ -51,9 +45,7 @@ class InjectionContainer {
 
   static Future<void> initialize() async {
     // Initialize realtime service
-    realtimeService = SupabaseRealtimeService(
-      client: supabaseClient.safeClient ?? Supabase.instance.client,
-    );
+    realtimeService = SupabaseRealtimeService();
 
     // Initialize offline sync service
     offlineSyncService = OfflineSyncService(

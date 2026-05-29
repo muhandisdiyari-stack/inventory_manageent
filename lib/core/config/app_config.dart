@@ -14,11 +14,11 @@ class AppConfig {
   // ─── Supabase Configuration ──────────────────────────────────
   static const String supabaseUrl = String.fromEnvironment(
     'SUPABASE_URL',
-    defaultValue: 'https://mhyvwpseafkdpzeopqkt.supabase.co',
+    defaultValue: 'https://nmumxokyhlmpwpjauzzl.supabase.co',
   );
   static const String supabaseAnonKey = String.fromEnvironment(
     'SUPABASE_ANON_KEY',
-    defaultValue: 'sb_publishable_e_uIekIur_GgIM8Pa-WkNg_TgnpbqIy',
+    defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tdW14b2t5aGxtcHdwamF1enpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTM1MDAsImV4cCI6MjA5NTU2OTUwMH0.3xorrOzlSuPAjMp7JTnZI5S1uzV-uBrm5gwKtY4DuYI',
   );
 
   // ─── Feature Flags ───────────────────────────────────────────
@@ -31,7 +31,7 @@ class AppConfig {
   static const String appName = 'Inventory Pro';
   static const String appVersion = '2.1.0';
   static const String buildNumber = '1';
-  static const String buildDate = '2026-05-06';
+  static const String buildDate = '2026-05-29';
 
   static String get fullVersion => '$appVersion+$buildNumber';
 

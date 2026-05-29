@@ -57,6 +57,7 @@ class InventoryService {
       await _loadCompanyId();
 
       if (AppConfig.useSupabase && _currentCompanyId != null) {
+        debugPrint('🔄 Syncing inventory $inventoryId for company $_currentCompanyId');
         await _syncLabelsFromSupabase(inventoryId);
         await _syncItemsFromSupabase(inventoryId);
       } else {
@@ -99,7 +100,11 @@ class InventoryService {
           .eq('id', user.id)
           .maybeSingle();
       _currentCompanyId = data?['company_id'] as String?;
+      if (_currentCompanyId != null) {
+        debugPrint('📋 Loaded company ID: $_currentCompanyId');
+      }
     } catch (e) {
+      debugPrint('⚠️ Failed to load company ID: $e');
       _currentCompanyId = null;
     }
   }
@@ -120,9 +125,24 @@ class InventoryService {
           .eq('is_deleted', false)
           .order('name');
 
-      final labels = data
-          .map((row) => Label.fromSupabase(Map<String, dynamic>.from(row)))
-          .toList();
+      // ✅ FIX: Deduplicate labels by name before caching
+      final seenNames = <String>{};
+      final labels = <Label>[];
+
+      for (final row in data) {
+        try {
+          final label = Label.fromSupabase(Map<String, dynamic>.from(row));
+          if (!seenNames.contains(label.name)) {
+            seenNames.add(label.name);
+            labels.add(label);
+          } else {
+            debugPrint('⚠️ Skipping duplicate label during sync: ${label.name}');
+          }
+        } catch (e) {
+          debugPrint('⚠️ Error parsing label row: $e');
+        }
+      }
+
       final box = _labelsBoxes[inventoryId];
       if (box != null) {
         await box.put(
@@ -130,7 +150,9 @@ class InventoryService {
         await box.put('label_names', labels.map((l) => l.name).toList());
       }
       _labelsCache[inventoryId] = labels;
+      debugPrint('✅ Synced ${labels.length} labels from Supabase');
     } catch (e) {
+      debugPrint('⚠️ Label sync error (using cache): $e');
       _loadLabelsFromCache(inventoryId);
     }
   }
@@ -167,13 +189,52 @@ class InventoryService {
 
       final box = _itemsBoxes[inventoryId];
       if (box == null) return;
-      await box.clear();
+
+      int updated = 0;
+      int added = 0;
 
       for (final itemData in data) {
-        final item = _itemFromSupabaseRow(
-            Map<String, dynamic>.from(itemData));
-        await box.add(item);
+        try {
+          final item = _itemFromSupabaseRow(
+              Map<String, dynamic>.from(itemData));
+
+          // Check if item already exists in cache by supabaseId
+          bool found = false;
+          for (final existingItem in box.values) {
+            if (existingItem.supabaseId == item.supabaseId) {
+              // Update existing item
+              existingItem.name = item.name;
+              existingItem.code = item.code;
+              existingItem.barcode = item.barcode;
+              existingItem.quantity = item.quantity;
+              existingItem.label = item.label;
+              existingItem.note = item.note;
+              existingItem.color = item.color;
+              existingItem.material = item.material;
+              existingItem.size = item.size;
+              existingItem.customFields = item.customFields;
+              existingItem.productionDate = item.productionDate;
+              existingItem.expireDate = item.expireDate;
+              existingItem.modified = item.modified;
+              existingItem.rowVersion = item.rowVersion;
+              await existingItem.save();
+              found = true;
+              updated++;
+              break;
+            }
+          }
+
+          if (!found) {
+            await box.add(item);
+            added++;
+          }
+        } catch (e) {
+          debugPrint('⚠️ Error syncing individual item: $e');
+          // Continue with next item - don't crash the whole sync
+        }
       }
+
+      debugPrint('✅ Synced ${data.length} items ($updated updated, $added added)');
     } catch (e) {
       debugPrint('⚠️ Item sync error: $e');
     }
@@ -297,27 +358,51 @@ class InventoryService {
     final now = DateTime.now();
 
     if (AppConfig.useSupabase) {
-      final response = await Supabase.instance.client
-          .from('labels')
-          .insert({
-            'company_id': companyId,
-            'inventory_id': _currentInventoryId,
-            'name': name,
-            'created_by': user?.id,
-            'created_by_name':
-                user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown',
-            'created_at': now.toUtc().toIso8601String(),
-            'updated_at': now.toUtc().toIso8601String(),
-          })
-          .select()
-          .single();
+      try {
+        final response = await Supabase.instance.client
+            .from('labels')
+            .insert({
+              'company_id': companyId,
+              'inventory_id': _currentInventoryId,
+              'name': name,
+              'created_by': user?.id,
+              'created_by_name':
+                  user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown',
+              'created_at': now.toUtc().toIso8601String(),
+              'updated_at': now.toUtc().toIso8601String(),
+            })
+            .select()
+            .single();
 
-      final label =
-          Label.fromSupabase(Map<String, dynamic>.from(response));
-      _addLabelToCache(label);
-      return label;
+        final label =
+            Label.fromSupabase(Map<String, dynamic>.from(response));
+        _addLabelToCache(label);
+        return label;
+      } on PostgrestException catch (e) {
+        // Handle duplicate label name gracefully
+        if (e.code == '23505') {
+          debugPrint('⚠️ Label "$name" already exists, fetching existing');
+          final existing = await Supabase.instance.client
+              .from('labels')
+              .select()
+              .eq('company_id', companyId)
+              .eq('inventory_id', _currentInventoryId as Object)
+              .eq('name', name)
+              .eq('is_deleted', false)
+              .maybeSingle();
+
+          if (existing != null) {
+            final label =
+                Label.fromSupabase(Map<String, dynamic>.from(existing));
+            _addLabelToCache(label);
+            return label;
+          }
+        }
+        rethrow;
+      }
     }
 
+    // Offline fallback
     final label = Label.create(
       name: name,
       companyId: companyId,
@@ -358,7 +443,6 @@ class InventoryService {
       _labelsCache[_currentInventoryId!] = list;
     }
 
-    // Update all items with this label name
     for (final item in getItemsByLabel(oldName)) {
       item.label = newName;
       await item.save();
@@ -370,13 +454,11 @@ class InventoryService {
     if (label == null) return;
 
     if (AppConfig.useSupabase && _currentCompanyId != null) {
-      // Soft-delete label in Supabase
       await Supabase.instance.client.from('labels').update({
         'is_deleted': true,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', label.id);
 
-      // Soft-delete all items under this label
       await Supabase.instance.client
           .from('inventory_items')
           .update({'is_deleted': true})
@@ -385,12 +467,10 @@ class InventoryService {
           .eq('label', name);
     }
 
-    // Remove from cache
     final list = List<Label>.from(labels);
     list.removeWhere((l) => l.id == label.id);
     _labelsCache[_currentInventoryId!] = list;
 
-    // Delete from local storage
     for (final item in getItemsByLabel(name)) {
       await item.delete();
     }
@@ -414,14 +494,11 @@ class InventoryService {
     final box = _itemsBoxes[_currentInventoryId!];
     if (box == null) return;
 
-    // Set inventory context on the item
     item.inventoryId = _currentInventoryId;
     item.companyId = _currentCompanyId;
 
-    // Save to Supabase FIRST (authoritative)
     await _syncItemToSupabase(item);
 
-    // Then update local cache
     if (item.key != null) {
       await item.save();
     } else {
@@ -462,7 +539,6 @@ class InventoryService {
           user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown';
 
       if (supabaseId != null && supabaseId.isNotEmpty) {
-        // UPDATE existing item with version check
         final result =
             await client.rpc('update_item_with_version_check', params: {
           'p_item_id': supabaseId,
@@ -478,17 +554,15 @@ class InventoryService {
               resultMap['new_version'] as int? ?? item.rowVersion + 1;
           item.updatedBy = user?.id;
           item.updatedByName = userName;
+          debugPrint('✅ Item updated: ${item.name}');
         } else {
-          debugPrint(
-              '⚠️ Optimistic lock conflict: ${resultMap['message']}');
-          // Refresh from server to get latest version
+          debugPrint('⚠️ Optimistic lock conflict: ${resultMap['message']}');
           await _syncItemsFromSupabase(_currentInventoryId!);
           throw Exception(
               resultMap['message'] ?? 'Update conflict. Please refresh.');
         }
       } else {
-        // INSERT new item
-        final newId = item.id; // Use the UUID already generated
+        final newId = item.id;
         data['id'] = newId;
         data['created_at'] = item.createdAt.toUtc().toIso8601String();
         data['created_by'] = user?.id;
@@ -496,11 +570,11 @@ class InventoryService {
         data['row_version'] = 1;
 
         await client.from('inventory_items').insert(data);
-
         item.supabaseId = newId;
         item.createdBy = user?.id;
         item.createdByName = userName;
         item.rowVersion = 1;
+        debugPrint('✅ New item synced: ${item.name}');
       }
     } catch (e) {
       debugPrint('❌ Sync error for ${item.name}: $e');
@@ -520,19 +594,15 @@ class InventoryService {
       newItem.companyId = _currentCompanyId;
       newItem.inventoryId = _currentInventoryId;
 
-      // Check for duplicates by name + code + barcode
       final isDuplicate = box.values.any((existing) =>
           existing.name == newItem.name &&
           existing.code == newItem.code &&
           existing.barcode == newItem.barcode);
 
       if (!isDuplicate) {
-        // Sync to Supabase first
         try {
           await _syncItemToSupabase(newItem);
-        } catch (_) {
-          // If sync fails, still add to local cache
-        }
+        } catch (_) {}
         await box.add(newItem);
         importedCount++;
       }
@@ -632,8 +702,7 @@ class InventoryService {
         !_settingsBoxes.containsKey(_currentInventoryId!)) {
       return null;
     }
-    final settings =
-        _settingsBoxes[_currentInventoryId!]!.get('main');
+    final settings = _settingsBoxes[_currentInventoryId!]!.get('main');
     if (settings == null) {
       final ds = InventorySettings();
       _settingsBoxes[_currentInventoryId!]!.put('main', ds);

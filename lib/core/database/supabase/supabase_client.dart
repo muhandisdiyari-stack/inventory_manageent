@@ -93,7 +93,7 @@ class SupabaseClientService {
     try {
       final response = await _client!.auth
           .signInWithPassword(email: email, password: password)
-          .timeout(const Duration(seconds: 15)); // Increased timeout
+          .timeout(const Duration(seconds: 15));
 
       final user = response.user;
       if (user == null) return null;
@@ -106,9 +106,9 @@ class SupabaseClientService {
             .select()
             .eq('id', user.id)
             .maybeSingle();
+        debugPrint('🔍 Profile data: $profileData');
       } catch (e) {
         debugPrint('⚠️ Profile fetch error: $e');
-        // Continue even if profile fetch fails
       }
 
       return {
@@ -118,17 +118,16 @@ class SupabaseClientService {
             profileData?['display_name'] ?? user.userMetadata?['display_name'],
         'role': profileData?['role'] ?? 'viewer',
         'company_id': profileData?['company_id'],
-        'is_approved': profileData?['is_approved'] ?? false,
+        'is_approved': profileData?['is_approved'] ?? true, // Default true after our migration
         'email_confirmed': user.emailConfirmedAt != null,
         'created_at': user.createdAt,
         'permissions': profileData?['permissions'] ?? {},
       };
     } on AuthException {
-      // ✅ FIXED: Re-throw AuthException so AuthBloc can handle it properly
+      // ✅ Re-throw so AuthBloc can show the proper message
       rethrow;
     } catch (e) {
       debugPrint('Sign in error: $e');
-      // ✅ FIXED: Return null for non-auth errors (network issues, etc.)
       return null;
     }
   }

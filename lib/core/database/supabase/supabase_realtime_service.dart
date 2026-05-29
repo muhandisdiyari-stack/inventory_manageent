@@ -1,20 +1,14 @@
-import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import '../../config/app_config.dart';
 
 /// Handles Supabase Realtime subscriptions for live data synchronization.
-///
-/// Listens to PostgreSQL changes via Supabase Realtime and updates
-/// the local Hive cache accordingly, then notifies the UI via callbacks.
 class SupabaseRealtimeService {
-  final SupabaseClient _client;
-  final Map<String, StreamSubscription> _subscriptions = {};
-  final Map<String, List<void Function()>> _listeners = {};
+  final _client = Supabase.instance.client;
 
-  SupabaseRealtimeService({SupabaseClient? client})
-      : _client = client ?? Supabase.instance.client;
+  // Track active channels by key so we can unsubscribe later
+  final Map<String, RealtimeChannel> _channels = {};
+  final Map<String, List<void Function()>> _listeners = {};
 
   bool get isEnabled => AppConfig.useSupabase;
 
@@ -22,16 +16,18 @@ class SupabaseRealtimeService {
   // Subscription Management
   // ═══════════════════════════════════════════════════════════════
 
-  /// Subscribe to inventory items changes for a specific inventory.
-  void subscribeToInventoryItems(String inventoryId, {VoidCallback? onChange}) {
-    if (!isEnabled) return;
+  void subscribeToInventoryItems(
+    String inventoryId, {
+    VoidCallback? onChange,
+  }) {
+    final key = 'items_$inventoryId';
 
-    final channelName = 'items:$inventoryId';
-    if (_subscriptions.containsKey(channelName)) return;
+    // Remove existing channel for this key if any
+    _removeChannel(key);
 
     try {
-      final subscription = _client
-          .channel(channelName)
+      final channel = _client
+          .channel(key)
           .onPostgresChanges(
             event: PostgresChangeEvent.all,
             schema: 'public',
@@ -42,32 +38,38 @@ class SupabaseRealtimeService {
               value: inventoryId,
             ),
             callback: (payload) {
-              debugPrint('🔄 Realtime items change: ${payload.eventType}');
-              _handleItemChange(inventoryId, payload);
-              _notifyListeners(channelName);
+              debugPrint('🔄 Realtime: items changed for $inventoryId');
+              _notifyListeners(key);
             },
           )
-          .subscribe();
+          .subscribe((status, [error]) {
+            if (error != null) {
+              debugPrint('❌ Realtime items subscription error: $error');
+            } else {
+              debugPrint('✅ Realtime items subscribed: $status');
+            }
+          });
 
-      _subscriptions[channelName] = subscription as StreamSubscription<dynamic>;
+      _channels[key] = channel;
       if (onChange != null) {
-        _addListener(channelName, onChange);
+        _addListener(key, onChange);
       }
     } catch (e) {
       debugPrint('❌ Realtime items subscription failed: $e');
     }
   }
 
-  /// Subscribe to labels changes for a specific inventory.
-  void subscribeToLabels(String inventoryId, {VoidCallback? onChange}) {
-    if (!isEnabled) return;
+  void subscribeToLabels(
+    String inventoryId, {
+    VoidCallback? onChange,
+  }) {
+    final key = 'labels_$inventoryId';
 
-    final channelName = 'labels:$inventoryId';
-    if (_subscriptions.containsKey(channelName)) return;
+    _removeChannel(key);
 
     try {
-      final subscription = _client
-          .channel(channelName)
+      final channel = _client
+          .channel(key)
           .onPostgresChanges(
             event: PostgresChangeEvent.all,
             schema: 'public',
@@ -78,32 +80,38 @@ class SupabaseRealtimeService {
               value: inventoryId,
             ),
             callback: (payload) {
-              debugPrint('🔄 Realtime labels change: ${payload.eventType}');
-              _handleLabelChange(inventoryId, payload);
-              _notifyListeners(channelName);
+              debugPrint('🔄 Realtime: labels changed for $inventoryId');
+              _notifyListeners(key);
             },
           )
-          .subscribe();
+          .subscribe((status, [error]) {
+            if (error != null) {
+              debugPrint('❌ Realtime labels subscription error: $error');
+            } else {
+              debugPrint('✅ Realtime labels subscribed: $status');
+            }
+          });
 
-      _subscriptions[channelName] = subscription as StreamSubscription<dynamic>;
+      _channels[key] = channel;
       if (onChange != null) {
-        _addListener(channelName, onChange);
+        _addListener(key, onChange);
       }
     } catch (e) {
       debugPrint('❌ Realtime labels subscription failed: $e');
     }
   }
 
-  /// Subscribe to inventory membership changes.
-  void subscribeToInventoryMembers(String inventoryId, {VoidCallback? onChange}) {
-    if (!isEnabled) return;
+  void subscribeToInventoryMembers(
+    String inventoryId, {
+    VoidCallback? onChange,
+  }) {
+    final key = 'members_$inventoryId';
 
-    final channelName = 'members:$inventoryId';
-    if (_subscriptions.containsKey(channelName)) return;
+    _removeChannel(key);
 
     try {
-      final subscription = _client
-          .channel(channelName)
+      final channel = _client
+          .channel(key)
           .onPostgresChanges(
             event: PostgresChangeEvent.all,
             schema: 'public',
@@ -114,31 +122,38 @@ class SupabaseRealtimeService {
               value: inventoryId,
             ),
             callback: (payload) {
-              debugPrint('🔄 Realtime members change: ${payload.eventType}');
-              _notifyListeners(channelName);
+              debugPrint('🔄 Realtime: members changed for $inventoryId');
+              _notifyListeners(key);
             },
           )
-          .subscribe();
+          .subscribe((status, [error]) {
+            if (error != null) {
+              debugPrint('❌ Realtime members subscription error: $error');
+            } else {
+              debugPrint('✅ Realtime members subscribed: $status');
+            }
+          });
 
-      _subscriptions[channelName] = subscription as StreamSubscription<dynamic>;
+      _channels[key] = channel;
       if (onChange != null) {
-        _addListener(channelName, onChange);
+        _addListener(key, onChange);
       }
     } catch (e) {
       debugPrint('❌ Realtime members subscription failed: $e');
     }
   }
 
-  /// Subscribe to activity log changes for a specific inventory.
-  void subscribeToActivityLog(String inventoryId, {VoidCallback? onChange}) {
-    if (!isEnabled) return;
+  void subscribeToActivityLog(
+    String inventoryId, {
+    VoidCallback? onChange,
+  }) {
+    final key = 'activity_$inventoryId';
 
-    final channelName = 'activity:$inventoryId';
-    if (_subscriptions.containsKey(channelName)) return;
+    _removeChannel(key);
 
     try {
-      final subscription = _client
-          .channel(channelName)
+      final channel = _client
+          .channel(key)
           .onPostgresChanges(
             event: PostgresChangeEvent.insert,
             schema: 'public',
@@ -149,168 +164,44 @@ class SupabaseRealtimeService {
               value: inventoryId,
             ),
             callback: (payload) {
-              debugPrint('🔄 Realtime activity: ${payload.eventType}');
-              _notifyListeners(channelName);
+              debugPrint('🔄 Realtime: activity for $inventoryId');
+              _notifyListeners(key);
             },
           )
-          .subscribe();
+          .subscribe((status, [error]) {
+            if (error != null) {
+              debugPrint('❌ Realtime activity subscription error: $error');
+            } else {
+              debugPrint('✅ Realtime activity subscribed: $status');
+            }
+          });
 
-      _subscriptions[channelName] = subscription as StreamSubscription<dynamic>;
+      _channels[key] = channel;
       if (onChange != null) {
-        _addListener(channelName, onChange);
+        _addListener(key, onChange);
       }
     } catch (e) {
       debugPrint('❌ Realtime activity subscription failed: $e');
     }
   }
 
-  /// Unsubscribe from a specific channel.
-  void unsubscribe(String channelName) {
-    _subscriptions[channelName]?.cancel();
-    _subscriptions.remove(channelName);
-    _listeners.remove(channelName);
-  }
-
-  /// Unsubscribe from all channels.
-  void unsubscribeAll() {
-    for (final sub in _subscriptions.values) {
-      sub.cancel();
-    }
-    _subscriptions.clear();
-    _listeners.clear();
-  }
-
-  /// Unsubscribe from all channels for a specific inventory.
   void unsubscribeFromInventory(String inventoryId) {
-    unsubscribe('items:$inventoryId');
-    unsubscribe('labels:$inventoryId');
-    unsubscribe('members:$inventoryId');
-    unsubscribe('activity:$inventoryId');
+    _removeChannel('items_$inventoryId');
+    _removeChannel('labels_$inventoryId');
+    _removeChannel('members_$inventoryId');
+    _removeChannel('activity_$inventoryId');
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // Cache Reconciliation
-  // ═══════════════════════════════════════════════════════════════
-
-  /// Handles inventory item changes from realtime events.
-  /// Reconciles the Hive cache with the authoritative Supabase state.
-  Future<void> _handleItemChange(
-      String inventoryId, PostgresChangePayload payload) async {
-    try {
-      final box = await Hive.openBox('items_$inventoryId');
-      final newRecord = payload.newRecord;
-
-      switch (payload.eventType) {
-        case PostgresChangeEvent.insert:
-          // New item added — add to cache if not already present
-          if (newRecord != null && newRecord['id'] != null) {
-            final existingKeys = box.keys.cast<int>();
-            bool found = false;
-            for (final key in existingKeys) {
-              final item = box.get(key);
-              if (item is Map && item['_supabase_id'] == newRecord['id']) {
-                found = true;
-                break;
-              }
-            }
-            if (!found) {
-              // Cache will be refreshed on next full sync
-              debugPrint('📦 New item detected via realtime, cache will refresh');
-            }
-          }
-          break;
-
-        case PostgresChangeEvent.update:
-          // Item updated — update cache entry if exists
-          if (newRecord != null) {
-            final existingKeys = box.keys.cast<int>();
-            for (final key in existingKeys) {
-              final item = box.get(key);
-              if (item is Map &&
-                  item['customFields'] is Map &&
-                  (item['customFields'] as Map)['_supabase_id'] ==
-                      newRecord['id']) {
-                // Update the cached item with new values
-                item['name'] = newRecord['name'] ?? item['name'];
-                item['quantity'] = newRecord['quantity'] ?? item['quantity'];
-                item['label'] = newRecord['label'] ?? item['label'];
-                item['barcode'] = newRecord['barcode'] ?? item['barcode'];
-                if (item['customFields'] is Map) {
-                  (item['customFields'] as Map)['_row_version'] =
-                      (newRecord['row_version'] ?? 1).toString();
-                }
-                await box.put(key, item);
-                break;
-              }
-            }
-          }
-          break;
-
-        case PostgresChangeEvent.delete:
-          // Item soft-deleted — mark in cache
-          if (payload.oldRecord != null) {
-            final deletedId = payload.oldRecord['id'];
-            final existingKeys = box.keys.cast<int>();
-            for (final key in existingKeys) {
-              final item = box.get(key);
-              if (item is Map &&
-                  item['customFields'] is Map &&
-                  (item['customFields'] as Map)['_supabase_id'] == deletedId) {
-                await box.delete(key);
-                break;
-              }
-            }
-          }
-          break;
-
-        default:
-          break;
+  void _removeChannel(String key) {
+    final existing = _channels.remove(key);
+    if (existing != null) {
+      try {
+        _client.removeChannel(existing);
+      } catch (e) {
+        debugPrint('⚠️ Error removing channel $key: $e');
       }
-    } catch (e) {
-      debugPrint('❌ Cache reconciliation error: $e');
     }
-  }
-
-  /// Handles label changes from realtime events.
-  Future<void> _handleLabelChange(
-      String inventoryId, PostgresChangePayload payload) async {
-    try {
-      final box = await Hive.openBox('labels_$inventoryId');
-      final cachedList =
-          box.get('labels_cache', defaultValue: <Map>[]) as List;
-
-      switch (payload.eventType) {
-        case PostgresChangeEvent.insert:
-          if (payload.newRecord != null) {
-            cachedList.add(Map<String, dynamic>.from(payload.newRecord));
-            await box.put('labels_cache', cachedList);
-          }
-          break;
-        case PostgresChangeEvent.update:
-          if (payload.newRecord != null) {
-            final idx = cachedList.indexWhere(
-              (l) => l['id'] == payload.newRecord!['id'],
-            );
-            if (idx != -1) {
-              cachedList[idx] = Map<String, dynamic>.from(payload.newRecord);
-              await box.put('labels_cache', cachedList);
-            }
-          }
-          break;
-        case PostgresChangeEvent.delete:
-          if (payload.oldRecord != null) {
-            cachedList.removeWhere(
-              (l) => l['id'] == payload.oldRecord!['id'],
-            );
-            await box.put('labels_cache', cachedList);
-          }
-          break;
-        default:
-          break;
-      }
-    } catch (e) {
-      debugPrint('❌ Label cache reconciliation error: $e');
-    }
+    _listeners.remove(key);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -330,17 +221,21 @@ class SupabaseRealtimeService {
     }
   }
 
-  /// Add a generic listener for a channel.
   void addListener(String channelName, VoidCallback listener) {
     _addListener(channelName, listener);
   }
 
-  /// Remove a listener from a channel.
   void removeListener(String channelName, VoidCallback listener) {
     _listeners[channelName]?.remove(listener);
   }
 
   void dispose() {
-    unsubscribeAll();
+    for (final channel in _channels.values) {
+      try {
+        _client.removeChannel(channel);
+      } catch (_) {}
+    }
+    _channels.clear();
+    _listeners.clear();
   }
 }

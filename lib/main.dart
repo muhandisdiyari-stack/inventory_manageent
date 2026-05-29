@@ -10,8 +10,6 @@ import 'core/config/app_config.dart';
 import 'core/services/activity_log_service.dart';
 import 'core/di/injection_container.dart';
 import 'core/app_lifecycle_observer.dart';
-import 'features/onboarding/screens/onboarding_screen.dart';
-import 'features/onboarding/screens/splash_screen.dart';
 import 'app.dart';
 
 void main() async {
@@ -21,17 +19,11 @@ void main() async {
     FlutterError.presentError(details);
     debugPrint('🔴 Flutter Error: ${details.exception}');
     debugPrint('    Stack: ${details.stack}');
-    if (AppConfig.isProduction) {
-      // CrashReportingService.recordError(details.exception, details.stack);
-    }
   };
 
   PlatformDispatcher.instance.onError = (error, stack) {
     debugPrint('🔴 Unhandled Error: $error');
     debugPrint('    Stack: $stack');
-    if (AppConfig.isProduction) {
-      // CrashReportingService.recordError(error, stack);
-    }
     return true;
   };
 
@@ -92,46 +84,40 @@ void main() async {
       }
     }
 
+    // ✅ FIXED: Only clear auth cache if schema version changed (not on every launch)
+    // This prevents forced re-login on every cold start
+    try {
+      final appSettings = Hive.box(AppConstants.appSettingsBox);
+      final lastSchemaVersion = appSettings.get('schema_version', defaultValue: 0) as int? ?? 0;
+      const currentSchemaVersion = 2; // Increment when DB schema changes
+
+      if (lastSchemaVersion < currentSchemaVersion) {
+        // Schema changed - clear auth to prevent stale session issues
+        final authBox = await Hive.openBox('auth');
+        await authBox.clear();
+        await appSettings.put('schema_version', currentSchemaVersion);
+        debugPrint('🧹 Auth cache cleared for schema migration v$currentSchemaVersion');
+      }
+    } catch (_) {}
+
+    // Initialize onboarding key if not set
+    try {
+      final appSettings = Hive.box(AppConstants.appSettingsBox);
+      if (!appSettings.containsKey(AppConstants.onboardingCompletedKey)) {
+        await appSettings.put(AppConstants.onboardingCompletedKey, false);
+      }
+    } catch (_) {}
+
     await ActivityLogService().initialize();
     await InjectionContainer.initialize();
 
-    debugPrint('📱 App Version: ${AppConfig.appVersion}');
-    debugPrint('🔧 Environment: ${AppConfig.environment}');
-    debugPrint('☁️ Supabase: ${AppConfig.useSupabase ? "Enabled" : "Disabled"}');
+    AppConfig.logConfig();
 
-    // ✅ FIXED: Check auth state first, then decide onboarding
-    // The InventoryProApp handles auth check internally via AuthBloc
-    // Onboarding should only appear for first-time users AFTER they're authenticated
-    bool onboardingCompleted = false;
-    try {
-      final appSettings = Hive.box(AppConstants.appSettingsBox);
-      onboardingCompleted = appSettings.get(
-            AppConstants.onboardingCompletedKey,
-            defaultValue: false,
-          ) as bool? ??
-          false;
-    } catch (_) {
-      onboardingCompleted = false;
-    }
-
-    // ✅ FIXED: Always use InventoryProApp as the root
-    // It handles auth state internally and routes accordingly
-    // Onboarding should be integrated into the app flow, not a separate pre-auth screen
     runApp(
       AppLifecycleObserver(
         child: MultiBlocProvider(
           providers: InjectionContainer.blocProviders,
-          child: MaterialApp(
-            debugShowCheckedModeBanner: false,
-            title: AppConfig.appName,
-            theme: ThemeData(
-              useMaterial3: true,
-              colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-            ),
-            home: onboardingCompleted
-                ? const InventoryProApp()
-                : SplashScreen(nextScreen: const OnboardingScreen()),
-          ),
+          child: const InventoryProApp(),
         ),
       ),
     );
@@ -179,39 +165,21 @@ class _ErrorApp extends StatelessWidget {
                     color: Colors.red.shade50,
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: const Icon(Icons.error_outline,
-                      size: 40, color: Colors.red),
+                  child: const Icon(Icons.error_outline, size: 40, color: Colors.red),
                 ),
                 const SizedBox(height: 24),
                 Text(
                   title,
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.red.shade700),
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold, color: Colors.red.shade700),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 12),
                 Text(
                   error,
                   textAlign: TextAlign.center,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(color: Colors.grey.shade700),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade700),
                 ),
-                const SizedBox(height: 32),
-                if (canRetry)
-                  FilledButton.icon(
-                    onPressed: () {
-                      // Restart the app by calling main again
-                      // This will only work if the error is recoverable
-                    },
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Retry'),
-                  ),
               ],
             ),
           ),

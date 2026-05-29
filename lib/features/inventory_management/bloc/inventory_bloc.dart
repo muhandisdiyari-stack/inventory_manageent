@@ -173,36 +173,43 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
     }
   }
 
-  Future<void> _onDeleteItem(
-      DeleteItem event, Emitter<InventoryState> emit) async {
-    try {
-      await event.item.delete();
-      if (state.selectedLabel != null) {
-        add(LoadItems(state.selectedLabel!));
-      }
-    } catch (e) {
-      emit(state.copyWith(error: 'Failed to delete item: $e'));
+Future<void> _onDeleteItem(
+    DeleteItem event, Emitter<InventoryState> emit) async {
+  try {
+    // ✅ FIXED: Mark as deleted and sync to Supabase
+    event.item.customFields['is_deleted'] = 'true';
+    event.item.modified = DateTime.now();
+    await _inventoryService.saveItem(event.item);
+    await event.item.delete(); // Remove from local Hive
+
+    if (state.selectedLabel != null) {
+      add(LoadItems(state.selectedLabel!));
     }
+  } catch (e) {
+    emit(state.copyWith(error: 'Failed to delete item: $e'));
   }
+}
 
-  Future<void> _onAdjustQuantity(
-      AdjustQuantity event, Emitter<InventoryState> emit) async {
-    try {
-      final newQuantity =
-          (event.item.quantity + event.delta).clamp(0, InventoryItem.maxQuantity);
-      if (newQuantity == event.item.quantity) return;
+Future<void> _onAdjustQuantity(
+    AdjustQuantity event, Emitter<InventoryState> emit) async {
+  try {
+    final newQuantity =
+        (event.item.quantity + event.delta).clamp(0, InventoryItem.maxQuantity);
+    if (newQuantity == event.item.quantity) return;
 
-      event.item.quantity = newQuantity;
-      event.item.modified = DateTime.now();
-      await event.item.save();
+    event.item.quantity = newQuantity;
+    event.item.modified = DateTime.now();
+    
+    // ✅ FIXED: Use inventoryService.saveItem() to sync to Supabase
+    await _inventoryService.saveItem(event.item);
 
-      if (state.selectedLabel != null) {
-        add(LoadItems(state.selectedLabel!));
-      }
-    } catch (e) {
-      emit(state.copyWith(error: 'Failed to update quantity: $e'));
+    if (state.selectedLabel != null) {
+      add(LoadItems(state.selectedLabel!));
     }
+  } catch (e) {
+    emit(state.copyWith(error: 'Failed to update quantity: $e'));
   }
+}
 
   Future<void> _onUpdateSettings(
       UpdateSettings event, Emitter<InventoryState> emit) async {

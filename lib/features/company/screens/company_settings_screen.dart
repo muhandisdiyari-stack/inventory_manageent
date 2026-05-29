@@ -123,7 +123,7 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
     }
   }
 
-  void _changeRole(String memberId, String currentRole) async {
+void _changeRole(String memberId, String currentRole) async {
     final companyId = _selectedCompanyId;
     if (companyId == null || companyId.isEmpty) return;
 
@@ -131,7 +131,7 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
       context: context,
       builder: (ctx) => SimpleDialog(
         title: const Text('Change Role'),
-        children: ['staff', 'manager', 'admin']
+        children: ['data_operator', 'admin', 'viewer']  // ✅ FIXED: was 'staff', 'manager', 'admin'
             .map((role) => SimpleDialogOption(
                   onPressed: () => Navigator.pop(ctx, role),
                   child: Row(
@@ -139,7 +139,9 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                       if (role == currentRole)
                         const Icon(Icons.check, size: 18),
                       const SizedBox(width: 8),
-                      Text(role[0].toUpperCase() + role.substring(1)),
+                      Text(role == 'data_operator' 
+                          ? 'Data Operator' 
+                          : role[0].toUpperCase() + role.substring(1)),
                     ],
                   ),
                 ))

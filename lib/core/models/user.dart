@@ -1,34 +1,48 @@
 /// User role enum with proper hierarchy: owner > admin > data_operator > viewer
+// In lib/core/models/user.dart, update the UserRole enum:
+
+/// User role enum with proper hierarchy: owner > admin > data_operator > viewer
+library;
 enum UserRole {
   owner,
   admin,
-  dataOperator,  // ✅ camelCase
+  dataOperator,
   viewer;
 
   static UserRole fromString(String value) {
     final lower = value.toLowerCase().replaceAll(' ', '_');
-    if (lower == 'staff' || lower == 'data_operator' || lower == 'data operator') {
-      return UserRole.dataOperator;  // Updated
+    switch (lower) {
+      case 'owner':
+        return UserRole.owner;
+      case 'admin':
+        return UserRole.admin;
+      case 'data_operator':
+      case 'staff':         // ✅ Handle legacy 'staff' value
+      case 'editor':        // ✅ Handle 'editor' as data_operator
+        return UserRole.dataOperator;
+      case 'viewer':
+      default:
+        return UserRole.viewer;
     }
-    return UserRole.values.firstWhere(
-      (e) => e.name == lower,
-      orElse: () => UserRole.viewer,
-    );
   }
 
   String get displayName {
     switch (this) {
-      case UserRole.owner: return 'Owner';
-      case UserRole.admin: return 'Admin';
-      case UserRole.dataOperator: return 'Data Operator';  // Updated
-      case UserRole.viewer: return 'Viewer';
+      case UserRole.owner:
+        return 'Owner';
+      case UserRole.admin:
+        return 'Admin';
+      case UserRole.dataOperator:
+        return 'Data Operator';
+      case UserRole.viewer:
+        return 'Viewer';
     }
   }
 
   bool get canManageCompany => this == owner;
   bool get canManageMembers => this == owner || this == admin;
-  bool get canCreateItems => this == owner || this == admin || this == dataOperator;  // Updated
-  bool get canUpdateItems => this == owner || this == admin || this == dataOperator;  // Updated
+  bool get canCreateItems => this == owner || this == admin || this == dataOperator;
+  bool get canUpdateItems => this == owner || this == admin || this == dataOperator;
   bool get canDeleteItems => this == owner || this == admin;
   bool get canExportReports => true;
   bool get canViewActivity => true;
