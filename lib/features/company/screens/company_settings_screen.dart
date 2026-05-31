@@ -513,7 +513,7 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                             ),
                             const SizedBox(height: 12),
                             DropdownButtonFormField<String>(
-                              initialValue: _selectedRole,
+                              value: _selectedRole,
                               decoration: InputDecoration(
                                 labelText: 'Role',
                                 prefixIcon: const Icon(Icons.badge_outlined),
