@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../bloc/company_bloc.dart';
 import '../../auth/bloc/auth_bloc.dart';
 import '../../inventory_selection/screens/inventory_selection_screen.dart';
+import '../../inventory_management/services/inventory_service.dart';
+import '../../../core/di/injection_container.dart';
 
 class CompanySetupScreen extends StatefulWidget {
   const CompanySetupScreen({super.key});
@@ -46,7 +49,7 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Company'),
-        content: Text('Delete "$companyName"?\n\nThis cannot be undone. All inventories, items, and labels will be permanently deleted.'),
+        content: Text('Delete "$companyName"?\n\nThis cannot be undone.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           FilledButton(
@@ -83,8 +86,26 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
     context.read<CompanyBloc>().add(LeaveCompany(companyId, companyName));
   }
 
-  void _openCompany(String companyId, String companyName) {
+  void _openCompany(String companyId, String companyName) async {
+    // ✅ Clear old inventory cache when switching companies
+    await InjectionContainer.inventoryService.dispose();
+    
+    if (!mounted) return;
+    
+    // Update profiles.company_id to track last active company (UI hint only)
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        await Supabase.instance.client
+            .from('profiles')
+            .update({'company_id': companyId})
+            .eq('id', userId);
+      }
+    } catch (_) {}
+    
+    // Select the company and navigate
     context.read<CompanyBloc>().add(SelectCompany(companyId));
+    
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const InventorySelectionScreen()),
     );
@@ -102,20 +123,13 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
       listener: (context, state) {
         if (state.successMessage != null && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(state.successMessage!),
-              behavior: SnackBarBehavior.floating,
-            ),
+            SnackBar(content: Text(state.successMessage!), behavior: SnackBarBehavior.floating),
           );
           context.read<CompanyBloc>().add(const ClearMessages());
         }
         if (state.error != null && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(state.error!),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-            ),
+            SnackBar(content: Text(state.error!), backgroundColor: Colors.red, behavior: SnackBarBehavior.floating),
           );
           context.read<CompanyBloc>().add(const ClearMessages());
         }
@@ -144,7 +158,7 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                     child: ListView(
                       padding: const EdgeInsets.all(16),
                       children: [
-                        // Info banner for invited users
+                        // Info banner
                         if (state.companies.isEmpty && !_showCreateForm)
                           Container(
                             margin: const EdgeInsets.only(bottom: 16),
@@ -152,9 +166,7 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                             decoration: BoxDecoration(
                               color: Colors.blue.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: Colors.blue.withValues(alpha: 0.2),
-                              ),
+                              border: Border.all(color: Colors.blue.withValues(alpha: 0.2)),
                             ),
                             child: const Row(
                               children: [
@@ -171,17 +183,34 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                             ),
                           ),
 
-                        // Company list
+                        // ✅ Multiple companies listed
+                        if (state.companies.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: Text(
+                              '${state.companies.length} ${state.companies.length == 1 ? 'Company' : 'Companies'}',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+
                         ...state.companies.map((c) {
                           final name = c['name']?.toString() ?? '';
                           final role = (c['role']?.toString() ?? 'viewer').toUpperCase();
                           final isOwner = role == 'OWNER';
                           final companyId = c['id']?.toString() ?? '';
+                          final isSelected = state.selectedCompany?['id']?.toString() == companyId;
 
                           return Card(
                             margin: const EdgeInsets.only(bottom: 8),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
+                              side: isSelected
+                                  ? BorderSide(color: colorScheme.primary, width: 2)
+                                  : BorderSide.none,
                             ),
                             child: InkWell(
                               borderRadius: BorderRadius.circular(12),
@@ -194,12 +223,14 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                                       width: 48,
                                       height: 48,
                                       decoration: BoxDecoration(
-                                        color: colorScheme.primaryContainer,
+                                        color: isSelected
+                                            ? colorScheme.primaryContainer
+                                            : Colors.grey.shade100,
                                         borderRadius: BorderRadius.circular(12),
                                       ),
                                       child: Icon(
                                         Icons.business,
-                                        color: colorScheme.primary,
+                                        color: isSelected ? colorScheme.primary : Colors.grey.shade600,
                                         size: 24,
                                       ),
                                     ),
@@ -210,17 +241,17 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                                         children: [
                                           Text(
                                             name,
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontWeight: FontWeight.w600,
                                               fontSize: 15,
+                                              color: isSelected
+                                                  ? colorScheme.primary
+                                                  : null,
                                             ),
                                           ),
                                           const SizedBox(height: 4),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 2,
-                                            ),
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                             decoration: BoxDecoration(
                                               color: isOwner
                                                   ? Colors.amber.withValues(alpha: 0.2)
@@ -251,6 +282,7 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                                         tooltip: 'Leave company',
                                         onPressed: () => _leaveCompany(companyId, name),
                                       ),
+                                    const Icon(Icons.chevron_right, color: Colors.grey),
                                   ],
                                 ),
                               ),
@@ -270,58 +302,38 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                                   color: colorScheme.primaryContainer.withValues(alpha: 0.3),
                                   borderRadius: BorderRadius.circular(20),
                                 ),
-                                child: Icon(
-                                  Icons.business_outlined,
-                                  size: 40,
-                                  color: colorScheme.primary,
-                                ),
+                                child: Icon(Icons.business_outlined, size: 40, color: colorScheme.primary),
                               ),
                               const SizedBox(height: 16),
-                              Text(
-                                'No Companies Yet',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  color: Colors.grey[600],
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+                              Text('No Companies Yet',
+                                  style: TextStyle(fontSize: 18, color: Colors.grey[600], fontWeight: FontWeight.w600)),
                               const SizedBox(height: 8),
-                              Text(
-                                'Create a company to get started or wait for an invitation',
-                                style: TextStyle(color: Colors.grey[500]),
-                                textAlign: TextAlign.center,
-                              ),
+                              Text('Create a company or wait for an invitation',
+                                  style: TextStyle(color: Colors.grey[500]), textAlign: TextAlign.center),
                             ]),
                           ),
 
-                        // Create company form
+                        // Create form
                         if (_showCreateForm)
                           Card(
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                             child: Padding(
                               padding: const EdgeInsets.all(16),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: colorScheme.primaryContainer,
-                                          borderRadius: BorderRadius.circular(10),
-                                        ),
-                                        child: Icon(Icons.add_business, color: colorScheme.primary, size: 20),
+                                  Row(children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: colorScheme.primaryContainer,
+                                        borderRadius: BorderRadius.circular(10),
                                       ),
-                                      const SizedBox(width: 12),
-                                      const Text(
-                                        'New Company',
-                                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                                      ),
-                                    ],
-                                  ),
+                                      child: Icon(Icons.add_business, color: colorScheme.primary, size: 20),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    const Text('New Company', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                                  ]),
                                   const SizedBox(height: 16),
                                   TextField(
                                     controller: _companyNameController,
@@ -330,9 +342,7 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                                     decoration: InputDecoration(
                                       hintText: 'Enter company name',
                                       prefixIcon: const Icon(Icons.business),
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                                       filled: true,
                                     ),
                                     onSubmitted: (_) => _createCompany(),
@@ -347,9 +357,7 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                                         }),
                                         style: OutlinedButton.styleFrom(
                                           padding: const EdgeInsets.symmetric(vertical: 14),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                         ),
                                         child: const Text('Cancel'),
                                       ),
@@ -360,9 +368,7 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                                         onPressed: _createCompany,
                                         style: FilledButton.styleFrom(
                                           padding: const EdgeInsets.symmetric(vertical: 14),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                         ),
                                         child: const Text('Create'),
                                       ),
@@ -373,7 +379,6 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                             ),
                           ),
 
-                        // Create button
                         if (!_showCreateForm) ...[
                           const SizedBox(height: 16),
                           SizedBox(
@@ -387,9 +392,7 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                               label: const Text('Create New Company'),
                               style: FilledButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               ),
                             ),
                           ),

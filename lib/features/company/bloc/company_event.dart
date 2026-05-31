@@ -42,7 +42,7 @@ class CreateInvitation extends CompanyEvent {
   const CreateInvitation({
     required this.companyId,
     required this.email,
-    this.role = 'data_operator',  // ✅ FIXED: was 'staff'
+    this.role = 'data_operator',
   });
 }
 

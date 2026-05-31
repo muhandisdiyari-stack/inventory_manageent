@@ -84,50 +84,50 @@ class InventoryPermissions {
     );
   }
 
-  factory InventoryPermissions.fromRole(String role) {
-    switch (role) {
-      case 'owner':
-        return const InventoryPermissions(
-          canCreate: true,
-          canUpdate: true,
-          canDelete: true,
-          canExport: true,
-          canViewActivity: true,
-          canManageSettings: true,
-          role: 'owner',
-        );
-      case 'admin':
-        return const InventoryPermissions(
-          canCreate: true,
-          canUpdate: true,
-          canDelete: true,
-          canExport: true,
-          canViewActivity: true,
-          canManageSettings: true,
-          role: 'admin',
-        );
-      case 'data_operator':
-        return const InventoryPermissions(
-          canCreate: true,
-          canUpdate: true,
-          canDelete: false,
-          canExport: true,
-          canViewActivity: true,
-          canManageSettings: false,
-          role: 'data_operator',
-        );
-      default:
-        return const InventoryPermissions(
-          canCreate: false,
-          canUpdate: false,
-          canDelete: false,
-          canExport: true,
-          canViewActivity: true,
-          canManageSettings: false,
-          role: 'viewer',
-        );
-    }
+factory InventoryPermissions.fromRole(String role) {
+  switch (role) {
+    case 'owner':
+      return const InventoryPermissions(
+        canCreate: true,
+        canUpdate: true,
+        canDelete: true,
+        canExport: true,
+        canViewActivity: true,
+        canManageSettings: true,
+        role: 'owner',
+      );
+    case 'admin':
+      return const InventoryPermissions(
+        canCreate: true,
+        canUpdate: true,
+        canDelete: true,
+        canExport: true,
+        canViewActivity: true,
+        canManageSettings: true,
+        role: 'admin',
+      );
+    case 'data_operator':
+      return const InventoryPermissions(
+        canCreate: true,
+        canUpdate: true,
+        canDelete: false,          // cannot delete
+        canExport: true,
+        canViewActivity: true,
+        canManageSettings: false,  // cannot change settings
+        role: 'data_operator',
+      );
+    default: // viewer
+      return const InventoryPermissions(
+        canCreate: false,
+        canUpdate: false,
+        canDelete: false,
+        canExport: true,
+        canViewActivity: true,
+        canManageSettings: false,
+        role: 'viewer',
+      );
   }
+}
 
   Map<String, dynamic> toJson() => {
         'can_create': canCreate,

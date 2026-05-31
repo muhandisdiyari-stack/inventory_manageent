@@ -39,6 +39,9 @@ class CompanyState {
     );
   }
 
+  bool get hasCompanies => companies.isNotEmpty;
+  bool get hasSelectedCompany => selectedCompany != null;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
