@@ -89,25 +89,30 @@ class InventoryService {
     _labelsCache.clear();
   }
 
-  Future<void> _loadCompanyId() async {
-    if (!AppConfig.useSupabase) return;
-    try {
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
-      final data = await Supabase.instance.client
-          .from('profiles')
-          .select('company_id')
-          .eq('id', user.id)
-          .maybeSingle();
-      _currentCompanyId = data?['company_id'] as String?;
-      if (_currentCompanyId != null) {
-        debugPrint('📋 Loaded company ID: $_currentCompanyId');
-      }
-    } catch (e) {
-      debugPrint('⚠️ Failed to load company ID: $e');
-      _currentCompanyId = null;
+Future<void> _loadCompanyId() async {
+  if (!AppConfig.useSupabase) return;
+  try {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+    
+    // ✅ FIXED: Get company from profiles (single source of truth)
+    final data = await Supabase.instance.client
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .maybeSingle();
+    
+    _currentCompanyId = data?['company_id'] as String?;
+    if (_currentCompanyId != null) {
+      debugPrint('📋 Loaded company ID: $_currentCompanyId');
+    } else {
+      debugPrint('⚠️ No company assigned to user');
     }
+  } catch (e) {
+    debugPrint('⚠️ Failed to load company ID: $e');
+    _currentCompanyId = null;
   }
+}
 
   // ─── Supabase Sync ──────────────────────────────────────────────
 

@@ -359,4 +359,47 @@ class SupabaseRealtimeService {
     _channels.clear();
     _listeners.clear();
   }
+
+  void subscribeToNotifications({
+  VoidCallback? onChange,
+}) {
+  final key = 'user_notifications';
+  _removeChannel(key);
+
+  try {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final channel = _client
+        .channel(key)
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'notifications',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            debugPrint('🔔 New notification: ${payload.newRecord['message']}');
+            _notifyListeners(key);
+          },
+        )
+        .subscribe((status, [error]) {
+          if (error != null) {
+            debugPrint('❌ Notifications subscription error: $error');
+          } else {
+            debugPrint('✅ Notifications subscribed: $status');
+          }
+        });
+
+    _channels[key] = channel;
+    if (onChange != null) {
+      _addListener(key, onChange);
+    }
+  } catch (e) {
+    debugPrint('❌ Notifications subscription failed: $e');
+  }
+}
 }

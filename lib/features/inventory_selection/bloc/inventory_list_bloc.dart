@@ -33,23 +33,38 @@ class InventoryListBloc
     on<RefreshInventories>(_onRefresh);
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // HELPERS
+  // ═══════════════════════════════════════════════════════════════
+
+  /// Get current user's company ID from profiles (single source of truth)
   Future<String?> _getCurrentCompanyId() async {
     if (!AppConfig.useSupabase) return null;
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return null;
+
+      // ✅ FIXED: Get company from profiles (authoritative source)
       final data = await Supabase.instance.client
-          .from('company_members')
+          .from('profiles')
           .select('company_id')
-          .eq('user_id', user.id)
-          .limit(1)
+          .eq('id', user.id)
           .maybeSingle();
-      return data?['company_id']?.toString();
-    } catch (_) {
+
+      final companyId = data?['company_id']?.toString();
+      if (companyId != null) {
+        debugPrint('📋 Current company ID: $companyId');
+      } else {
+        debugPrint('⚠️ No company assigned to user');
+      }
+      return companyId;
+    } catch (e) {
+      debugPrint('⚠️ Failed to get company ID: $e');
       return null;
     }
   }
 
+  /// Read inventory list from local Hive cache
   List<InventoryListItem> _readCache(String? companyId) {
     final items = <InventoryListItem>[];
     final raw = _cacheBox.get('cached_inventories');
@@ -58,7 +73,8 @@ class InventoryListBloc
         if (item is Map) {
           final map = Map<String, dynamic>.from(item);
           final itemCompanyId = map['company_id']?.toString() ?? '';
-          if (companyId == null || itemCompanyId == companyId) {
+          // ✅ Strict filtering by company
+          if (companyId != null && itemCompanyId == companyId) {
             items.add(InventoryListItem.fromMap(
                 map['id']?.toString() ?? '', map));
           }
@@ -69,10 +85,12 @@ class InventoryListBloc
     return items;
   }
 
+  /// Write inventory list to local Hive cache
   Future<void> _writeCache(List<Map<String, dynamic>> data) async {
     await _cacheBox.put('cached_inventories', data);
   }
 
+  /// Get raw cache list as mutable list
   List<Map<String, dynamic>> _getRawCache() {
     final raw = _cacheBox.get('cached_inventories');
     if (raw is List) {
@@ -81,24 +99,45 @@ class InventoryListBloc
     return [];
   }
 
+  /// Fetch inventories from Supabase (authoritative source)
   Future<List<Map<String, dynamic>>> _fetchFromSupabase(
       String companyId) async {
-    final data = await Supabase.instance.client
-        .rpc('get_company_inventories',
-            params: {'p_company_id': companyId});
+    try {
+      final data = await Supabase.instance.client
+          .rpc('get_company_inventories',
+              params: {'p_company_id': companyId});
 
-    if (data is List) {
-      return data
-          .map((inv) => Map<String, dynamic>.from(inv as Map))
-          .toList();
+      if (data is List) {
+        return data
+            .map((inv) => Map<String, dynamic>.from(inv as Map))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('❌ Failed to fetch inventories: $e');
+      return [];
     }
-    return [];
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // LOAD
+  // ═══════════════════════════════════════════════════════════════
 
   Future<void> _onLoad(
       LoadInventories event, Emitter<InventoryListState> emit) async {
     final companyId = await _getCurrentCompanyId();
 
+    if (companyId == null) {
+      emit(state.copyWith(
+        inventories: [],
+        isLoading: false,
+        isInitialized: true,
+        error: 'No company assigned. Create or join a company first.',
+      ));
+      return;
+    }
+
+    // Show cached data immediately
     final cached = _readCache(companyId);
     if (cached.isNotEmpty) {
       emit(state.copyWith(
@@ -112,12 +151,13 @@ class InventoryListBloc
       emit(state.copyWith(isLoading: true));
     }
 
-    if (AppConfig.useSupabase && companyId != null) {
+    // Fetch fresh data from Supabase
+    if (AppConfig.useSupabase) {
       try {
         final freshData = await _fetchFromSupabase(companyId);
         await _writeCache(freshData);
 
-        // Initialize inventory service for each (with error handling)
+        // Initialize inventory service for each
         for (final inv in freshData) {
           final id = inv['id']?.toString() ?? '';
           if (id.isNotEmpty) {
@@ -125,7 +165,6 @@ class InventoryListBloc
               await _inventoryService.initializeForInventory(id);
             } catch (e) {
               debugPrint('⚠️ Failed to init inventory $id: $e');
-              // Don't crash - continue with other inventories
             }
           }
         }
@@ -163,11 +202,19 @@ class InventoryListBloc
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // REFRESH
+  // ═══════════════════════════════════════════════════════════════
+
   Future<void> _onRefresh(
       RefreshInventories event, Emitter<InventoryListState> emit) async {
     emit(state.copyWith(isLoading: true, error: null, isCacheOnly: false));
     add(const LoadInventories());
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // CREATE
+  // ═══════════════════════════════════════════════════════════════
 
   Future<void> _onCreate(
       CreateInventory event, Emitter<InventoryListState> emit) async {
@@ -178,7 +225,7 @@ class InventoryListBloc
       if (!isClosed) {
         emit(state.copyWith(
           isLoading: false,
-          error: 'Cannot create while offline',
+          error: 'Cannot create while offline or no company assigned',
         ));
       }
       return;
@@ -192,6 +239,7 @@ class InventoryListBloc
       final user = Supabase.instance.client.auth.currentUser;
       final timestamp = DateTime.now();
 
+      // ✅ Create inventory with proper company_id
       final response = await Supabase.instance.client
           .from('inventories')
           .insert({
@@ -217,9 +265,9 @@ class InventoryListBloc
 
       final created = Map<String, dynamic>.from(response.first as Map);
       final newId = created['id']?.toString() ?? '';
+      debugPrint('✅ Created inventory: $newId for company $companyId');
 
-      debugPrint('✅ Created inventory: id=$newId name=$name');
-
+      // Update cache
       final cacheList = _getRawCache();
       cacheList.add(created);
       await _writeCache(cacheList);
@@ -264,6 +312,10 @@ class InventoryListBloc
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // RENAME
+  // ═══════════════════════════════════════════════════════════════
+
   Future<void> _onRename(
       RenameInventory event, Emitter<InventoryListState> emit) async {
     try {
@@ -305,6 +357,10 @@ class InventoryListBloc
       }
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // DELETE
+  // ═══════════════════════════════════════════════════════════════
 
   Future<void> _onDelete(
       DeleteInventory event, Emitter<InventoryListState> emit) async {
@@ -348,6 +404,10 @@ class InventoryListBloc
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // SELECT
+  // ═══════════════════════════════════════════════════════════════
+
   void _onSelect(SelectInventory event, Emitter<InventoryListState> emit) {
     String? name;
     final cacheList = _getRawCache();
@@ -362,6 +422,10 @@ class InventoryListBloc
       selectedInventoryName: name,
     ));
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // BACKGROUND SYNC
+  // ═══════════════════════════════════════════════════════════════
 
   Future<void> _backgroundSync(String companyId) async {
     try {
