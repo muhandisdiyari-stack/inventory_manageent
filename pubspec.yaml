@@ -51,6 +51,9 @@ dependencies:
   # Deep link handling for Supabase email confirmation
   app_links: ^6.0.0
 
+  # Chat - Debounce timer (already in dart:async, no extra package needed)
+  # UnreadCountCubit uses dart:async Timer — no new dependency required
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -64,4 +67,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/inventory_item.dart';
 import '../bloc/inventory_bloc.dart';
 import '../../auth/bloc/auth_bloc.dart';
@@ -15,6 +14,7 @@ import '../../settings/screens/settings_screen.dart';
 import '../../activity_log/screens/activity_log_screen.dart';
 import '../../import/screens/bulk_import_screen.dart';
 import '../../company/screens/company_settings_screen.dart';
+import '../../chat/screens/inventory_chat_screen.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/di/injection_container.dart';
 import '../../../core/models/user.dart';
@@ -31,7 +31,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
   final _itemSearchController = TextEditingController();
   bool _showItemsView = false;
   InventoryPermissions? _permissions;
-  int _unreadNotifications = 0;
 
   @override
   void initState() {
@@ -43,10 +42,7 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       if (mounted) setState(() {});
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _loadPermissions();
-        _setupNotificationListener();
-      }
+      if (mounted) _loadPermissions();
     });
   }
 
@@ -57,7 +53,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     super.dispose();
   }
 
-  // ✅ Use company membership role from CompanyBloc
   Future<void> _loadPermissions() async {
     try {
       final companyState = context.read<CompanyBloc>().state;
@@ -66,19 +61,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     } catch (_) {
       setState(() => _permissions = InventoryPermissions.fromRole('viewer'));
     }
-  }
-
-  // ✅ Listen for real-time notifications from other users
-  void _setupNotificationListener() {
-    try {
-      final realtimeService = InjectionContainer.realtimeService;
-      realtimeService.subscribeToNotifications(onChange: () {
-        if (mounted) {
-          setState(() => _unreadNotifications++);
-          _showSnackBar('🔔 Inventory updated by another user');
-        }
-      });
-    } catch (_) {}
   }
 
   bool get _canCreate => _permissions?.canCreate ?? false;
@@ -121,10 +103,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
   }
 
   void _showCreateLabelDialog() {
-    if (!_canCreate) {
-      _showSnackBar('You do not have permission to create labels', isError: true);
-      return;
-    }
     final controller = TextEditingController();
     showModalBottomSheet(
       context: context,
@@ -183,22 +161,14 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
       inventoryId: state.inventoryId,
       onSave: (item) async {
         context.read<InventoryBloc>().add(SaveItem(item));
-        // ✅ Notify other users about the change
-        _notifyOtherUsers(existingItem != null ? 'updated' : 'added', item.displayName);
       },
     );
   }
 
   void _adjustQuantity(InventoryItem item, int delta) {
-    if (!_canUpdate) {
-      _showSnackBar('You do not have permission to update quantities', isError: true);
-      return;
-    }
     final newQuantity = (item.quantity + delta).clamp(0, InventoryItem.maxQuantity);
     if (newQuantity == item.quantity) return;
     context.read<InventoryBloc>().add(AdjustQuantity(item, delta));
-    // ✅ Notify other users about the change
-    _notifyOtherUsers('updated quantity', item.displayName);
   }
 
   Future<void> _deleteItem(InventoryItem item) async {
@@ -225,21 +195,29 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     if (confirmed == true && mounted) {
       context.read<InventoryBloc>().add(DeleteItem(item));
       _showSnackBar('Removed "${item.displayName}"');
-      // ✅ Notify other users about the deletion
-      _notifyOtherUsers('deleted', item.displayName);
     }
   }
 
-  /// ✅ Send a notification to other users about changes
-  void _notifyOtherUsers(String action, String itemName) {
-    try {
-      final userName = context.read<AuthBloc>().state.user?.displayNameOrEmail ?? 'A user';
-      final inventoryName = context.read<InventoryBloc>().state.inventoryName ?? 'inventory';
-      
-      // Notifications are handled by the database trigger (notify_inventory_members)
-      // This is just for immediate UI feedback
-      debugPrint('📢 $userName $action "$itemName" in $inventoryName');
-    } catch (_) {}
+  /// Opens the inventory chat screen
+  void _openChat() {
+    final state = context.read<InventoryBloc>().state;
+    final companyState = context.read<CompanyBloc>().state;
+    final companyId = companyState.selectedCompany?['id']?.toString() ?? '';
+    final companyName = companyState.selectedCompany?['name']?.toString() ?? '';
+
+    if (state.inventoryId != null && companyId.isNotEmpty) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => InventoryChatScreen(
+            inventoryId: state.inventoryId!,
+            inventoryName: state.inventoryName ?? 'Inventory',
+            companyId: companyId,
+            companyName: companyName,
+          ),
+        ),
+      );
+    }
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
@@ -345,25 +323,20 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
                   ),
                   if (_showItemsView && state.selectedLabel != null)
                     Text(state.inventoryName ?? '',
-                        style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.primary)),
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.primary)),
                 ],
               ),
               actions: [
                 _buildConnectivityIndicator(context),
-                // ✅ Notification badge
-                if (_unreadNotifications > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Badge(
-                      label: Text('$_unreadNotifications'),
-                      child: IconButton(
-                        icon: const Icon(Icons.notifications),
-                        tooltip: 'Notifications',
-                        onPressed: () => setState(() => _unreadNotifications = 0),
-                      ),
-                    ),
-                  ),
                 if (!isMobile || !_showItemsView) ...[
+                  // ✅ Chat button - opens inventory chat
+                  IconButton(
+                    tooltip: 'Chat with inventory members',
+                    icon: const Icon(Icons.chat),
+                    onPressed: _openChat,
+                  ),
                   IconButton(
                     tooltip: 'Members & Permissions',
                     icon: const Icon(Icons.people),
@@ -478,11 +451,136 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
 
   Widget _buildDesktopLayout(InventoryState state, double width) {
     final sidebarWidth = (width * AppConstants.sidebarWidthRatio).clamp(250.0, 400.0);
-    return Row(children: [
-      SizedBox(
-        width: sidebarWidth,
-        child: Stack(children: [
-          Column(children: [
+
+    return Row(
+      children: [
+        SizedBox(
+          width: sidebarWidth,
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(10.0),
+                    child: TextField(
+                      controller: _labelSearchController,
+                      decoration: InputDecoration(
+                        hintText: 'Search labels…',
+                        prefixIcon: const Icon(Icons.search, size: 16),
+                        suffixIcon: _labelSearchController.text.isNotEmpty
+                            ? IconButton(icon: const Icon(Icons.clear, size: 16), onPressed: () => _labelSearchController.clear())
+                            : null,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
+                        filled: true,
+                        fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: _refreshLabels,
+                      child: LabelListWidget(
+                        labels: state.labels,
+                        currentLabel: state.selectedLabel,
+                        searchController: _labelSearchController,
+                        onSelectLabel: _selectLabel,
+                        onRenameLabel: (oldName) => _showRenameDialog(oldName),
+                        onDeleteLabel: (label) => _deleteLabel(label),
+                        sortType: state.sortType,
+                        onSortChanged: (sortType) => context.read<InventoryBloc>().add(SetLabelSortType(sortType)),
+                        inventoryService: InjectionContainer.inventoryService,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (_canCreate)
+                Positioned(
+                  bottom: 24,
+                  right: 24,
+                  child: FloatingActionButton(
+                    heroTag: 'add_label_desktop',
+                    tooltip: 'New label',
+                    onPressed: _showCreateLabelDialog,
+                    child: const Icon(Icons.add),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        Expanded(
+          child: Stack(
+            children: [
+              state.selectedLabel == null
+                  ? _buildEmptyState()
+                  : ItemsListWidget(
+                      items: state.currentItems,
+                      label: state.selectedLabel!,
+                      searchController: _itemSearchController,
+                      canCreate: _canCreate,
+                      canUpdate: _canUpdate,
+                      canDelete: _canDelete,
+                      onAdjustQuantity: _adjustQuantity,
+                      onDeleteItem: _deleteItem,
+                      onAddItem: () => _showAddItemDialog(),
+                      onEditItem: (item) => _showAddItemDialog(existingItem: item),
+                      onRefresh: _refreshItems,
+                    ),
+              if (state.selectedLabel != null && _canCreate)
+                Positioned(
+                  bottom: 24,
+                  right: 24,
+                  child: FloatingActionButton(
+                    heroTag: 'add_item_desktop',
+                    tooltip: 'Add item',
+                    onPressed: () => _showAddItemDialog(),
+                    child: const Icon(Icons.add_box),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileLayout(InventoryState state) {
+    if (_showItemsView && state.selectedLabel != null) {
+      return Stack(
+        children: [
+          ItemsListWidget(
+            items: state.currentItems,
+            label: state.selectedLabel!,
+            searchController: _itemSearchController,
+            canCreate: _canCreate,
+            canUpdate: _canUpdate,
+            canDelete: _canDelete,
+            onAdjustQuantity: _adjustQuantity,
+            onDeleteItem: _deleteItem,
+            onAddItem: () => _showAddItemDialog(),
+            onEditItem: (item) => _showAddItemDialog(existingItem: item),
+            onRefresh: _refreshItems,
+          ),
+          if (_canCreate)
+            Positioned(
+              bottom: AppConstants.fabBottomMargin,
+              right: AppConstants.fabRightMargin,
+              child: FloatingActionButton(
+                heroTag: 'add_item_mobile',
+                tooltip: 'Add item',
+                onPressed: () => _showAddItemDialog(),
+                child: const Icon(Icons.add_box),
+              ),
+            ),
+        ],
+      );
+    }
+
+    return Stack(
+      children: [
+        Column(
+          children: [
             Padding(
               padding: const EdgeInsets.all(10.0),
               child: TextField(
@@ -515,129 +613,21 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
                 ),
               ),
             ),
-          ]),
-          if (_canCreate)
-            Positioned(
-              bottom: 24, right: 24,
-              child: FloatingActionButton(
-                heroTag: 'add_label_desktop',
-                tooltip: 'New label',
-                onPressed: _showCreateLabelDialog,
-                child: const Icon(Icons.add),
-              ),
-            ),
-        ]),
-      ),
-      const VerticalDivider(width: 1),
-      Expanded(
-        child: Stack(children: [
-          state.selectedLabel == null
-              ? _buildEmptyState()
-              : ItemsListWidget(
-                  items: state.currentItems,
-                  label: state.selectedLabel!,
-                  searchController: _itemSearchController,
-                  canCreate: _canCreate,
-                  canUpdate: _canUpdate,
-                  canDelete: _canDelete,
-                  onAdjustQuantity: _adjustQuantity,
-                  onDeleteItem: _deleteItem,
-                  onAddItem: () => _showAddItemDialog(),
-                  onEditItem: (item) => _showAddItemDialog(existingItem: item),
-                  onRefresh: _refreshItems,
-                ),
-          if (state.selectedLabel != null && _canCreate)
-            Positioned(
-              bottom: 24, right: 24,
-              child: FloatingActionButton(
-                heroTag: 'add_item_desktop',
-                tooltip: 'Add item',
-                onPressed: () => _showAddItemDialog(),
-                child: const Icon(Icons.add_box),
-              ),
-            ),
-        ]),
-      ),
-    ]);
-  }
-
-  Widget _buildMobileLayout(InventoryState state) {
-    if (_showItemsView && state.selectedLabel != null) {
-      return Stack(children: [
-        ItemsListWidget(
-          items: state.currentItems,
-          label: state.selectedLabel!,
-          searchController: _itemSearchController,
-          canCreate: _canCreate,
-          canUpdate: _canUpdate,
-          canDelete: _canDelete,
-          onAdjustQuantity: _adjustQuantity,
-          onDeleteItem: _deleteItem,
-          onAddItem: () => _showAddItemDialog(),
-          onEditItem: (item) => _showAddItemDialog(existingItem: item),
-          onRefresh: _refreshItems,
+          ],
         ),
         if (_canCreate)
           Positioned(
             bottom: AppConstants.fabBottomMargin,
             right: AppConstants.fabRightMargin,
             child: FloatingActionButton(
-              heroTag: 'add_item_mobile',
-              tooltip: 'Add item',
-              onPressed: () => _showAddItemDialog(),
-              child: const Icon(Icons.add_box),
+              heroTag: 'add_label_mobile',
+              tooltip: 'New label',
+              onPressed: _showCreateLabelDialog,
+              child: const Icon(Icons.add),
             ),
           ),
-      ]);
-    }
-
-    return Stack(children: [
-      Column(children: [
-        Padding(
-          padding: const EdgeInsets.all(10.0),
-          child: TextField(
-            controller: _labelSearchController,
-            decoration: InputDecoration(
-              hintText: 'Search labels…',
-              prefixIcon: const Icon(Icons.search, size: 16),
-              suffixIcon: _labelSearchController.text.isNotEmpty
-                  ? IconButton(icon: const Icon(Icons.clear, size: 16), onPressed: () => _labelSearchController.clear())
-                  : null,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
-              filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-            ),
-          ),
-        ),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _refreshLabels,
-            child: LabelListWidget(
-              labels: state.labels,
-              currentLabel: state.selectedLabel,
-              searchController: _labelSearchController,
-              onSelectLabel: _selectLabel,
-              onRenameLabel: (oldName) => _showRenameDialog(oldName),
-              onDeleteLabel: (label) => _deleteLabel(label),
-              sortType: state.sortType,
-              onSortChanged: (sortType) => context.read<InventoryBloc>().add(SetLabelSortType(sortType)),
-              inventoryService: InjectionContainer.inventoryService,
-            ),
-          ),
-        ),
-      ]),
-      if (_canCreate)
-        Positioned(
-          bottom: AppConstants.fabBottomMargin,
-          right: AppConstants.fabRightMargin,
-          child: FloatingActionButton(
-            heroTag: 'add_label_mobile',
-            tooltip: 'New label',
-            onPressed: _showCreateLabelDialog,
-            child: const Icon(Icons.add),
-          ),
-        ),
-    ]);
+      ],
+    );
   }
 
   void _showRenameDialog(String oldLabel) {
@@ -674,10 +664,6 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
   }
 
   void _deleteLabel(String label) {
-    if (!_canDelete) {
-      _showSnackBar('You do not have permission to delete labels', isError: true);
-      return;
-    }
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -715,7 +701,8 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
-                      width: 64, height: 64,
+                      width: 64,
+                      height: 64,
                       decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(20)),
                       child: const Icon(Icons.folder_open, size: 28, color: Colors.grey),
                     ),
@@ -737,6 +724,8 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
   }
 }
 
+// ─── Label Name Bottom Sheet ─────────────────────────────────────
+
 class _LabelNameSheet extends StatefulWidget {
   final String title;
   final String hint;
@@ -745,8 +734,11 @@ class _LabelNameSheet extends StatefulWidget {
   final Future<bool> Function(String name) onSubmit;
 
   const _LabelNameSheet({
-    required this.title, required this.hint, required this.submitLabel,
-    required this.controller, required this.onSubmit,
+    required this.title,
+    required this.hint,
+    required this.submitLabel,
+    required this.controller,
+    required this.onSubmit,
   });
 
   @override
@@ -759,50 +751,104 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
 
   Future<void> _submit() async {
     final name = widget.controller.text.trim();
-    if (name.isEmpty) { setState(() => _error = 'Name cannot be empty'); return; }
-    if (name.length < 2) { setState(() => _error = 'Name must be at least 2 characters'); return; }
-    setState(() { _saving = true; _error = null; });
+    if (name.isEmpty) {
+      setState(() => _error = 'Name cannot be empty');
+      return;
+    }
+    if (name.length < 2) {
+      setState(() => _error = 'Name must be at least 2 characters');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
       final ok = await widget.onSubmit(name);
       if (!mounted) return;
-      if (ok) { Navigator.pop(context); } else { setState(() => _saving = false); }
+      if (ok) {
+        Navigator.pop(context);
+      } else {
+        setState(() => _saving = false);
+      }
     } catch (e) {
-      if (mounted) setState(() { _saving = false; _error = 'Error: $e'; });
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = 'Error: $e';
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 28, left: 20, right: 20, top: 20),
-      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[400], borderRadius: BorderRadius.circular(4)))),
-        const SizedBox(height: 18),
-        Text(widget.title, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 16),
-        TextField(
-          controller: widget.controller, autofocus: true, textCapitalization: TextCapitalization.words,
-          decoration: InputDecoration(hintText: widget.hint, border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)), filled: true, errorText: _error),
-          onSubmitted: (_) => _saving ? null : _submit(),
-          onChanged: (_) => setState(() => _error = null),
-        ),
-        const SizedBox(height: 16),
-        Row(children: [
-          Expanded(child: OutlinedButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40))),
-            child: const Text('Cancel'),
-          )),
-          const SizedBox(width: 10),
-          Expanded(child: FilledButton(
-            onPressed: _saving ? null : _submit,
-            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40))),
-            child: _saving
-                ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                : Text(widget.submitLabel, style: const TextStyle(fontWeight: FontWeight.w700)),
-          )),
-        ]),
-      ]),
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom + 28,
+          left: 20,
+          right: 20,
+          top: 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+              child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                      color: Colors.grey[400],
+                      borderRadius: BorderRadius.circular(4)))),
+          const SizedBox(height: 18),
+          Text(widget.title,
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 16),
+          TextField(
+            controller: widget.controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(
+                hintText: widget.hint,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                filled: true,
+                errorText: _error),
+            onSubmitted: (_) => _saving ? null : _submit(),
+            onChanged: (_) => setState(() => _error = null),
+          ),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(
+                child: OutlinedButton(
+                    onPressed: _saving ? null : () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(40))),
+                    child: const Text('Cancel'))),
+            const SizedBox(width: 10),
+            Expanded(
+                child: FilledButton(
+                    onPressed: _saving ? null : _submit,
+                    style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(40))),
+                    child: _saving
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : Text(widget.submitLabel,
+                            style: const TextStyle(fontWeight: FontWeight.w700)))),
+          ]),
+        ],
+      ),
     );
   }
 }

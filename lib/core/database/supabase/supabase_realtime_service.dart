@@ -363,7 +363,7 @@ class SupabaseRealtimeService {
   void subscribeToNotifications({
   VoidCallback? onChange,
 }) {
-  final key = 'user_notifications';
+  const key = 'user_notifications';
   _removeChannel(key);
 
   try {

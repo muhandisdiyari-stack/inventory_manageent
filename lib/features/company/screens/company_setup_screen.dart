@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/company_bloc.dart';
 import '../../auth/bloc/auth_bloc.dart';
 import '../../inventory_selection/screens/inventory_selection_screen.dart';
+import '../../chat/bloc/unread_count_cubit.dart';
+import '../../chat/screens/messages_screen.dart';
 
 class CompanySetupScreen extends StatefulWidget {
   const CompanySetupScreen({super.key});
@@ -46,7 +48,7 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Company'),
-        content: Text('Delete "$companyName"?\n\nThis cannot be undone. All inventories, items, and labels will be permanently deleted.'),
+        content: Text('Delete "$companyName"?\n\nThis cannot be undone. All inventories, items, and data will be permanently lost.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           FilledButton(
@@ -126,6 +128,51 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
             appBar: AppBar(
               title: const Text('Your Companies'),
               actions: [
+                // ✅ Messages button with live unread badge
+                BlocBuilder<UnreadCountCubit, int>(
+                  builder: (context, unread) {
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.message),
+                          tooltip: 'Messages',
+                          onPressed: () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const MessagesScreen()),
+                            );
+                            // Refresh unread count when returning from messages
+                            context.read<UnreadCountCubit>().refresh();
+                          },
+                        ),
+                        if (unread > 0)
+                          Positioned(
+                            right: 2,
+                            top: 2,
+                            child: Container(
+                              width: 18,
+                              height: 18,
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  unread > 99 ? '99+' : '$unread',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
                 IconButton(
                   icon: const Icon(Icons.logout),
                   tooltip: 'Sign Out',
@@ -168,6 +215,20 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                                   ),
                                 ),
                               ],
+                            ),
+                          ),
+
+                        // Company count header
+                        if (state.companies.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text(
+                              '${state.companies.length} ${state.companies.length == 1 ? 'Company' : 'Companies'}',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
 
@@ -232,7 +293,9 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                                               style: TextStyle(
                                                 fontSize: 11,
                                                 fontWeight: FontWeight.w600,
-                                                color: isOwner ? Colors.amber.shade800 : Colors.grey.shade700,
+                                                color: isOwner
+                                                    ? Colors.amber.shade800
+                                                    : Colors.grey.shade700,
                                               ),
                                             ),
                                           ),

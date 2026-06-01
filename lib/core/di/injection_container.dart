@@ -7,6 +7,7 @@ import '../../features/inventory_management/bloc/inventory_bloc.dart';
 import '../../features/admin/bloc/admin_bloc.dart';
 import '../../features/reports/bloc/reports_bloc.dart';
 import '../../features/activity_log/bloc/activity_log_bloc.dart';
+import '../../features/chat/bloc/unread_count_cubit.dart';
 import '../services/auth_service.dart';
 import '../services/admin_service.dart';
 import '../services/activity_log_service.dart';
@@ -17,6 +18,9 @@ import '../database/supabase/supabase_client.dart';
 import '../database/supabase/supabase_realtime_service.dart';
 
 /// Central dependency injection container.
+///
+/// All services and BLoCs are created here to ensure consistent dependency
+/// injection throughout the app.
 class InjectionContainer {
   // ─── Services ──────────────────────────────────────────────────
 
@@ -100,6 +104,9 @@ class InjectionContainer {
       ),
       BlocProvider<ReportsBloc>(
         create: (_) => ReportsBloc(csvService: csvService),
+      ),
+      BlocProvider<UnreadCountCubit>(
+        create: (_) => UnreadCountCubit(),
       ),
     ];
   }
