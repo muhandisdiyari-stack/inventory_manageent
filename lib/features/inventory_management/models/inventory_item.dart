@@ -21,7 +21,10 @@ class InventoryItem extends HiveObject {
   @HiveField(11) Map<String, String> customFields;
   @HiveField(12) String label;
   @HiveField(13) DateTime createdAt;
-  @HiveField(14) String id; // NEW: UUID primary key
+  @HiveField(14) String id;
+  
+  // Dedicated sync tracking fields
+  @HiveField(23) bool _isSynced = false;
 
   // ═══════════════════════════════════════════════════════════════
   // Computed Supabase sync fields (stored in customFields)
@@ -51,6 +54,10 @@ class InventoryItem extends HiveObject {
   String? get inventoryId => customFields['_inventory_id'];
   set inventoryId(String? v) => _setInternal('_inventory_id', v);
 
+  // ✅ New: isSynced getter/setter
+  bool get isSynced => _isSynced;
+  set isSynced(bool v) => _isSynced = v;
+
   void _setInternal(String key, String? value) {
     if (value != null) {
       customFields[key] = value;
@@ -77,10 +84,12 @@ class InventoryItem extends HiveObject {
     DateTime? createdAt,
     String? createdBy,
     String? createdByName,
+    bool isSynced = false,
   })  : id = id ?? _uuid.v4(),
         modified = modified ?? DateTime.now(),
         customFields = customFields ?? {},
-        createdAt = createdAt ?? DateTime.now() {
+        createdAt = createdAt ?? DateTime.now(),
+        _isSynced = isSynced {
     if (createdBy != null) this.createdBy = createdBy;
     if (createdByName != null) this.createdByName = createdByName;
   }
@@ -141,7 +150,6 @@ class InventoryItem extends HiveObject {
 
   String _pad(int n) => n.toString().padLeft(2, '0');
 
-  /// Creates a copy with updated fields for Supabase sync.
   InventoryItem copyWith({
     String? name,
     String? code,
@@ -156,6 +164,7 @@ class InventoryItem extends HiveObject {
     DateTime? productionDate,
     DateTime? expireDate,
     DateTime? modified,
+    bool? isSynced,
   }) {
     final item = InventoryItem(
       id: id,
@@ -175,6 +184,7 @@ class InventoryItem extends HiveObject {
       createdAt: createdAt,
       createdBy: createdBy,
       createdByName: createdByName,
+      isSynced: isSynced ?? this.isSynced,
     );
     item.supabaseId = supabaseId;
     item.updatedBy = updatedBy;
@@ -183,7 +193,6 @@ class InventoryItem extends HiveObject {
     return item;
   }
 
-  /// Converts to Supabase-compatible JSON map.
   Map<String, dynamic> toSupabaseJson() {
     return {
       'id': supabaseId ?? id,
@@ -209,5 +218,5 @@ class InventoryItem extends HiveObject {
 
   @override
   String toString() =>
-      'InventoryItem(id: $id, name: $name, label: $label, quantity: $quantity)';
+      'InventoryItem(id: $id, name: $name, label: $label, quantity: $quantity, synced: $isSynced)';
 }

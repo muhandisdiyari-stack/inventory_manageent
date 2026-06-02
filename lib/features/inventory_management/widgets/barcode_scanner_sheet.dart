@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -7,6 +8,16 @@ class BarcodeScannerSheet {
     BuildContext context, {
     required Function(String) onBarcodeScanned,
   }) {
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Camera scanning is not supported on web. Use image scanning instead.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -63,7 +74,6 @@ class _BarcodeScannerViewState extends State<_BarcodeScannerView> {
     if (barcode != null && barcode.rawValue != null) {
       final barcodeValue = barcode.rawValue!;
       
-      // Prevent duplicate scans for the same barcode
       if (barcodeValue != _lastScannedBarcode) {
         _lastScannedBarcode = barcodeValue;
         _isScanning = false;
@@ -77,7 +87,8 @@ class _BarcodeScannerViewState extends State<_BarcodeScannerView> {
 
   void _toggleTorch() {
     if (_controller != null) {
-      _controller!.toggleTorch(); // Use toggleTorch() method instead of direct assignment
+      // Use toggleTorch() method - this is the correct API for mobile_scanner v5+
+      _controller!.toggleTorch();
       setState(() {});
     }
   }
@@ -95,7 +106,6 @@ class _BarcodeScannerViewState extends State<_BarcodeScannerView> {
       height: MediaQuery.of(context).size.height * 0.85,
       child: Column(
         children: [
-          // Handle bar
           Container(
             margin: const EdgeInsets.symmetric(vertical: 12),
             width: 40,
@@ -106,7 +116,6 @@ class _BarcodeScannerViewState extends State<_BarcodeScannerView> {
             ),
           ),
           
-          // Header
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
@@ -147,7 +156,6 @@ class _BarcodeScannerViewState extends State<_BarcodeScannerView> {
             ),
           ),
           
-          // Camera view
           Expanded(
             child: Stack(
               children: [
@@ -183,7 +191,6 @@ class _BarcodeScannerViewState extends State<_BarcodeScannerView> {
                     },
                   ),
                 
-                // Scanning overlay
                 if (_isScanning)
                   Center(
                     child: Container(
@@ -214,7 +221,6 @@ class _BarcodeScannerViewState extends State<_BarcodeScannerView> {
                     ),
                   ),
                 
-                // Instructions at bottom
                 Positioned(
                   bottom: 0,
                   left: 0,
@@ -244,7 +250,6 @@ class _BarcodeScannerViewState extends State<_BarcodeScannerView> {
             ),
           ),
           
-          // Bottom info
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(

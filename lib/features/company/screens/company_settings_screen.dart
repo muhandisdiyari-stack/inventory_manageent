@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/company_bloc.dart';
+import '../../../core/utils/snackbar_utils.dart';
 
 class CompanySettingsScreen extends StatefulWidget {
   final String inventoryId;
@@ -56,21 +57,17 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
     final email = _emailController.text.trim();
     if (email.isEmpty || !email.contains('@')) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid email address')),
-      );
+      SnackBarUtils.error(context, 'Enter a valid email address');
       return;
     }
 
     final companyId = _selectedCompanyId;
     if (companyId == null || companyId.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No company selected. Please go back and select a company first.'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 4),
-        ),
+      SnackBarUtils.show(
+        context,
+        message: 'No company selected. Please go back and select a company first.',
+        isError: true,
       );
       return;
     }
@@ -208,22 +205,11 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
     return BlocListener<CompanyBloc, CompanyState>(
       listener: (context, state) {
         if (state.successMessage != null && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(state.successMessage!),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          SnackBarUtils.success(context, state.successMessage!);
           context.read<CompanyBloc>().add(const ClearMessages());
         }
         if (state.error != null && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(state.error!),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          SnackBarUtils.error(context, state.error!);
           context.read<CompanyBloc>().add(const ClearMessages());
         }
       },
@@ -277,7 +263,7 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  // ─── Company info card ────────────────────────
+                  // Company info card
                   Card(
                     color: colorScheme.primaryContainer.withValues(alpha: 0.3),
                     child: Padding(
@@ -316,7 +302,7 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // ─── Members Card ─────────────────────────────
+                  // Members Card
                   Card(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     child: Padding(
@@ -460,7 +446,7 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                     ),
                   ),
 
-                  // ─── Invite Member Card ──────────────────────
+                  // Invite Member Card
                   if (_canManageMembers) ...[
                     const SizedBox(height: 16),
                     Card(
@@ -549,7 +535,7 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                     ),
                   ],
 
-                  // ─── Pending Invitations Card ────────────────
+                  // Pending Invitations Card
                   if (state.invitations.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Card(
@@ -613,8 +599,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                             ),
                                             child: Text(
                                               _getRoleDisplayName(role),
-                                              style:
-                                                  TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: roleColor),
+                                              style: TextStyle(
+                                                  fontSize: 10, fontWeight: FontWeight.w600, color: roleColor),
                                             ),
                                           ),
                                         ],

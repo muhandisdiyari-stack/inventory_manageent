@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -43,7 +44,7 @@ void main() async {
       } catch (e) {
         debugPrint('⚠️ Supabase initialization failed: $e');
         if (AppConfig.isProduction) {
-          runApp(_ErrorApp(
+          runApp(const _ErrorApp(
               title: 'Connection Error',
               error: 'Failed to connect to server. Please check your internet connection and try again.',
               canRetry: true));
@@ -75,7 +76,7 @@ void main() async {
           debugPrint('✅ Box $boxName recovered');
         } catch (e2) {
           debugPrint('❌ Box $boxName recovery failed: $e2');
-          runApp(_ErrorApp(
+          runApp(const _ErrorApp(
               title: 'Storage Error',
               error: 'Failed to initialize local storage. Please restart the app.',
               canRetry: false));
@@ -84,15 +85,13 @@ void main() async {
       }
     }
 
-    // ✅ FIXED: Only clear auth cache if schema version changed (not on every launch)
-    // This prevents forced re-login on every cold start
+    // Schema version check for cache invalidation
     try {
       final appSettings = Hive.box(AppConstants.appSettingsBox);
       final lastSchemaVersion = appSettings.get('schema_version', defaultValue: 0) as int? ?? 0;
-      const currentSchemaVersion = 2; // Increment when DB schema changes
+      const currentSchemaVersion = 3; // Incremented for Phase 2 fixes
 
       if (lastSchemaVersion < currentSchemaVersion) {
-        // Schema changed - clear auth to prevent stale session issues
         final authBox = await Hive.openBox('auth');
         await authBox.clear();
         await appSettings.put('schema_version', currentSchemaVersion);
@@ -110,6 +109,18 @@ void main() async {
 
     await ActivityLogService().initialize();
     await InjectionContainer.initialize();
+
+    // Start periodic offline sync (every 30 seconds)
+    Timer.periodic(const Duration(seconds: 30), (_) {
+      try {
+        if (InjectionContainer.offlineSyncService.hasPendingMutations) {
+          debugPrint('🔄 Periodic sync: processing pending mutations...');
+          InjectionContainer.offlineSyncService.processPendingMutations();
+        }
+      } catch (e) {
+        debugPrint('⚠️ Periodic sync error: $e');
+      }
+    });
 
     AppConfig.logConfig();
 

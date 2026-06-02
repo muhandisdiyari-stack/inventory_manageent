@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 import '../models/inventory_list_item.dart';
 import '../../inventory_management/services/inventory_service.dart';
 import '../../../core/services/activity_log_service.dart';
@@ -44,7 +45,7 @@ class InventoryListBloc
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return null;
 
-      // ✅ FIXED: Get company from profiles (authoritative source)
+      // Get company from profiles (authoritative source)
       final data = await Supabase.instance.client
           .from('profiles')
           .select('company_id')
@@ -73,7 +74,7 @@ class InventoryListBloc
         if (item is Map) {
           final map = Map<String, dynamic>.from(item);
           final itemCompanyId = map['company_id']?.toString() ?? '';
-          // ✅ Strict filtering by company
+          // Strict filtering by company
           if (companyId != null && itemCompanyId == companyId) {
             items.add(InventoryListItem.fromMap(
                 map['id']?.toString() ?? '', map));
@@ -239,7 +240,7 @@ class InventoryListBloc
       final user = Supabase.instance.client.auth.currentUser;
       final timestamp = DateTime.now();
 
-      // ✅ Create inventory with proper company_id
+      // Create inventory with proper company_id
       final response = await Supabase.instance.client
           .from('inventories')
           .insert({
@@ -272,6 +273,7 @@ class InventoryListBloc
       cacheList.add(created);
       await _writeCache(cacheList);
 
+      // Initialize the new inventory immediately so it's ready to use
       try {
         await _inventoryService.initializeForInventory(newId);
       } catch (e) {
@@ -279,7 +281,7 @@ class InventoryListBloc
       }
 
       await _logService.addLog(ActivityLogEntry(
-        id: newId,
+        id: const Uuid().v4(),
         timestamp: timestamp,
         action: 'created',
         entityType: 'inventory',
@@ -291,6 +293,7 @@ class InventoryListBloc
 
       if (!isClosed) {
         final items = _readCache(companyId);
+        // Set the selected inventory ID so the UI can auto-navigate
         emit(state.copyWith(
           inventories: items,
           selectedInventoryId: newId,
@@ -337,7 +340,7 @@ class InventoryListBloc
       await _writeCache(cacheList);
 
       await _logService.addLog(ActivityLogEntry(
-        id: event.id,
+        id: const Uuid().v4(),
         timestamp: DateTime.now(),
         action: 'modified',
         entityType: 'inventory',

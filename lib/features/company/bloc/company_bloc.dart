@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/di/injection_container.dart';
 
 part 'company_event.dart';
 part 'company_state.dart';
@@ -98,9 +99,8 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
   // SELECT COMPANY - Switch active company
   // ═══════════════════════════════════════════════════════════════
 
-  Future<void> _onSelectCompany(
+Future<void> _onSelectCompany(
       SelectCompany event, Emitter<CompanyState> emit) async {
-    // Skip if already selected and members are loaded
     if (state.selectedCompany?['id']?.toString() == event.companyId &&
         state.members.isNotEmpty) {
       return;
@@ -108,7 +108,6 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
 
     emit(state.copyWith(isLoading: true, error: null));
     try {
-      // Find the company in our list
       Map<String, dynamic>? targetCompany;
       for (final c in state.companies) {
         if (c['id']?.toString() == event.companyId) {
@@ -122,7 +121,14 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
         return;
       }
 
-      // Load members and invitations for the newly selected company
+      // ✅ FIX: Update InventoryService with new company context
+      try {
+        await InjectionContainer.inventoryService.setCurrentCompany(event.companyId);
+        debugPrint('📋 InventoryService notified of company switch to: $event.companyId');
+      } catch (e) {
+        debugPrint('⚠️ Failed to update company context in InventoryService: $e');
+      }
+
       List<Map<String, dynamic>> members = [];
       List<Map<String, dynamic>> invitations = [];
 

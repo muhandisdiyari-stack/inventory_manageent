@@ -11,10 +11,13 @@ class InventorySelectionScreen extends StatefulWidget {
   const InventorySelectionScreen({super.key});
 
   @override
-  State<InventorySelectionScreen> createState() => _InventorySelectionScreenState();
+  State<InventorySelectionScreen> createState() =>
+      _InventorySelectionScreenState();
 }
 
 class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
+  String? _lastNavigatedInventoryId;
+
   @override
   void initState() {
     super.initState();
@@ -26,9 +29,19 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
   }
 
   void _openInventory(String id) {
+    // Prevent duplicate navigation for the same inventory
+    if (_lastNavigatedInventoryId == id) return;
+    _lastNavigatedInventoryId = id;
+
     context.read<InventoryListBloc>().add(SelectInventory(id));
     context.read<InventoryBloc>().add(InitializeInventory(id));
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const InventoryHomeScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const InventoryHomeScreen()),
+    ).then((_) {
+      // Reset navigation guard when returning from inventory screen
+      _lastNavigatedInventoryId = null;
+    });
   }
 
   void _showCreateDialog() {
@@ -37,49 +50,78 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<InventoryListBloc, InventoryListState>(
-      builder: (context, state) {
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Inventories'),
-            actions: [
-              if (state.isOffline)
-                const Padding(
-                  padding: EdgeInsets.only(right: 8),
-                  child: Chip(
-                    label: Text('Offline', style: TextStyle(fontSize: 10)),
-                    backgroundColor: Colors.orange,
-                    labelStyle: TextStyle(color: Colors.white),
-                    avatar: Icon(Icons.cloud_off, size: 14, color: Colors.white),
-                  ),
-                ),
-            ],
-          ),
-          floatingActionButton: state.isOffline
-              ? null
-              : FloatingActionButton.extended(
-                  onPressed: _showCreateDialog,
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('New Inventory'),
-                  elevation: 4,
-                ),
-          floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-          body: RefreshIndicator(
-            onRefresh: () async {
-              if (mounted) {
-                context.read<InventoryListBloc>().add(const RefreshInventories());
-              }
-            },
-            child: state.isLoading && state.inventories.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : state.error != null && state.inventories.isEmpty
-                    ? _buildError(state.error!)
-                    : state.inventories.isEmpty
-                        ? EmptyStateWidget(onCreateInventory: state.isOffline ? null : _showCreateDialog)
-                        : InventoryListWidget(inventories: state.inventories, onOpenInventory: _openInventory),
-          ),
-        );
+    return BlocListener<InventoryListBloc, InventoryListState>(
+      listener: (context, state) {
+        // Auto-navigate to newly created inventory
+        // The bloc sets selectedInventoryId after successful creation
+        if (state.selectedInventoryId != null &&
+            !state.isLoading &&
+            state.isInitialized &&
+            _lastNavigatedInventoryId != state.selectedInventoryId) {
+          final inventoryId = state.selectedInventoryId!;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _openInventory(inventoryId);
+            }
+          });
+        }
       },
+      child: BlocBuilder<InventoryListBloc, InventoryListState>(
+        builder: (context, state) {
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text('Inventories'),
+              actions: [
+                if (state.isOffline)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: Chip(
+                      label: Text('Offline',
+                          style: TextStyle(fontSize: 10)),
+                      backgroundColor: Colors.orange,
+                      labelStyle:
+                          TextStyle(color: Colors.white),
+                      avatar: Icon(Icons.cloud_off,
+                          size: 14, color: Colors.white),
+                    ),
+                  ),
+              ],
+            ),
+            floatingActionButton: state.isOffline
+                ? null
+                : FloatingActionButton.extended(
+                    onPressed: _showCreateDialog,
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('New Inventory'),
+                    elevation: 4,
+                  ),
+            floatingActionButtonLocation:
+                FloatingActionButtonLocation.centerFloat,
+            body: RefreshIndicator(
+              onRefresh: () async {
+                if (mounted) {
+                  context
+                      .read<InventoryListBloc>()
+                      .add(const RefreshInventories());
+                }
+              },
+              child: state.isLoading && state.inventories.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : state.error != null && state.inventories.isEmpty
+                      ? _buildError(state.error!)
+                      : state.inventories.isEmpty
+                          ? EmptyStateWidget(
+                              onCreateInventory: state.isOffline
+                                  ? null
+                                  : _showCreateDialog)
+                          : InventoryListWidget(
+                              inventories: state.inventories,
+                              onOpenInventory: _openInventory,
+                            ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -87,17 +129,24 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.cloud_off, size: 64, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text(error, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[600])),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: () => context.read<InventoryListBloc>().add(const RefreshInventories()),
-            icon: const Icon(Icons.refresh),
-            label: const Text('Retry'),
-          ),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(error,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey[600])),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: () => context
+                  .read<InventoryListBloc>()
+                  .add(const RefreshInventories()),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
       ),
     );
   }

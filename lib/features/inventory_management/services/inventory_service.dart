@@ -6,6 +6,8 @@ import '../models/inventory_item.dart';
 import '../models/inventory_settings.dart';
 import '../../../core/models/label.dart';
 import '../../../core/config/app_config.dart';
+import '../../../core/services/offline_sync_service.dart';
+import '../../../core/database/supabase/supabase_client.dart';
 
 const _uuid = Uuid();
 
@@ -89,30 +91,59 @@ class InventoryService {
     _labelsCache.clear();
   }
 
-Future<void> _loadCompanyId() async {
-  if (!AppConfig.useSupabase) return;
-  try {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
-    
-    // ✅ FIXED: Get company from profiles (single source of truth)
-    final data = await Supabase.instance.client
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user.id)
-        .maybeSingle();
-    
-    _currentCompanyId = data?['company_id'] as String?;
-    if (_currentCompanyId != null) {
-      debugPrint('📋 Loaded company ID: $_currentCompanyId');
-    } else {
-      debugPrint('⚠️ No company assigned to user');
+  /// Update the company context when user switches companies
+  Future<void> setCurrentCompany(String companyId) async {
+    if (_currentCompanyId != companyId) {
+      debugPrint('📋 Company context changing: $_currentCompanyId → $companyId');
+      _currentCompanyId = companyId;
+      
+      if (_currentInventoryId != null) {
+        try {
+          await initializeForInventory(_currentInventoryId!);
+        } catch (e) {
+          debugPrint('⚠️ Failed to reinitialize after company switch: $e');
+        }
+      }
     }
-  } catch (e) {
-    debugPrint('⚠️ Failed to load company ID: $e');
-    _currentCompanyId = null;
   }
-}
+
+  Future<void> _loadCompanyId() async {
+    if (!AppConfig.useSupabase) return;
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
+      
+      final memberships = await Supabase.instance.client
+          .from('company_members')
+          .select('company_id')
+          .eq('user_id', user.id)
+          .limit(1);
+      
+      if (memberships.isNotEmpty) {
+        _currentCompanyId = memberships.first['company_id']?.toString();
+        if (_currentCompanyId != null) {
+          debugPrint('📋 Loaded company ID from memberships: $_currentCompanyId');
+          return;
+        }
+      }
+      
+      final data = await Supabase.instance.client
+          .from('profiles')
+          .select('company_id')
+          .eq('id', user.id)
+          .maybeSingle();
+      
+      _currentCompanyId = data?['company_id'] as String?;
+      if (_currentCompanyId != null) {
+        debugPrint('📋 Loaded company ID from profile: $_currentCompanyId');
+      } else {
+        debugPrint('⚠️ No company assigned to user');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to load company ID: $e');
+      _currentCompanyId = null;
+    }
+  }
 
   // ─── Supabase Sync ──────────────────────────────────────────────
 
@@ -130,7 +161,6 @@ Future<void> _loadCompanyId() async {
           .eq('is_deleted', false)
           .order('name');
 
-      // ✅ FIX: Deduplicate labels by name before caching
       final seenNames = <String>{};
       final labels = <Label>[];
 
@@ -203,11 +233,9 @@ Future<void> _loadCompanyId() async {
           final item = _itemFromSupabaseRow(
               Map<String, dynamic>.from(itemData));
 
-          // Check if item already exists in cache by supabaseId
           bool found = false;
           for (final existingItem in box.values) {
             if (existingItem.supabaseId == item.supabaseId) {
-              // Update existing item
               existingItem.name = item.name;
               existingItem.code = item.code;
               existingItem.barcode = item.barcode;
@@ -235,13 +263,67 @@ Future<void> _loadCompanyId() async {
           }
         } catch (e) {
           debugPrint('⚠️ Error syncing individual item: $e');
-          // Continue with next item - don't crash the whole sync
         }
       }
 
       debugPrint('✅ Synced ${data.length} items ($updated updated, $added added)');
     } catch (e) {
       debugPrint('⚠️ Item sync error: $e');
+    }
+  }
+
+  /// Lightweight sync for realtime updates
+  Future<void> syncItemsFromRealtime(String inventoryId) async {
+    if (!AppConfig.useSupabase) return;
+    final companyId = _currentCompanyId;
+    if (companyId == null) return;
+
+    try {
+      final data = await Supabase.instance.client
+          .from('inventory_items')
+          .select()
+          .eq('company_id', companyId)
+          .eq('inventory_id', inventoryId)
+          .eq('is_deleted', false)
+          .order('updated_at', ascending: false)
+          .limit(100);
+
+      final box = _itemsBoxes[inventoryId];
+      if (box == null) return;
+
+      for (final itemData in data) {
+        final item = _itemFromSupabaseRow(Map<String, dynamic>.from(itemData));
+        
+        bool found = false;
+        for (final existingItem in box.values) {
+          if (existingItem.supabaseId == item.supabaseId) {
+            if (item.rowVersion > existingItem.rowVersion) {
+              existingItem.name = item.name;
+              existingItem.code = item.code;
+              existingItem.barcode = item.barcode;
+              existingItem.quantity = item.quantity;
+              existingItem.label = item.label;
+              existingItem.note = item.note;
+              existingItem.color = item.color;
+              existingItem.material = item.material;
+              existingItem.size = item.size;
+              existingItem.customFields = item.customFields;
+              existingItem.productionDate = item.productionDate;
+              existingItem.expireDate = item.expireDate;
+              existingItem.modified = item.modified;
+              existingItem.rowVersion = item.rowVersion;
+              await existingItem.save();
+            }
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          await box.add(item);
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Realtime item sync failed: $e');
     }
   }
 
@@ -289,6 +371,7 @@ Future<void> _loadCompanyId() async {
     item.rowVersion = row['row_version'] as int? ?? 1;
     item.companyId = row['company_id'] as String?;
     item.inventoryId = row['inventory_id'] as String?;
+    item.isSynced = true;
 
     return item;
   }
@@ -384,7 +467,6 @@ Future<void> _loadCompanyId() async {
         _addLabelToCache(label);
         return label;
       } on PostgrestException catch (e) {
-        // Handle duplicate label name gracefully
         if (e.code == '23505') {
           debugPrint('⚠️ Label "$name" already exists, fetching existing');
           final existing = await Supabase.instance.client
@@ -407,7 +489,6 @@ Future<void> _loadCompanyId() async {
       }
     }
 
-    // Offline fallback
     final label = Label.create(
       name: name,
       companyId: companyId,
@@ -501,13 +582,25 @@ Future<void> _loadCompanyId() async {
 
     item.inventoryId = _currentInventoryId;
     item.companyId = _currentCompanyId;
+    item.isSynced = false; // Mark as unsynced before attempting sync
 
-    await _syncItemToSupabase(item);
-
+    // Save locally first (always works)
     if (item.key != null) {
       await item.save();
     } else {
       await box.add(item);
+    }
+
+    // Try to sync to Supabase
+    try {
+      await _syncItemToSupabase(item);
+      item.isSynced = true;
+      if (item.key != null) {
+        await item.save(); // Persist synced status
+      }
+    } catch (e) {
+      debugPrint('⚠️ Item saved locally, sync failed: $e');
+      // Item remains with isSynced = false, will be retried later
     }
   }
 
@@ -561,8 +654,6 @@ Future<void> _loadCompanyId() async {
           item.updatedByName = userName;
           debugPrint('✅ Item updated: ${item.name}');
         } else {
-          debugPrint('⚠️ Optimistic lock conflict: ${resultMap['message']}');
-          await _syncItemsFromSupabase(_currentInventoryId!);
           throw Exception(
               resultMap['message'] ?? 'Update conflict. Please refresh.');
         }
@@ -583,7 +674,25 @@ Future<void> _loadCompanyId() async {
       }
     } catch (e) {
       debugPrint('❌ Sync error for ${item.name}: $e');
-      rethrow;
+      
+      // Queue for offline retry
+      try {
+        final offlineSync = OfflineSyncService(
+          supabaseClient: SupabaseClientService(),
+        );
+        await offlineSync.loadPendingMutations();
+        await offlineSync.queueMutation(
+          mutationKey: 'item_${item.id}_${DateTime.now().millisecondsSinceEpoch}',
+          table: 'inventory_items',
+          data: item.toSupabaseJson(),
+          operation: item.supabaseId != null && item.supabaseId!.isNotEmpty
+              ? 'update'
+              : 'insert',
+        );
+        debugPrint('📦 Queued item mutation for retry: ${item.name}');
+      } catch (queueError) {
+        debugPrint('⚠️ Failed to queue mutation: $queueError');
+      }
     }
   }
 
@@ -605,10 +714,17 @@ Future<void> _loadCompanyId() async {
           existing.barcode == newItem.barcode);
 
       if (!isDuplicate) {
+        newItem.isSynced = false;
+        await box.add(newItem);
+        
         try {
           await _syncItemToSupabase(newItem);
-        } catch (_) {}
-        await box.add(newItem);
+          newItem.isSynced = true;
+          await newItem.save();
+        } catch (_) {
+          // Item saved locally, will sync later
+        }
+        
         importedCount++;
       }
     }

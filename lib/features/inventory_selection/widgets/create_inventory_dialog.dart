@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/inventory_list_bloc.dart';
-import '../../inventory_management/bloc/inventory_bloc.dart';
 
 class CreateInventoryDialog {
   static void show(BuildContext context) {
@@ -105,18 +104,12 @@ class CreateInventoryDialog {
   ) {
     try {
       // Dispatch to InventoryListBloc to create the inventory
-      // The bloc handles initializing InventoryService automatically
+      // The bloc handles initializing InventoryService and setting selectedInventoryId
+      // The InventorySelectionScreen will react to the state change via BlocListener
       screenContext.read<InventoryListBloc>().add(CreateInventory(name));
 
-      // After creation, initialize InventoryBloc with the new inventory
-      // by reading the selected ID from the list bloc's state
-      final listState = screenContext.read<InventoryListBloc>().state;
-      if (listState.selectedInventoryId != null) {
-        screenContext.read<InventoryBloc>().add(
-              InitializeInventory(listState.selectedInventoryId!),
-            );
-      }
-
+      // Pop the dialog immediately - do NOT try to read state here
+      // as the CreateInventory event is processed asynchronously
       if (dialogContext.mounted) {
         Navigator.pop(dialogContext);
       }

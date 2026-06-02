@@ -32,13 +32,13 @@ class InventoryItemAdapter extends TypeAdapter<InventoryItem> {
       customFields: (fields[11] as Map?)?.cast<String, String>(),
       label: fields[12] as String,
       createdAt: fields[13] as DateTime?,
-    );
+    ).._isSynced = fields[23] as bool;
   }
 
   @override
   void write(BinaryWriter writer, InventoryItem obj) {
     writer
-      ..writeByte(15)
+      ..writeByte(16)
       ..writeByte(0)
       ..write(obj.name)
       ..writeByte(1)
@@ -68,7 +68,9 @@ class InventoryItemAdapter extends TypeAdapter<InventoryItem> {
       ..writeByte(13)
       ..write(obj.createdAt)
       ..writeByte(14)
-      ..write(obj.id);
+      ..write(obj.id)
+      ..writeByte(23)
+      ..write(obj._isSynced);
   }
 
   @override

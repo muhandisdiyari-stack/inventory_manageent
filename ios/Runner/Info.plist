@@ -28,7 +28,7 @@
 	<true/>
 
 	<!--
-		✅ FIX: Register the "inventory" URL scheme so iOS can intercept
+		Register the "inventory" URL scheme so iOS can intercept
 		the Supabase confirmation link (inventory://auth/callback) from
 		the Mail app or any email client, and open this app directly.
 

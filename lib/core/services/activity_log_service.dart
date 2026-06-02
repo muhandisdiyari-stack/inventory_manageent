@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 import '../models/activity_log_entry.dart';
 import '../config/app_config.dart';
 import '../utils/file_export.dart';
@@ -116,12 +117,28 @@ class ActivityLogService {
     await _ensureInitialized();
     if (_logBox == null) return;
 
+    // Ensure entry has a valid UUID for database sync
+    final logEntry = entry.id.isEmpty || !_isValidUUID(entry.id)
+        ? ActivityLogEntry(
+            id: const Uuid().v4(),
+            timestamp: entry.timestamp,
+            action: entry.action,
+            entityType: entry.entityType,
+            entityName: entry.entityName,
+            inventoryId: entry.inventoryId,
+            inventoryName: entry.inventoryName,
+            labelName: entry.labelName,
+            details: entry.details,
+            changes: entry.changes,
+          )
+        : entry;
+
     try {
       final rawLogs = List<String>.from(
         _logBox!.get(_logKey, defaultValue: <String>[]) as List,
       );
 
-      rawLogs.add(jsonEncode(entry.toJson()));
+      rawLogs.add(jsonEncode(logEntry.toJson()));
 
       // Prune oldest entries if we exceed the cap
       while (rawLogs.length > _maxLogEntries) {
@@ -131,16 +148,25 @@ class ActivityLogService {
       await _logBox!.put(_logKey, rawLogs);
 
       // Update cache incrementally
-      _cache?.insert(0, entry);
+      _cache?.insert(0, logEntry);
       if (_cache != null && _cache!.length > _maxLogEntries) {
         _cache = _cache!.sublist(0, _maxLogEntries);
       }
 
       // Sync to Supabase if enabled
-      await _syncLogToSupabase(entry);
+      await _syncLogToSupabase(logEntry);
     } catch (e) {
       debugPrint('Error adding log: $e');
     }
+  }
+
+  /// Check if a string is a valid UUID format
+  bool _isValidUUID(String value) {
+    final uuidRegex = RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+      caseSensitive: false,
+    );
+    return uuidRegex.hasMatch(value);
   }
 
   /// Sync a single log entry to Supabase for cross-device visibility.
@@ -148,10 +174,13 @@ class ActivityLogService {
     if (!AppConfig.useSupabase) return;
 
     try {
+      // Don't send the id field - let Supabase generate the UUID
+      // to avoid UUID format conflicts
       await Supabase.instance.client.from('activity_log').insert({
-        'id': entry.id,
-        'company_id': entry.inventoryId, // Will be updated by trigger
+        'company_id': entry.inventoryId,
         'inventory_id': entry.inventoryId,
+        'user_id': Supabase.instance.client.auth.currentUser?.id,
+        'user_name': Supabase.instance.client.auth.currentUser?.userMetadata?['display_name'],
         'action': entry.action,
         'entity_type': entry.entityType,
         'entity_name': entry.entityName,
@@ -256,6 +285,52 @@ class ActivityLogService {
     } catch (e) {
       debugPrint('Error clearing logs: $e');
     }
+  }
+
+  // ─── Convenience Methods ────────────────────────────────────────
+
+  /// Quick log for item creation
+  Future<void> logItemCreated({
+    required String itemName,
+    required String inventoryId,
+    required String inventoryName,
+    required String labelName,
+    required String createdBy,
+  }) async {
+    await addLog(ActivityLogEntry(
+      id: const Uuid().v4(),
+      timestamp: DateTime.now(),
+      action: 'created',
+      entityType: 'item',
+      entityName: itemName,
+      inventoryId: inventoryId,
+      inventoryName: inventoryName,
+      labelName: labelName,
+      details: 'Item created by $createdBy: "$itemName"',
+    ));
+  }
+
+  /// Quick log for item modification
+  Future<void> logItemModified({
+    required String itemName,
+    required String inventoryId,
+    required String inventoryName,
+    required String labelName,
+    required String modifiedBy,
+    Map<String, FieldChange>? changes,
+  }) async {
+    await addLog(ActivityLogEntry(
+      id: const Uuid().v4(),
+      timestamp: DateTime.now(),
+      action: 'modified',
+      entityType: 'item',
+      entityName: itemName,
+      inventoryId: inventoryId,
+      inventoryName: inventoryName,
+      labelName: labelName,
+      details: 'Item modified by $modifiedBy: "$itemName"',
+      changes: changes,
+    ));
   }
 
   // ─── Export (unchanged) ────────────────────────────────────────

@@ -1,8 +1,6 @@
 /// User role enum with proper hierarchy: owner > admin > data_operator > viewer
-// In lib/core/models/user.dart, update the UserRole enum:
-
-/// User role enum with proper hierarchy: owner > admin > data_operator > viewer
 library;
+
 enum UserRole {
   owner,
   admin,
@@ -17,8 +15,8 @@ enum UserRole {
       case 'admin':
         return UserRole.admin;
       case 'data_operator':
-      case 'staff':         // ✅ Handle legacy 'staff' value
-      case 'editor':        // ✅ Handle 'editor' as data_operator
+      case 'staff':
+      case 'editor':
         return UserRole.dataOperator;
       case 'viewer':
       default:
@@ -41,8 +39,10 @@ enum UserRole {
 
   bool get canManageCompany => this == owner;
   bool get canManageMembers => this == owner || this == admin;
-  bool get canCreateItems => this == owner || this == admin || this == dataOperator;
-  bool get canUpdateItems => this == owner || this == admin || this == dataOperator;
+  bool get canCreateItems =>
+      this == owner || this == admin || this == dataOperator;
+  bool get canUpdateItems =>
+      this == owner || this == admin || this == dataOperator;
   bool get canDeleteItems => this == owner || this == admin;
   bool get canExportReports => true;
   bool get canViewActivity => true;
@@ -57,7 +57,7 @@ class InventoryPermissions {
   final bool canExport;
   final bool canViewActivity;
   final bool canManageSettings;
-  final String role; // 'admin', 'data_operator', 'viewer'
+  final String role;
 
   const InventoryPermissions({
     this.canCreate = false,
@@ -84,50 +84,50 @@ class InventoryPermissions {
     );
   }
 
-factory InventoryPermissions.fromRole(String role) {
-  switch (role) {
-    case 'owner':
-      return const InventoryPermissions(
-        canCreate: true,
-        canUpdate: true,
-        canDelete: true,
-        canExport: true,
-        canViewActivity: true,
-        canManageSettings: true,
-        role: 'owner',
-      );
-    case 'admin':
-      return const InventoryPermissions(
-        canCreate: true,
-        canUpdate: true,
-        canDelete: true,
-        canExport: true,
-        canViewActivity: true,
-        canManageSettings: true,
-        role: 'admin',
-      );
-    case 'data_operator':
-      return const InventoryPermissions(
-        canCreate: true,
-        canUpdate: true,
-        canDelete: false,          // cannot delete
-        canExport: true,
-        canViewActivity: true,
-        canManageSettings: false,  // cannot change settings
-        role: 'data_operator',
-      );
-    default: // viewer
-      return const InventoryPermissions(
-        canCreate: false,
-        canUpdate: false,
-        canDelete: false,
-        canExport: true,
-        canViewActivity: true,
-        canManageSettings: false,
-        role: 'viewer',
-      );
+  factory InventoryPermissions.fromRole(String role) {
+    switch (role) {
+      case 'owner':
+        return const InventoryPermissions(
+          canCreate: true,
+          canUpdate: true,
+          canDelete: true,
+          canExport: true,
+          canViewActivity: true,
+          canManageSettings: true,
+          role: 'owner',
+        );
+      case 'admin':
+        return const InventoryPermissions(
+          canCreate: true,
+          canUpdate: true,
+          canDelete: true,
+          canExport: true,
+          canViewActivity: true,
+          canManageSettings: true,
+          role: 'admin',
+        );
+      case 'data_operator':
+        return const InventoryPermissions(
+          canCreate: true,
+          canUpdate: true,
+          canDelete: false,
+          canExport: true,
+          canViewActivity: true,
+          canManageSettings: false,
+          role: 'data_operator',
+        );
+      default:
+        return const InventoryPermissions(
+          canCreate: false,
+          canUpdate: false,
+          canDelete: false,
+          canExport: true,
+          canViewActivity: true,
+          canManageSettings: false,
+          role: 'viewer',
+        );
+    }
   }
-}
 
   Map<String, dynamic> toJson() => {
         'can_create': canCreate,
@@ -151,9 +151,8 @@ factory InventoryPermissions.fromRole(String role) {
           canManageSettings == other.canManageSettings;
 
   @override
-  int get hashCode => Object.hash(
-        canCreate, canUpdate, canDelete, canExport, canViewActivity, canManageSettings,
-      );
+  int get hashCode => Object.hash(canCreate, canUpdate, canDelete, canExport,
+      canViewActivity, canManageSettings);
 }
 
 /// User model representing an authenticated user.
@@ -180,7 +179,9 @@ class User {
 
   String get displayNameOrEmail => displayName ?? email;
   String get displayNameInitial =>
-      displayNameOrEmail.isNotEmpty ? displayNameOrEmail[0].toUpperCase() : '?';
+      displayNameOrEmail.isNotEmpty
+          ? displayNameOrEmail[0].toUpperCase()
+          : '?';
 
   User copyWith({
     String? id,
@@ -200,7 +201,8 @@ class User {
       companyId: companyId ?? this.companyId,
       isApproved: isApproved ?? this.isApproved,
       createdAt: createdAt ?? this.createdAt,
-      inventoryPermissions: inventoryPermissions ?? this.inventoryPermissions,
+      inventoryPermissions:
+          inventoryPermissions ?? this.inventoryPermissions,
     );
   }
 
@@ -215,6 +217,13 @@ class User {
       };
 
   factory User.fromCloudJson(Map<String, dynamic> json) {
+    InventoryPermissions? perms;
+    if (json['permissions'] is Map) {
+      perms = InventoryPermissions.fromSupabase(
+        Map<String, dynamic>.from(json['permissions']),
+      );
+    }
+
     return User(
       id: json['id'] as String,
       email: json['email'] as String,
@@ -225,6 +234,7 @@ class User {
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
           : null,
+      inventoryPermissions: perms,
     );
   }
 
@@ -259,8 +269,7 @@ class User {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is User && id == other.id;
+      identical(this, other) || other is User && id == other.id;
 
   @override
   int get hashCode => id.hashCode;
