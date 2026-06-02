@@ -17,30 +17,38 @@ class UnreadCountCubit extends Cubit<int> {
 
   Future<void> _loadCount() async {
     if (_isDisposed) return;
-    try {
-      final data = await Supabase.instance.client
-          .rpc('get_companies_with_unread_chats');
 
+    try {
+      final currentUser = Supabase.instance.client.auth.currentUser;
+      if (currentUser == null) {
+        debugPrint('🔔 UnreadCountCubit: No authenticated user, skipping load');
+        return;
+      }
+    } catch (e) {
+      debugPrint('🔔 UnreadCountCubit: Auth check failed: $e');
+      return;
+    }
+
+    try {
+      final data = await Supabase.instance.client.rpc('get_companies_with_unread_chats');
       if (_isDisposed) return;
 
       final companies = List<Map<String, dynamic>>.from(data as List);
-      final totalUnread = companies.fold<int>(
-        0,
-        (sum, c) => sum + ((c['total_unread'] as int?) ?? 0),
-      );
-
-      if (!_isDisposed) {
-        emit(totalUnread);
-      }
+      final totalUnread = companies.fold<int>(0, (sum, c) => sum + ((c['total_unread'] as int?) ?? 0));
+      if (!_isDisposed) emit(totalUnread);
     } catch (e) {
-      debugPrint('Failed to load unread count: $e');
-      // Keep current count on error
+      debugPrint('🔔 UnreadCountCubit: Failed to load unread count: $e');
     }
   }
 
   void _setupRealtime() {
     _channel?.unsubscribe();
     try {
+      final currentUser = Supabase.instance.client.auth.currentUser;
+      if (currentUser == null) return;
+
+      // NOTE: This fires for ALL chat_messages the user can see (RLS-filtered).
+      // The debounce at 500ms prevents constant refreshes on busy systems.
       _channel = Supabase.instance.client
           .channel('unread_count_global')
           .onPostgresChanges(
@@ -56,12 +64,10 @@ class UnreadCountCubit extends Cubit<int> {
             callback: (_) => _debouncedRefresh(),
           )
           .subscribe((status, [error]) {
-            if (error != null) {
-              debugPrint('Unread count subscription error: $error');
-            }
+            if (error != null) debugPrint('🔔 Unread count subscription error: $error');
           });
     } catch (e) {
-      debugPrint('Failed to setup unread count realtime: $e');
+      debugPrint('🔔 Failed to setup unread count realtime: $e');
     }
   }
 
@@ -72,7 +78,6 @@ class UnreadCountCubit extends Cubit<int> {
     });
   }
 
-  /// Manually refresh count (call after returning from chat screens)
   void refresh() {
     if (!_isDisposed) _loadCount();
   }

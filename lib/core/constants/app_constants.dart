@@ -38,9 +38,6 @@ class AppConstants {
   static const int batchSize = 100;
   static const int previewLimit = 50;
 
-  // ─── Auth ─────────────────────────────────────────────────────
-  static const String authCacheBox = 'auth';
-
   // ─── Activity Log ─────────────────────────────────────────────
   static const int maxLogEntries = 2000;
 

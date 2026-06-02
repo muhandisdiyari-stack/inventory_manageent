@@ -1,6 +1,5 @@
 ﻿import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-// ✅ FIXED: Hide Supabase's User class to avoid conflict with our custom User model
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../database/supabase/supabase_client.dart';
 import '../models/user.dart';
@@ -30,8 +29,6 @@ class AuthService {
   AuthService({required SupabaseClientService supabaseClient})
       : _supabaseClient = supabaseClient;
 
-  // These getters/setters are intentionally kept as methods
-  // because AuthBloc needs to modify these values externally
   User? get currentUser => _currentUser;
   bool get isAuthenticated => _isAuthenticated;
   bool get isEmailConfirmed => _emailConfirmed;
@@ -50,7 +47,6 @@ class AuthService {
   Future<void> initialize() async {
     debugPrint('🔍 AuthService.initialize() called');
 
-    // Development offline mode — skip auth entirely
     if (!requiresAuth && AppConfig.isDevelopment) {
       _currentUser = User(
         id: 'local_user',
@@ -77,21 +73,15 @@ class AuthService {
       final cachedData = authBox.get('current_user');
 
       if (cachedData is Map) {
-        _currentUser =
-            User.fromLocalJson(Map<String, dynamic>.from(cachedData));
-        _emailConfirmed =
-            authBox.get('email_confirmed', defaultValue: false) as bool? ??
-                false;
-        debugPrint(
-            '🔍 AuthService: Found cached user: ${_currentUser?.email}');
+        _currentUser = User.fromLocalJson(Map<String, dynamic>.from(cachedData));
+        _emailConfirmed = authBox.get('email_confirmed', defaultValue: false) as bool? ?? false;
+        debugPrint('🔍 AuthService: Found cached user: ${_currentUser?.email}');
 
-        // Verify the Supabase session is still valid
         if (AppConfig.useSupabase) {
           try {
             final isValid = await _supabaseClient.verifySession();
             if (!isValid) {
-              debugPrint(
-                  '⚠️ AuthService: Session invalid, clearing cache');
+              debugPrint('⚠️ AuthService: Session invalid, clearing cache');
               await _clearCache();
               _isAuthenticated = false;
               _currentUser = null;
@@ -100,12 +90,9 @@ class AuthService {
               _isAuthenticated = true;
             }
           } catch (e) {
-            debugPrint(
-                '⚠️ AuthService: Session verification error: $e');
-            // Keep cached user if we have one despite verification error
+            debugPrint('⚠️ AuthService: Session verification error: $e');
             if (_currentUser != null) {
-              debugPrint(
-                  '⚠️ AuthService: Keeping cached user despite verification error');
+              debugPrint('⚠️ AuthService: Keeping cached user despite verification error');
               _isAuthenticated = true;
             } else {
               _isAuthenticated = false;
@@ -128,9 +115,25 @@ class AuthService {
 
   Future<List<Map<String, dynamic>>> getUserCompanies() async {
     try {
-      return await _supabaseClient.getUserCompanies();
-    } catch (_) {
+      final data = await _supabaseClient.client.rpc('get_user_companies');
+      if (data is List) {
+        return data.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+      }
       return [];
+    } catch (e) {
+      debugPrint('❌ getUserCompanies error: $e');
+      try {
+        final user = _supabaseClient.client.auth.currentUser;
+        if (user == null) return [];
+        final data = await _supabaseClient.client
+            .from('company_members')
+            .select('company_id, role, companies(id, name, created_at)')
+            .eq('user_id', user.id);
+        return List<Map<String, dynamic>>.from(data);
+      } catch (e2) {
+        debugPrint('❌ getUserCompanies fallback error: $e2');
+        return [];
+      }
     }
   }
 
@@ -161,7 +164,6 @@ class AuthService {
         _isAuthenticated = true;
         _emailConfirmed = userData['email_confirmed'] as bool? ?? true;
 
-        // Check if user is approved
         final isApproved = userData['is_approved'] as bool? ?? false;
         if (!isApproved) {
           debugPrint('⚠️ AuthService: User not approved yet');
@@ -171,16 +173,17 @@ class AuthService {
           return false;
         }
 
+        // NOTE: auto_join_pending_invitations is called in AuthBloc._onSignIn
+        // where the result (joinedCount) is actually used. Don't call it here.
+
         await _cacheCurrentUser();
-        debugPrint(
-            '✅ AuthService.signIn: Success - ${_currentUser?.email}');
+        debugPrint('✅ AuthService.signIn: Success - ${_currentUser?.email}');
         return true;
       }
 
       debugPrint('❌ AuthService.signIn: Failed - no user data');
       return false;
     } on AuthException catch (e) {
-      // AuthException is from supabase_flutter (now importable since we hide User only)
       debugPrint('❌ AuthService.signIn: AuthException - ${e.message}');
       rethrow;
     } catch (e) {
@@ -207,18 +210,14 @@ class AuthService {
       _isAuthenticated = true;
       _emailConfirmed = true;
       await _cacheCurrentUser();
-      return const RegistrationResult(
-          success: true, requiresEmailConfirmation: false);
+      return const RegistrationResult(success: true, requiresEmailConfirmation: false);
     }
 
     try {
-      final userData =
-          await _supabaseClient.signUp(email, password, displayName);
+      final userData = await _supabaseClient.signUp(email, password, displayName);
 
       if (userData == null) {
-        return const RegistrationResult(
-            success: false,
-            error: 'Registration failed. Please try again.');
+        return const RegistrationResult(success: false, error: 'Registration failed. Please try again.');
       }
 
       final emailConfirmed = userData['email_confirmed'] as bool? ?? false;
@@ -234,17 +233,14 @@ class AuthService {
         _isAuthenticated = true;
         _emailConfirmed = true;
         await _cacheCurrentUser();
-        return const RegistrationResult(
-            success: true, requiresEmailConfirmation: false);
+        return const RegistrationResult(success: true, requiresEmailConfirmation: false);
       }
     } on AuthException catch (e) {
-      debugPrint(
-          '❌ AuthService.register: AuthException - ${e.message}');
+      debugPrint('❌ AuthService.register: AuthException - ${e.message}');
       return RegistrationResult(success: false, error: e.message);
     } catch (e) {
       debugPrint('❌ AuthService.register: Exception - $e');
-      return RegistrationResult(
-          success: false, error: e.toString());
+      return RegistrationResult(success: false, error: e.toString());
     }
   }
 
@@ -264,17 +260,10 @@ class AuthService {
   bool hasPermission(String permission) {
     if (_currentUser == null) return false;
     switch (_currentUser!.role) {
-      case UserRole.owner:
-        return true;
-      case UserRole.admin:
-        return permission != 'manage_company';
+      case UserRole.owner: return true;
+      case UserRole.admin: return permission != 'manage_company';
       case UserRole.dataOperator:
-        return [
-          'view_inventory',
-          'manage_inventory',
-          'export_reports',
-          'bulk_import'
-        ].contains(permission);
+        return ['view_inventory', 'manage_inventory', 'export_reports', 'bulk_import'].contains(permission);
       case UserRole.viewer:
         return ['view_inventory', 'export_reports'].contains(permission);
     }
@@ -301,11 +290,9 @@ class AuthService {
     required String email,
     required String role,
   }) async =>
-      await _supabaseClient.createInvitation(
-          companyId: companyId, email: email, role: role);
+      await _supabaseClient.createInvitation(companyId: companyId, email: email, role: role);
 
-  Future<List<Map<String, dynamic>>> getPendingInvitations(
-          String companyId) async =>
+  Future<List<Map<String, dynamic>>> getPendingInvitations(String companyId) async =>
       await _supabaseClient.getPendingInvitations(companyId);
 
   Future<bool> cancelInvitation(String invitationId) async =>
@@ -316,15 +303,13 @@ class AuthService {
 
   // ─── Member operations ────────────────────────────────────────
 
-  Future<List<Map<String, dynamic>>> getCompanyMembers(
-          String companyId) async =>
+  Future<List<Map<String, dynamic>>> getCompanyMembers(String companyId) async =>
       await _supabaseClient.getCompanyMembers(companyId);
 
   Future<bool> removeMember(String memberId, String companyId) async =>
       await _supabaseClient.removeMember(memberId, companyId);
 
-  Future<bool> updateMemberRole(
-          String memberId, String companyId, String newRole) async =>
+  Future<bool> updateMemberRole(String memberId, String companyId, String newRole) async =>
       await _supabaseClient.updateMemberRole(memberId, companyId, newRole);
 
   Future<bool> leaveCompany(String companyId) async =>

@@ -93,6 +93,7 @@ class ItemsListWidget extends StatelessWidget {
       itemBuilder: (context, index) {
         final item = sortedItems[index];
         return _ItemCard(
+          key: ValueKey(item.id),
           item: item,
           canUpdate: canUpdate,
           canDelete: canDelete,
@@ -105,10 +106,7 @@ class ItemsListWidget extends StatelessWidget {
     );
 
     if (onRefresh != null) {
-      return RefreshIndicator(
-        onRefresh: onRefresh!,
-        child: listView,
-      );
+      return RefreshIndicator(onRefresh: onRefresh!, child: listView);
     }
 
     return listView;
@@ -128,10 +126,7 @@ class ItemsListWidget extends StatelessWidget {
                   Icon(Icons.inventory_2_outlined, size: 48, color: Colors.grey[400]),
                   const SizedBox(height: 12),
                   Text('No items in $label',
-                      style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey[700])),
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey[700])),
                   const SizedBox(height: 4),
                   Text(canCreate ? 'Tap + to add items' : 'No items yet',
                       style: TextStyle(color: Colors.grey[500])),
@@ -148,7 +143,7 @@ class ItemsListWidget extends StatelessWidget {
   }
 }
 
-class _ItemCard extends StatelessWidget {
+class _ItemCard extends StatefulWidget {
   final InventoryItem item;
   final bool canUpdate;
   final bool canDelete;
@@ -158,6 +153,7 @@ class _ItemCard extends StatelessWidget {
   final VoidCallback onEdit;
 
   const _ItemCard({
+    super.key,
     required this.item,
     required this.canUpdate,
     required this.canDelete,
@@ -168,6 +164,31 @@ class _ItemCard extends StatelessWidget {
   });
 
   @override
+  State<_ItemCard> createState() => _ItemCardState();
+}
+
+class _ItemCardState extends State<_ItemCard> {
+  bool _isUpdating = false;
+
+  void _handleIncrement() {
+    if (_isUpdating) return;
+    setState(() => _isUpdating = true);
+    widget.onIncrement();
+    Future.microtask(() {
+      if (mounted) setState(() => _isUpdating = false);
+    });
+  }
+
+  void _handleDecrement() {
+    if (_isUpdating) return;
+    setState(() => _isUpdating = true);
+    widget.onDecrement();
+    Future.microtask(() {
+      if (mounted) setState(() => _isUpdating = false);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Card(
@@ -175,106 +196,78 @@ class _ItemCard extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
         leading: CircleAvatar(
-          backgroundColor: item.isExpired
+          backgroundColor: widget.item.isExpired
               ? Colors.red.shade100
-              : item.isExpiringSoon
+              : widget.item.isExpiringSoon
                   ? Colors.orange.shade100
                   : colorScheme.primaryContainer,
-          child: Text(item.quantity.toString(),
+          child: Text(widget.item.quantity.toString(),
               style: TextStyle(
                   fontWeight: FontWeight.w700,
-                  color: item.isExpired
+                  color: widget.item.isExpired
                       ? Colors.red
-                      : item.isExpiringSoon
+                      : widget.item.isExpiringSoon
                           ? Colors.orange
                           : colorScheme.primary)),
         ),
         title: Row(children: [
           Expanded(
-              child: Text(item.displayName,
+              child: Text(widget.item.displayName,
                   style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis)),
-          if (item.isExpired) _badge('EXPIRED', Colors.red),
-          if (item.isExpiringSoon) _badge('EXPIRING', Colors.orange),
+                  maxLines: 1, overflow: TextOverflow.ellipsis)),
+          if (widget.item.isExpired) _badge('EXPIRED', Colors.red),
+          if (widget.item.isExpiringSoon) _badge('EXPIRING', Colors.orange),
         ]),
         subtitle: Row(children: [
-          if (item.barcode.isNotEmpty) ...[
+          if (widget.item.barcode.isNotEmpty) ...[
             const Icon(Icons.qr_code, size: 12, color: Colors.grey),
             const SizedBox(width: 4),
-            Flexible(
-                child: Text(item.barcode,
-                    style: const TextStyle(fontSize: 11),
-                    overflow: TextOverflow.ellipsis)),
+            Flexible(child: Text(widget.item.barcode, style: const TextStyle(fontSize: 11), overflow: TextOverflow.ellipsis)),
             const SizedBox(width: 8),
           ],
-          if (item.size.isNotEmpty)
-            Flexible(
-                child: Text('Size: ${item.size}',
-                    style: const TextStyle(fontSize: 11))),
+          if (widget.item.size.isNotEmpty)
+            Flexible(child: Text('Size: ${widget.item.size}', style: const TextStyle(fontSize: 11))),
         ]),
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Container(
-                padding: const EdgeInsets.all(8),
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('📅 Created: ${_fmt(item.createdAt)}',
-                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                  Text('✏️ Modified: ${_fmt(item.modified)}',
-                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                  Text('👤 ${item.creatorDisplayName}',
-                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                  if (item.updatedByName != null && item.updatedByName != item.createdByName)
-                    Text('👤 Updated by: ${item.updaterDisplayName}',
-                        style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text('📅 Created: ${_fmt(widget.item.createdAt)}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text('✏️ Modified: ${_fmt(widget.item.modified)}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text('👤 ${widget.item.creatorDisplayName}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  if (widget.item.updatedByName != null && widget.item.updatedByName != widget.item.createdByName)
+                    Text('👤 Updated by: ${widget.item.updaterDisplayName}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                 ]),
               ),
-              if (item.color.isNotEmpty) _infoRow('Color', item.color),
-              if (item.material.isNotEmpty) _infoRow('Material', item.material),
-              if (item.productionDate != null)
-                _infoRow('Production', item.productionDate.toString().split(' ')[0]),
-              if (item.expireDate != null)
-                _infoRow('Expires', item.expireDate.toString().split(' ')[0]),
-              if (item.note.isNotEmpty) _infoRow('Note', item.note),
-              ...item.userCustomFields.entries.map((e) => _infoRow(e.key, e.value)),
+              if (widget.item.color.isNotEmpty) _infoRow('Color', widget.item.color),
+              if (widget.item.material.isNotEmpty) _infoRow('Material', widget.item.material),
+              if (widget.item.productionDate != null) _infoRow('Production', widget.item.productionDate.toString().split(' ')[0]),
+              if (widget.item.expireDate != null) _infoRow('Expires', widget.item.expireDate.toString().split(' ')[0]),
+              if (widget.item.note.isNotEmpty) _infoRow('Note', widget.item.note),
+              ...widget.item.userCustomFields.entries.map((e) => _infoRow(e.key, e.value)),
               const Divider(height: 24),
-              if (canUpdate)
+              if (widget.canUpdate)
                 Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
                   IconButton.filled(
-                      onPressed: item.quantity > 0 ? onDecrement : null,
-                      icon: const Icon(Icons.remove),
-                      style: IconButton.styleFrom(
-                          backgroundColor: colorScheme.errorContainer,
-                          foregroundColor: colorScheme.error)),
-                  Text('${item.quantity}',
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineMedium
-                          ?.copyWith(fontWeight: FontWeight.w700)),
+                    onPressed: (widget.item.quantity > 0 && !_isUpdating) ? _handleDecrement : null,
+                    icon: const Icon(Icons.remove),
+                    style: IconButton.styleFrom(backgroundColor: colorScheme.errorContainer, foregroundColor: colorScheme.error)),
+                  Text('${widget.item.quantity}',
+                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700)),
                   IconButton.filled(
-                      onPressed: item.quantity < InventoryItem.maxQuantity ? onIncrement : null,
-                      icon: const Icon(Icons.add),
-                      style: IconButton.styleFrom(
-                          backgroundColor: colorScheme.primaryContainer,
-                          foregroundColor: colorScheme.primary)),
-                  IconButton(onPressed: onEdit, icon: const Icon(Icons.edit), tooltip: 'Edit item'),
-                  if (canDelete)
-                    IconButton(
-                        onPressed: onDelete,
-                        icon: const Icon(Icons.delete_outline),
-                        color: Colors.red,
-                        tooltip: 'Delete item'),
+                    onPressed: (widget.item.quantity < InventoryItem.maxQuantity && !_isUpdating) ? _handleIncrement : null,
+                    icon: const Icon(Icons.add),
+                    style: IconButton.styleFrom(backgroundColor: colorScheme.primaryContainer, foregroundColor: colorScheme.primary)),
+                  IconButton(onPressed: widget.onEdit, icon: const Icon(Icons.edit), tooltip: 'Edit item'),
+                  if (widget.canDelete)
+                    IconButton(onPressed: widget.onDelete, icon: const Icon(Icons.delete_outline), color: Colors.red, tooltip: 'Delete item'),
                 ])
               else
-                Center(
-                    child: Text('View only',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[500]))),
+                Center(child: Text('View only', style: TextStyle(fontSize: 11, color: Colors.grey[500]))),
             ]),
           ),
         ],
@@ -283,23 +276,15 @@ class _ItemCard extends StatelessWidget {
   }
 
   Widget _badge(String label, Color color) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        margin: const EdgeInsets.only(left: 4),
-        decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: color.withValues(alpha: 0.3))),
-        child: Text(label,
-            style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w700)),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), margin: const EdgeInsets.only(left: 4),
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: color.withValues(alpha: 0.3))),
+        child: Text(label, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w700)),
       );
 
   Widget _infoRow(String label, String value) => Padding(
         padding: const EdgeInsets.only(bottom: 4),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SizedBox(
-              width: 100,
-              child: Text('$label: ',
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
+          SizedBox(width: 100, child: Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
           Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
         ]),
       );

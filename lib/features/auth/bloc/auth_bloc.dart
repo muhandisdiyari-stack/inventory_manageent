@@ -62,7 +62,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     debugPrint('🔍 AuthBloc._onAuthCheck: status=${state.status}');
 
     if (_initialAuthCheckDone && state.status == AuthStatus.authenticated) {
-      debugPrint('🔍 AuthBloc: Already authenticated, skipping check');
       return;
     }
 
@@ -138,11 +137,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           return;
         }
 
-        // ✅ NEW: Auto-join any pending invitations
         try {
           final result = await Supabase.instance.client
               .rpc('auto_join_pending_invitations');
-          debugPrint('🔍 Auto-join result: $result');
+          final resultMap = Map<String, dynamic>.from(result as Map);
+          final joinedCount = resultMap['joined_count'] as int? ?? 0;
+          if (joinedCount > 0) {
+            debugPrint('✅ Auto-joined $joinedCount companies from invitations');
+          }
         } catch (e) {
           debugPrint('⚠️ Auto-join failed: $e');
         }

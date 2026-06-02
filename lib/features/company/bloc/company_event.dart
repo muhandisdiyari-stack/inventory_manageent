@@ -76,3 +76,8 @@ class ChangeMemberRole extends CompanyEvent {
 class ClearMessages extends CompanyEvent {
   const ClearMessages();
 }
+
+class RefreshCompanyData extends CompanyEvent {
+  final String companyId;
+  const RefreshCompanyData({required this.companyId});
+}

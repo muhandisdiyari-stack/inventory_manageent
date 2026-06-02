@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/config/app_config.dart';
+import '../core/constants/app_constants.dart';
 
 /// Observes app lifecycle changes and performs necessary actions.
-///
-/// Handles:
-/// - Auth token refresh when app returns to foreground
-/// - Hive box flushing when app goes to background
-/// - Cleanup on app termination
 class AppLifecycleObserver extends StatefulWidget {
   final Widget child;
 
@@ -38,30 +35,14 @@ class _AppLifecycleObserverState extends State<AppLifecycleObserver>
     debugPrint('📱 App lifecycle state: $state');
 
     switch (state) {
-      case AppLifecycleState.resumed:
-        _onAppResumed();
-        break;
-
-      case AppLifecycleState.paused:
-        _onAppPaused();
-        break;
-
-      case AppLifecycleState.inactive:
-        // App is in an inactive state (e.g., phone call incoming)
-        break;
-
-      case AppLifecycleState.detached:
-        _onAppDetached();
-        break;
-
-      case AppLifecycleState.hidden:
-        // App is hidden (rarely used on mobile)
-        _onAppPaused();
-        break;
+      case AppLifecycleState.resumed: _onAppResumed();
+      case AppLifecycleState.paused: _onAppPaused();
+      case AppLifecycleState.inactive: break;
+      case AppLifecycleState.detached: _onAppDetached();
+      case AppLifecycleState.hidden: _onAppPaused();
     }
   }
 
-  /// Called when the app returns to the foreground.
   Future<void> _onAppResumed() async {
     final timeInBackground = _lastBackgroundTime != null
         ? DateTime.now().difference(_lastBackgroundTime!)
@@ -69,7 +50,6 @@ class _AppLifecycleObserverState extends State<AppLifecycleObserver>
 
     debugPrint('📱 App resumed (was in background for ${timeInBackground.inSeconds}s)');
 
-    // Refresh Supabase session if it's been more than 5 minutes
     if (AppConfig.useSupabase && timeInBackground.inMinutes > 5) {
       try {
         final client = Supabase.instance.client;
@@ -80,27 +60,38 @@ class _AppLifecycleObserverState extends State<AppLifecycleObserver>
         }
       } catch (e) {
         debugPrint('⚠️ Failed to refresh session: $e');
-        // Session may have expired - auth state will handle this
       }
     }
 
     _lastBackgroundTime = null;
   }
 
-  /// Called when the app goes to the background.
   void _onAppPaused() {
     _lastBackgroundTime = DateTime.now();
     debugPrint('📱 App paused at $_lastBackgroundTime');
-
-    // Flush Hive boxes to disk
-    // This ensures data is persisted even if the app is killed
-    // Note: Hive auto-flushes, but explicit flush is safer for critical data
+    _flushAllBoxes();
   }
 
-  /// Called when the app is about to be terminated.
   void _onAppDetached() {
     debugPrint('📱 App detached - performing cleanup');
-    // Hive will automatically close boxes, but explicit cleanup is good practice
+    _flushAllBoxes();
+  }
+
+  void _flushAllBoxes() {
+    final boxNames = [
+      AppConstants.appSettingsBox,
+      AppConstants.inventoriesListBox,
+      AppConstants.activityLogsBox,
+    ];
+    for (final name in boxNames) {
+      try {
+        if (Hive.isBoxOpen(name)) {
+          Hive.box(name).flush();
+        }
+      } catch (e) {
+        debugPrint('⚠️ Failed to flush Hive box $name: $e');
+      }
+    }
   }
 
   @override
