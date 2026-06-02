@@ -19,15 +19,13 @@ class InventoryItem extends HiveObject {
   @HiveField(9) DateTime modified;
   @HiveField(10) int quantity;
   @HiveField(11) Map<String, String> customFields;
-  @HiveField(12) String label;
+  @HiveField(12) String label;       // label name (kept for display/offline)
   @HiveField(13) DateTime createdAt;
   @HiveField(14) String id;
-  
-  // Dedicated sync tracking fields
   @HiveField(23) bool _isSynced = false;
 
   // ═══════════════════════════════════════════════════════════════
-  // Computed Supabase sync fields (stored in customFields)
+  // Sync fields (stored in customFields for Hive compatibility)
   // ═══════════════════════════════════════════════════════════════
 
   String? get supabaseId => customFields['_supabase_id'];
@@ -54,16 +52,14 @@ class InventoryItem extends HiveObject {
   String? get inventoryId => customFields['_inventory_id'];
   set inventoryId(String? v) => _setInternal('_inventory_id', v);
 
-  // ✅ New: isSynced getter/setter
+  String? get labelId => customFields['_label_id'];
+  set labelId(String? v) => _setInternal('_label_id', v);
+
   bool get isSynced => _isSynced;
   set isSynced(bool v) => _isSynced = v;
 
   void _setInternal(String key, String? value) {
-    if (value != null) {
-      customFields[key] = value;
-    } else {
-      customFields.remove(key);
-    }
+    if (value != null) { customFields[key] = value; } else { customFields.remove(key); }
   }
 
   InventoryItem({
@@ -96,8 +92,7 @@ class InventoryItem extends HiveObject {
 
   static const int maxQuantity = 999999;
 
-  bool get isExpired =>
-      expireDate != null && expireDate!.toUtc().isBefore(DateTime.now().toUtc());
+  bool get isExpired => expireDate != null && expireDate!.toUtc().isBefore(DateTime.now().toUtc());
 
   bool get isExpiringSoon {
     if (expireDate == null) return false;
@@ -106,117 +101,69 @@ class InventoryItem extends HiveObject {
     return expiry.isBefore(now.add(const Duration(days: 30))) && !isExpired;
   }
 
-  String get displayName =>
-      name.isNotEmpty ? name : (size.isNotEmpty ? size : 'Unnamed');
-
+  String get displayName => name.isNotEmpty ? name : (size.isNotEmpty ? size : 'Unnamed');
   String get creatorDisplayName => createdByName ?? createdBy ?? 'Unknown';
-  String get updaterDisplayName =>
-      updatedByName ?? updatedBy ?? creatorDisplayName;
+  String get updaterDisplayName => updatedByName ?? updatedBy ?? creatorDisplayName;
 
-  /// Returns only user-defined custom fields (excludes internal sync fields)
   Map<String, String> get userCustomFields {
     final fields = Map<String, String>.from(customFields);
-    fields.remove('_supabase_id');
-    fields.remove('_created_by');
-    fields.remove('_created_by_name');
-    fields.remove('_updated_by');
-    fields.remove('_updated_by_name');
-    fields.remove('_row_version');
-    fields.remove('_company_id');
-    fields.remove('_inventory_id');
+    fields.remove('_supabase_id'); fields.remove('_created_by'); fields.remove('_created_by_name');
+    fields.remove('_updated_by'); fields.remove('_updated_by_name'); fields.remove('_row_version');
+    fields.remove('_company_id'); fields.remove('_inventory_id'); fields.remove('_label_id');
     return fields;
   }
 
   bool matchesQuery(String query) {
     final q = query.toLowerCase();
-    return name.toLowerCase().contains(q) ||
-        code.toLowerCase().contains(q) ||
-        barcode.toLowerCase().contains(q) ||
-        size.toLowerCase().contains(q) ||
-        label.toLowerCase().contains(q) ||
-        note.toLowerCase().contains(q) ||
-        color.toLowerCase().contains(q) ||
-        material.toLowerCase().contains(q) ||
+    return name.toLowerCase().contains(q) || code.toLowerCase().contains(q) ||
+        barcode.toLowerCase().contains(q) || size.toLowerCase().contains(q) ||
+        label.toLowerCase().contains(q) || note.toLowerCase().contains(q) ||
+        color.toLowerCase().contains(q) || material.toLowerCase().contains(q) ||
         customFields.values.any((v) => v.toLowerCase().contains(q));
   }
 
-  String get formattedCreatedAt =>
-      '${createdAt.year}-${_pad(createdAt.month)}-${_pad(createdAt.day)} '
-      '${_pad(createdAt.hour)}:${_pad(createdAt.minute)}';
-
-  String get formattedModifiedAt =>
-      '${modified.year}-${_pad(modified.month)}-${_pad(modified.day)} '
-      '${_pad(modified.hour)}:${_pad(modified.minute)}';
-
-  String _pad(int n) => n.toString().padLeft(2, '0');
-
   InventoryItem copyWith({
-    String? name,
-    String? code,
-    String? barcode,
-    String? color,
-    String? material,
-    String? size,
-    int? quantity,
-    String? note,
-    String? label,
-    Map<String, String>? customFields,
-    DateTime? productionDate,
-    DateTime? expireDate,
-    DateTime? modified,
-    bool? isSynced,
+    String? name, String? code, String? barcode, String? color, String? material,
+    String? size, int? quantity, String? note, String? label,
+    Map<String, String>? customFields, DateTime? productionDate, DateTime? expireDate,
+    DateTime? modified, bool? isSynced,
   }) {
     final item = InventoryItem(
-      id: id,
-      name: name ?? this.name,
-      code: code ?? this.code,
-      barcode: barcode ?? this.barcode,
-      color: color ?? this.color,
-      material: material ?? this.material,
-      size: size ?? this.size,
-      quantity: quantity ?? this.quantity,
-      note: note ?? this.note,
+      id: id, name: name ?? this.name, code: code ?? this.code,
+      barcode: barcode ?? this.barcode, color: color ?? this.color,
+      material: material ?? this.material, size: size ?? this.size,
+      quantity: quantity ?? this.quantity, note: note ?? this.note,
       label: label ?? this.label,
       customFields: customFields ?? Map<String, String>.from(this.customFields),
       productionDate: productionDate ?? this.productionDate,
       expireDate: expireDate ?? this.expireDate,
-      modified: modified ?? DateTime.now(),
-      createdAt: createdAt,
-      createdBy: createdBy,
-      createdByName: createdByName,
+      modified: modified ?? DateTime.now(), createdAt: createdAt,
+      createdBy: createdBy, createdByName: createdByName,
       isSynced: isSynced ?? this.isSynced,
     );
-    item.supabaseId = supabaseId;
-    item.updatedBy = updatedBy;
-    item.updatedByName = updatedByName;
-    item.rowVersion = rowVersion;
+    item.supabaseId = supabaseId; item.updatedBy = updatedBy;
+    item.updatedByName = updatedByName; item.rowVersion = rowVersion;
+    item.labelId = labelId; item.companyId = companyId; item.inventoryId = inventoryId;
     return item;
   }
 
   Map<String, dynamic> toSupabaseJson() {
     return {
       'id': supabaseId ?? id,
-      'name': name,
-      'code': code,
-      'barcode': barcode,
-      'color': color,
-      'material': material,
-      'size': size,
-      'quantity': quantity,
-      'note': note,
-      'label': label,
+      'name': name, 'code': code, 'barcode': barcode,
+      'color': color, 'material': material, 'size': size,
+      'quantity': quantity, 'note': note,
+      'label_name': label,
+      'label_id': labelId,
       'custom_fields': userCustomFields,
       'production_date': productionDate?.toIso8601String(),
       'expire_date': expireDate?.toIso8601String(),
-      'created_by': createdBy,
-      'created_by_name': createdByName,
-      'updated_by': updatedBy,
-      'updated_by_name': updatedByName,
+      'created_by': createdBy, 'created_by_name': createdByName,
+      'updated_by': updatedBy, 'updated_by_name': updatedByName,
       'row_version': rowVersion,
     };
   }
 
   @override
-  String toString() =>
-      'InventoryItem(id: $id, name: $name, label: $label, quantity: $quantity, synced: $isSynced)';
+  String toString() => 'InventoryItem(id: $id, name: $name, label: $label, quantity: $quantity, synced: $isSynced)';
 }
