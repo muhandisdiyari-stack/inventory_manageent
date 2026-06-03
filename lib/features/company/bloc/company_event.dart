@@ -39,10 +39,12 @@ class CreateInvitation extends CompanyEvent {
   final String companyId;
   final String email;
   final String role;
+  final String? inventoryId;
   const CreateInvitation({
     required this.companyId,
     required this.email,
     this.role = 'data_operator',
+    this.inventoryId,
   });
 }
 

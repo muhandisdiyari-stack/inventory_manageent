@@ -19,6 +19,7 @@ class CompanySettingsScreen extends StatefulWidget {
 class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
   final _emailController = TextEditingController();
   String _selectedRole = 'data_operator';
+  bool _inviteToSpecificInventory = false;
 
   @override
   void initState() {
@@ -53,6 +54,10 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
     return (company['id'] ?? company['company_id'] ?? '').toString();
   }
 
+  bool get _hasSpecificInventory {
+    return widget.inventoryId != 'default' && widget.inventoryId.isNotEmpty;
+  }
+
   void _inviteUser() {
     final email = _emailController.text.trim();
     if (email.isEmpty || !email.contains('@')) {
@@ -72,13 +77,21 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
       return;
     }
 
+    final inventoryId = _inviteToSpecificInventory && _hasSpecificInventory
+        ? widget.inventoryId
+        : null;
+
     context.read<CompanyBloc>().add(CreateInvitation(
           companyId: companyId,
           email: email,
           role: _selectedRole,
+          inventoryId: inventoryId,
         ));
     _emailController.clear();
-    setState(() => _selectedRole = 'data_operator');
+    setState(() {
+      _selectedRole = 'data_operator';
+      _inviteToSpecificInventory = false;
+    });
   }
 
   void _cancelInvitation(String invitationId) {
@@ -95,7 +108,9 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
         title: const Text('Remove Member'),
         content: Text('Remove $memberName from this company?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Remove', style: TextStyle(color: Colors.red)),
@@ -133,10 +148,7 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
         ],
       ),
     );
@@ -251,9 +263,7 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
           final companyName = state.selectedCompany!['name']?.toString() ?? 'Unknown';
 
           return Scaffold(
-            appBar: AppBar(
-              title: Text('$companyName - Members'),
-            ),
+            appBar: AppBar(title: Text('$companyName - Members')),
             body: RefreshIndicator(
               onRefresh: () async {
                 if (mounted) {
@@ -263,7 +273,6 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  // Company info card
                   Card(
                     color: colorScheme.primaryContainer.withValues(alpha: 0.3),
                     child: Padding(
@@ -284,10 +293,9 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  companyName,
-                                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-                                ),
+                                Text(companyName,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w700, fontSize: 16)),
                                 const SizedBox(height: 2),
                                 Text(
                                   '${state.members.length} ${state.members.length == 1 ? 'member' : 'members'}',
@@ -301,8 +309,6 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-
-                  // Members Card
                   Card(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     child: Padding(
@@ -321,15 +327,14 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                 child: const Icon(Icons.people, color: Colors.green, size: 20),
                               ),
                               const SizedBox(width: 12),
-                              Text(
-                                'Company Members',
-                                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                              ),
+                              Text('Company Members',
+                                  style: theme.textTheme.titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.bold)),
                             ],
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Company-level members can see all inventories.',
+                            'Company-level members can see all inventories they are invited to.',
                             style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                           ),
                           const SizedBox(height: 16),
@@ -337,13 +342,15 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                             const Padding(
                               padding: EdgeInsets.all(16),
                               child: Center(
-                                child: Text('No members yet', style: TextStyle(color: Colors.grey)),
-                              ),
+                                  child:
+                                      Text('No members yet', style: TextStyle(color: Colors.grey))),
                             )
                           else
                             ...state.members.map((member) {
-                              final name =
-                                  (member['display_name'] ?? member['email'] ?? 'Unknown').toString();
+                              final name = (member['display_name'] ??
+                                      member['email'] ??
+                                      'Unknown')
+                                  .toString();
                               final email = (member['email'] ?? '').toString();
                               final role = (member['role'] ?? 'viewer').toString();
                               final memberId = member['id']?.toString() ?? '';
@@ -354,7 +361,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                 margin: const EdgeInsets.only(bottom: 8),
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                                  color: theme.colorScheme.surfaceContainerHighest
+                                      .withValues(alpha: 0.5),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Row(
@@ -376,20 +384,19 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text(
-                                            name,
-                                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                                          ),
+                                          Text(name,
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.w600, fontSize: 14)),
                                           if (email.isNotEmpty && email != name)
-                                            Text(
-                                              email,
-                                              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
-                                            ),
+                                            Text(email,
+                                                style: TextStyle(
+                                                    fontSize: 11, color: Colors.grey[500])),
                                         ],
                                       ),
                                     ),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
                                       decoration: BoxDecoration(
                                         color: roleColor.withValues(alpha: 0.12),
                                         borderRadius: BorderRadius.circular(8),
@@ -429,9 +436,11 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                             value: 'remove',
                                             child: Row(
                                               children: [
-                                                Icon(Icons.person_remove, size: 18, color: Colors.red),
+                                                Icon(Icons.person_remove,
+                                                    size: 18, color: Colors.red),
                                                 SizedBox(width: 8),
-                                                Text('Remove', style: TextStyle(color: Colors.red)),
+                                                Text('Remove',
+                                                    style: TextStyle(color: Colors.red)),
                                               ],
                                             ),
                                           ),
@@ -445,8 +454,6 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                       ),
                     ),
                   ),
-
-                  // Invite Member Card
                   if (_canManageMembers) ...[
                     const SizedBox(height: 16),
                     Card(
@@ -464,20 +471,21 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                     color: Colors.blue.withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
-                                  child: const Icon(Icons.person_add, color: Colors.blue, size: 20),
+                                  child: const Icon(Icons.person_add,
+                                      color: Colors.blue, size: 20),
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        'Invite Company Member',
-                                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                                      ),
+                                      Text('Invite Member',
+                                          style: theme.textTheme.titleMedium
+                                              ?.copyWith(fontWeight: FontWeight.bold)),
                                       Text(
                                         'They will automatically join when they sign in with this email',
-                                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                        style: TextStyle(
+                                            fontSize: 12, color: Colors.grey[600]),
                                       ),
                                     ],
                                   ),
@@ -492,7 +500,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                               decoration: InputDecoration(
                                 hintText: 'Enter email address',
                                 prefixIcon: const Icon(Icons.email_outlined),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12)),
                                 filled: true,
                                 fillColor: theme.colorScheme.surfaceContainerHighest,
                               ),
@@ -503,18 +512,37 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                               decoration: InputDecoration(
                                 labelText: 'Role',
                                 prefixIcon: const Icon(Icons.badge_outlined),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12)),
                                 filled: true,
                                 fillColor: theme.colorScheme.surfaceContainerHighest,
                               ),
                               items: [
-                                _buildDropdownItem('admin', 'Admin', 'Full access except deleting company'),
                                 _buildDropdownItem(
-                                    'data_operator', 'Data Operator', 'Create and update items only'),
-                                _buildDropdownItem('viewer', 'Viewer', 'View only, no modifications'),
+                                    'admin', 'Admin', 'Full access except deleting company'),
+                                _buildDropdownItem('data_operator', 'Data Operator',
+                                    'Create and update items only'),
+                                _buildDropdownItem(
+                                    'viewer', 'Viewer', 'View only, no modifications'),
                               ],
                               onChanged: (v) => setState(() => _selectedRole = v!),
                             ),
+                            if (_hasSpecificInventory) ...[
+                              const SizedBox(height: 12),
+                              SwitchListTile(
+                                title: Text(
+                                    'Invite to "${widget.inventoryName}" only',
+                                    style: const TextStyle(fontSize: 14)),
+                                subtitle: const Text(
+                                    'If off, they can be invited to individual inventories later',
+                                    style: TextStyle(fontSize: 11)),
+                                value: _inviteToSpecificInventory,
+                                onChanged: (v) =>
+                                    setState(() => _inviteToSpecificInventory = v),
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                              ),
+                            ],
                             const SizedBox(height: 20),
                             SizedBox(
                               width: double.infinity,
@@ -522,10 +550,15 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                               child: FilledButton.icon(
                                 onPressed: _inviteUser,
                                 icon: const Icon(Icons.send, size: 18),
-                                label: const Text('Send Invitation',
-                                    style: TextStyle(fontWeight: FontWeight.w600)),
+                                label: Text(
+                                  _inviteToSpecificInventory && _hasSpecificInventory
+                                      ? 'Invite to ${widget.inventoryName}'
+                                      : 'Send Invitation',
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                ),
                                 style: FilledButton.styleFrom(
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12)),
                                 ),
                               ),
                             ),
@@ -534,8 +567,6 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                       ),
                     ),
                   ],
-
-                  // Pending Invitations Card
                   if (state.invitations.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Card(
@@ -553,12 +584,14 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                     color: Colors.orange.withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
-                                  child: const Icon(Icons.pending_actions, color: Colors.orange, size: 20),
+                                  child: const Icon(Icons.pending_actions,
+                                      color: Colors.orange, size: 20),
                                 ),
                                 const SizedBox(width: 12),
                                 Text(
                                   'Pending Invitations (${state.invitations.length})',
-                                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                                  style: theme.textTheme.titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.bold),
                                 ),
                               ],
                             ),
@@ -573,15 +606,18 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                 margin: const EdgeInsets.only(bottom: 8),
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                                  color: theme.colorScheme.surfaceContainerHighest
+                                      .withValues(alpha: 0.5),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Row(
                                   children: [
                                     CircleAvatar(
                                       radius: 18,
-                                      backgroundColor: Colors.orange.withValues(alpha: 0.15),
-                                      child: const Icon(Icons.person_outline, color: Colors.orange, size: 18),
+                                      backgroundColor:
+                                          Colors.orange.withValues(alpha: 0.15),
+                                      child: const Icon(Icons.person_outline,
+                                          color: Colors.orange, size: 18),
                                     ),
                                     const SizedBox(width: 12),
                                     Expanded(
@@ -589,10 +625,13 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(email,
-                                              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.w500,
+                                                  fontSize: 14)),
                                           const SizedBox(height: 2),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 6, vertical: 2),
                                             decoration: BoxDecoration(
                                               color: roleColor.withValues(alpha: 0.12),
                                               borderRadius: BorderRadius.circular(6),
@@ -600,7 +639,9 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                             child: Text(
                                               _getRoleDisplayName(role),
                                               style: TextStyle(
-                                                  fontSize: 10, fontWeight: FontWeight.w600, color: roleColor),
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: roleColor),
                                             ),
                                           ),
                                         ],
@@ -608,7 +649,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                     ),
                                     if (_canManageMembers)
                                       IconButton(
-                                        icon: const Icon(Icons.close, color: Colors.red, size: 20),
+                                        icon: const Icon(Icons.close,
+                                            color: Colors.red, size: 20),
                                         tooltip: 'Cancel invitation',
                                         onPressed: () => _cancelInvitation(invId),
                                         style: IconButton.styleFrom(
@@ -625,7 +667,6 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                       ),
                     ),
                   ],
-
                   const SizedBox(height: 32),
                 ],
               ),
@@ -636,7 +677,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
     );
   }
 
-  DropdownMenuItem<String> _buildDropdownItem(String value, String title, String subtitle) {
+  DropdownMenuItem<String> _buildDropdownItem(
+      String value, String title, String subtitle) {
     return DropdownMenuItem<String>(
       value: value,
       child: Column(

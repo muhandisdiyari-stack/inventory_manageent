@@ -363,17 +363,24 @@ class SupabaseClientService {
     required String companyId,
     required String email,
     required String role,
+    String? inventoryId,
   }) async {
     if (!isConfigured) return null;
     try {
       final user = _client!.auth.currentUser;
       if (user == null) return null;
 
-      final result = await _client!.rpc('create_invitation', params: {
+      final params = <String, dynamic>{
         'p_company_id': companyId,
         'p_email': email.trim().toLowerCase(),
         'p_role': role,
-      });
+      };
+
+      if (inventoryId != null && inventoryId.isNotEmpty) {
+        params['p_inventory_id'] = inventoryId;
+      }
+
+      final result = await _client!.rpc('create_invitation', params: params);
 
       if (result is Map) return Map<String, dynamic>.from(result);
       return null;
