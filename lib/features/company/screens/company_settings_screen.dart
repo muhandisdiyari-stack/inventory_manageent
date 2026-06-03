@@ -20,6 +20,7 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
   final _emailController = TextEditingController();
   String _selectedRole = 'data_operator';
   bool _inviteToSpecificInventory = false;
+  bool _isSending = false;
 
   @override
   void initState() {
@@ -77,6 +78,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
       return;
     }
 
+    setState(() => _isSending = true);
+
     final inventoryId = _inviteToSpecificInventory && _hasSpecificInventory
         ? widget.inventoryId
         : null;
@@ -87,10 +90,12 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
           role: _selectedRole,
           inventoryId: inventoryId,
         ));
+
     _emailController.clear();
     setState(() {
       _selectedRole = 'data_operator';
       _inviteToSpecificInventory = false;
+      _isSending = false;
     });
   }
 
@@ -264,15 +269,12 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
 
           return Scaffold(
             appBar: AppBar(title: Text('$companyName - Members')),
-            body: RefreshIndicator(
-              onRefresh: () async {
-                if (mounted) {
-                  context.read<CompanyBloc>().add(const LoadCompanies());
-                }
-              },
-              child: ListView(
-                padding: const EdgeInsets.all(16),
+            body: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Company info card
                   Card(
                     color: colorScheme.primaryContainer.withValues(alpha: 0.3),
                     child: Padding(
@@ -309,6 +311,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+
+                  // Members Card
                   Card(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     child: Padding(
@@ -454,6 +458,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                       ),
                     ),
                   ),
+
+                  // Invite Member Card
                   if (_canManageMembers) ...[
                     const SizedBox(height: 16),
                     Card(
@@ -504,9 +510,12 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                     borderRadius: BorderRadius.circular(12)),
                                 filled: true,
                                 fillColor: theme.colorScheme.surfaceContainerHighest,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 14),
                               ),
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 16),
+                            // Role dropdown with fixed height to prevent overflow
                             DropdownButtonFormField<String>(
                               value: _selectedRole,
                               decoration: InputDecoration(
@@ -516,17 +525,27 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                                     borderRadius: BorderRadius.circular(12)),
                                 filled: true,
                                 fillColor: theme.colorScheme.surfaceContainerHighest,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 14),
                               ),
-                              items: [
-                                _buildDropdownItem(
-                                    'admin', 'Admin', 'Full access except deleting company'),
-                                _buildDropdownItem('data_operator', 'Data Operator',
-                                    'Create and update items only'),
-                                _buildDropdownItem(
-                                    'viewer', 'Viewer', 'View only, no modifications'),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'admin',
+                                  child: Text('Admin - Full access except deleting company'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'data_operator',
+                                  child: Text('Data Operator - Create and update items only'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'viewer',
+                                  child: Text('Viewer - View only, no modifications'),
+                                ),
                               ],
                               onChanged: (v) => setState(() => _selectedRole = v!),
+                              menuMaxHeight: 200,
                             ),
+                            // Toggle for inventory-specific invitation
                             if (_hasSpecificInventory) ...[
                               const SizedBox(height: 12),
                               SwitchListTile(
@@ -548,8 +567,14 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                               width: double.infinity,
                               height: 48,
                               child: FilledButton.icon(
-                                onPressed: _inviteUser,
-                                icon: const Icon(Icons.send, size: 18),
+                                onPressed: _isSending ? null : _inviteUser,
+                                icon: _isSending
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2, color: Colors.white))
+                                    : const Icon(Icons.send, size: 18),
                                 label: Text(
                                   _inviteToSpecificInventory && _hasSpecificInventory
                                       ? 'Invite to ${widget.inventoryName}'
@@ -567,6 +592,8 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                       ),
                     ),
                   ],
+
+                  // Pending Invitations Card
                   if (state.invitations.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Card(
@@ -667,27 +694,13 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
                       ),
                     ),
                   ],
+
                   const SizedBox(height: 32),
                 ],
               ),
             ),
           );
         },
-      ),
-    );
-  }
-
-  DropdownMenuItem<String> _buildDropdownItem(
-      String value, String title, String subtitle) {
-    return DropdownMenuItem<String>(
-      value: value,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-          Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-        ],
       ),
     );
   }
