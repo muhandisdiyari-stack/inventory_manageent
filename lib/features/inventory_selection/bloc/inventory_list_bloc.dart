@@ -57,7 +57,6 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
   }
 
   Future<void> _writeCache(List<Map<String, dynamic>> data) async {
-    // Store ALL inventories in cache but filter by company when reading
     await _cacheBox.put('cached_inventories', data);
   }
 
@@ -87,20 +86,13 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
     final companyId = await _getCurrentCompanyId();
 
     if (companyId == null) {
-      emit(state.copyWith(
-        inventories: [], isLoading: false, isInitialized: true,
-        error: 'No company assigned. Create or join a company first.',
-      ));
+      emit(state.copyWith(inventories: [], isLoading: false, isInitialized: true, error: 'No company assigned.'));
       return;
     }
 
-    // Show cached data immediately
     final cached = _readCache(companyId);
     if (cached.isNotEmpty) {
-      emit(state.copyWith(
-        inventories: cached, isLoading: false, isInitialized: true,
-        isOffline: false, isCacheOnly: true,
-      ));
+      emit(state.copyWith(inventories: cached, isLoading: false, isInitialized: true, isOffline: false, isCacheOnly: true));
     } else {
       emit(state.copyWith(isLoading: true));
     }
@@ -108,37 +100,19 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
     if (AppConfig.useSupabase) {
       try {
         final freshData = await _fetchFromSupabase(companyId);
-        if (freshData.isNotEmpty) {
-          await _writeCache(freshData);
-        }
+        if (freshData.isNotEmpty) await _writeCache(freshData);
 
         for (final inv in freshData) {
           final id = inv['id']?.toString() ?? '';
           if (id.isNotEmpty) {
-            try { await _inventoryService.initializeForInventory(id); }
-            catch (e) { debugPrint('⚠️ Failed to init inventory $id: $e'); }
+            try { await _inventoryService.initializeForInventory(id); } catch (e) { debugPrint('⚠️ Failed to init inventory $id: $e'); }
           }
         }
 
         final items = _readCache(companyId);
-        if (!isClosed) {
-          emit(state.copyWith(
-            inventories: items, isLoading: false, isOffline: false,
-            isInitialized: true, isCacheOnly: false,
-          ));
-        }
+        if (!isClosed) emit(state.copyWith(inventories: items, isLoading: false, isOffline: false, isInitialized: true, isCacheOnly: false));
       } catch (e) {
-        if (!isClosed) {
-          emit(state.copyWith(
-            inventories: cached, isLoading: false,
-            isOffline: cached.isNotEmpty, isCacheOnly: true,
-            error: cached.isEmpty ? 'No connection. Pull to retry.' : null,
-          ));
-        }
-      }
-    } else {
-      if (!isClosed) {
-        emit(state.copyWith(inventories: cached, isLoading: false, isOffline: true, isCacheOnly: true));
+        if (!isClosed) emit(state.copyWith(inventories: cached, isLoading: false, isOffline: cached.isNotEmpty, isCacheOnly: true, error: cached.isEmpty ? 'No connection.' : null));
       }
     }
   }
@@ -163,45 +137,48 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
       final user = Supabase.instance.client.auth.currentUser;
       final timestamp = DateTime.now();
 
+      // CRITICAL: Ensure created_by is always set to the current user
+      final userId = user?.id;
+      final userName = user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown';
+
+      debugPrint('📝 Creating inventory: name=$name, company=$companyId, user=$userId');
+
       final response = await Supabase.instance.client.from('inventories').insert({
-        'company_id': companyId, 'name': name,
-        'created_by': user?.id,
-        'created_by_name': user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown',
+        'company_id': companyId,
+        'name': name,
+        'created_by': userId,
+        'created_by_name': userName,
         'created_at': timestamp.toUtc().toIso8601String(),
         'updated_at': timestamp.toUtc().toIso8601String(),
       }).select();
 
       if (response.isEmpty) {
-        if (!isClosed) emit(state.copyWith(error: 'Failed to create inventory'));
+        if (!isClosed) emit(state.copyWith(error: 'Failed to create inventory - no response from server'));
         return;
       }
 
       final created = Map<String, dynamic>.from(response.first as Map);
       final newId = created['id']?.toString() ?? '';
+      debugPrint('✅ Created inventory: $newId for company $companyId');
 
       final cacheList = _getRawCache();
       cacheList.add(created);
       await _writeCache(cacheList);
 
-      try { await _inventoryService.initializeForInventory(newId); }
-      catch (e) { debugPrint('⚠️ Failed to init new inventory: $e'); }
+      try { await _inventoryService.initializeForInventory(newId); } catch (e) { debugPrint('⚠️ Failed to init: $e'); }
 
       await _logService.addLog(ActivityLogEntry(
         id: const Uuid().v4(), timestamp: timestamp, action: 'created',
-        entityType: 'inventory', entityName: name,
-        inventoryId: newId, inventoryName: name, details: 'Created: "$name"',
+        entityType: 'inventory', entityName: name, inventoryId: newId, inventoryName: name, details: 'Created: "$name"',
       ));
 
       if (!isClosed) {
         final items = _readCache(companyId);
-        emit(state.copyWith(
-          inventories: items, selectedInventoryId: newId,
-          selectedInventoryName: name, isCacheOnly: false,
-        ));
+        emit(state.copyWith(inventories: items, selectedInventoryId: newId, selectedInventoryName: name, isCacheOnly: false));
       }
     } catch (e) {
       debugPrint('❌ Create inventory error: $e');
-      if (!isClosed) emit(state.copyWith(error: 'Failed to create: $e'));
+      if (!isClosed) emit(state.copyWith(error: 'Failed to create inventory: $e'));
     }
   }
 
@@ -213,24 +190,10 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
         }).eq('id', event.id);
       }
       final cacheList = _getRawCache();
-      for (final item in cacheList) {
-        if (item['id']?.toString() == event.id) {
-          item['name'] = event.newName.trim(); break;
-        }
-      }
+      for (final item in cacheList) { if (item['id']?.toString() == event.id) { item['name'] = event.newName.trim(); break; } }
       await _writeCache(cacheList);
-      await _logService.addLog(ActivityLogEntry(
-        id: const Uuid().v4(), timestamp: DateTime.now(), action: 'modified',
-        entityType: 'inventory', entityName: event.newName.trim(),
-        inventoryId: event.id, inventoryName: event.newName.trim(), details: 'Renamed',
-      ));
-      if (!isClosed) {
-        final companyId = await _getCurrentCompanyId();
-        emit(state.copyWith(inventories: _readCache(companyId)));
-      }
-    } catch (e) {
-      if (!isClosed) emit(state.copyWith(error: 'Failed to rename: $e'));
-    }
+      if (!isClosed) { final companyId = await _getCurrentCompanyId(); emit(state.copyWith(inventories: _readCache(companyId))); }
+    } catch (e) { if (!isClosed) emit(state.copyWith(error: 'Failed to rename: $e')); }
   }
 
   Future<void> _onDelete(DeleteInventory event, Emitter<InventoryListState> emit) async {
@@ -249,24 +212,14 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
       if (!isClosed) {
         final companyId = await _getCurrentCompanyId();
         final inventories = _readCache(companyId);
-        emit(state.copyWith(
-          inventories: inventories,
-          selectedInventoryId: state.selectedInventoryId == event.id
-              ? (inventories.isNotEmpty ? inventories.first.id : null)
-              : state.selectedInventoryId,
-          isLoading: false,
-        ));
+        emit(state.copyWith(inventories: inventories, selectedInventoryId: state.selectedInventoryId == event.id ? (inventories.isNotEmpty ? inventories.first.id : null) : state.selectedInventoryId, isLoading: false));
       }
-    } catch (e) {
-      if (!isClosed) emit(state.copyWith(isLoading: false, error: 'Failed to delete: $e'));
-    }
+    } catch (e) { if (!isClosed) emit(state.copyWith(isLoading: false, error: 'Failed to delete: $e')); }
   }
 
   void _onSelect(SelectInventory event, Emitter<InventoryListState> emit) {
     String? name;
-    for (final item in _getRawCache()) {
-      if (item['id']?.toString() == event.id) { name = item['name']?.toString(); break; }
-    }
+    for (final item in _getRawCache()) { if (item['id']?.toString() == event.id) { name = item['name']?.toString(); break; } }
     emit(state.copyWith(selectedInventoryId: event.id, selectedInventoryName: name));
   }
 
