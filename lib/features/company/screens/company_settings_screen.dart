@@ -99,8 +99,41 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
     });
   }
 
-  void _cancelInvitation(String invitationId) {
-    context.read<CompanyBloc>().add(CancelInvitation(invitationId));
+  void _cancelInvitation(String invitationId) async {
+    // Show confirmation
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancel Invitation'),
+        content: const Text('Are you sure you want to cancel this invitation?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Yes, Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      // Optimistically remove from the list
+      final bloc = context.read<CompanyBloc>();
+      bloc.add(CancelInvitation(invitationId));
+      
+      // Force reload invitations after a short delay
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (mounted) {
+        final companyId = _selectedCompanyId;
+        if (companyId != null) {
+          bloc.add(const LoadCompanies()); // Full reload to ensure UI updates
+        }
+      }
+    }
   }
 
   void _removeMember(String memberId, String memberName) async {

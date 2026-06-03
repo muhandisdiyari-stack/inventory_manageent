@@ -30,7 +30,7 @@ class CompanyState {
   }) {
     return CompanyState(
       companies: companies ?? this.companies,
-      selectedCompany: selectedCompany ?? this.selectedCompany,
+      selectedCompany: selectedCompany,
       members: members ?? this.members,
       invitations: invitations ?? this.invitations,
       isLoading: isLoading ?? this.isLoading,
@@ -48,24 +48,8 @@ class CompanyState {
       other is CompanyState &&
           isLoading == other.isLoading &&
           error == other.error &&
-          successMessage == other.successMessage &&
-          _mapEquals(selectedCompany, other.selectedCompany);
+          successMessage == other.successMessage;
 
   @override
-  int get hashCode => Object.hash(
-        isLoading,
-        error,
-        successMessage,
-        selectedCompany?['id'],
-      );
-
-  static bool _mapEquals(Map<String, dynamic>? a, Map<String, dynamic>? b) {
-    if (a == null) return b == null;
-    if (b == null) return false;
-    if (a.length != b.length) return false;
-    for (final key in a.keys) {
-      if (a[key] != b[key]) return false;
-    }
-    return true;
-  }
+  int get hashCode => Object.hash(isLoading, error, successMessage);
 }
