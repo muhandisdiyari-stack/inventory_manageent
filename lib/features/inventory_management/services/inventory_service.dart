@@ -11,7 +11,9 @@ import '../../../core/database/supabase/supabase_client.dart';
 
 const _uuid = Uuid();
 
-enum LabelSortType { nameAsc, nameDesc, dateCreatedAsc, dateCreatedDesc, dateModifiedAsc, dateModifiedDesc }
+enum LabelSortType {
+  nameAsc, nameDesc, dateCreatedAsc, dateCreatedDesc, dateModifiedAsc, dateModifiedDesc,
+}
 
 class InventoryService {
   final Map<String, Box<InventoryItem>> _itemsBoxes = {};
@@ -88,6 +90,8 @@ class InventoryService {
     } catch (e) { debugPrint('⚠️ Failed to load company ID: $e'); _currentCompanyId = null; }
   }
 
+  // ─── Label Sync ─────────────────────────────────────────────────
+
   Future<void> syncLabelsFromSupabase(String inventoryId) async {
     if (!AppConfig.useSupabase) return;
     final companyId = _currentCompanyId; if (companyId == null) return;
@@ -101,8 +105,12 @@ class InventoryService {
         } catch (e) { debugPrint('⚠️ Error parsing label row: $e'); }
       }
       final box = _labelsBoxes[inventoryId];
-      if (box != null) { await box.put('labels_cache', labels.map((l) => l.toLocalJson()).toList()); await box.put('label_names', labels.map((l) => l.name).toList()); }
+      if (box != null) {
+        await box.put('labels_cache', labels.map((l) => l.toLocalJson()).toList());
+        await box.put('label_names', labels.map((l) => l.name).toList());
+      }
       _labelsCache[inventoryId] = labels;
+      debugPrint('✅ Synced ${labels.length} labels from Supabase');
     } catch (e) { debugPrint('⚠️ Label sync error: $e'); _loadLabelsFromCache(inventoryId); }
   }
 
@@ -112,6 +120,8 @@ class InventoryService {
     final raw = box.get('labels_cache');
     _labelsCache[inventoryId] = (raw is List && raw.isNotEmpty) ? raw.map((e) => Label.fromLocalJson(Map<String, dynamic>.from(e))).toList() : [];
   }
+
+  // ─── Item Sync ──────────────────────────────────────────────────
 
   Future<void> _syncItemsFromSupabase(String inventoryId) async {
     if (!AppConfig.useSupabase) return;
@@ -152,17 +162,14 @@ class InventoryService {
         final item = _itemFromSupabaseRow(Map<String, dynamic>.from(itemData));
         bool found = false;
         for (final existingItem in box.values) {
-          if (existingItem.supabaseId == item.supabaseId) {
-            if (item.rowVersion > existingItem.rowVersion) {
-              existingItem.name = item.name; existingItem.code = item.code; existingItem.barcode = item.barcode;
-              existingItem.quantity = item.quantity; existingItem.label = item.label; existingItem.note = item.note;
-              existingItem.color = item.color; existingItem.material = item.material; existingItem.size = item.size;
-              existingItem.customFields = item.customFields; existingItem.productionDate = item.productionDate;
-              existingItem.expireDate = item.expireDate; existingItem.modified = item.modified;
-              existingItem.rowVersion = item.rowVersion; existingItem.labelId = item.labelId;
-              await existingItem.save();
-            }
-            found = true; break;
+          if (existingItem.supabaseId == item.supabaseId && item.rowVersion > existingItem.rowVersion) {
+            existingItem.name = item.name; existingItem.code = item.code; existingItem.barcode = item.barcode;
+            existingItem.quantity = item.quantity; existingItem.label = item.label; existingItem.note = item.note;
+            existingItem.color = item.color; existingItem.material = item.material; existingItem.size = item.size;
+            existingItem.customFields = item.customFields; existingItem.productionDate = item.productionDate;
+            existingItem.expireDate = item.expireDate; existingItem.modified = item.modified;
+            existingItem.rowVersion = item.rowVersion; existingItem.labelId = item.labelId;
+            await existingItem.save(); found = true; break;
           }
         }
         if (!found) { await box.add(item); }
@@ -175,8 +182,7 @@ class InventoryService {
     final rawCustom = row['custom_fields'];
     if (rawCustom is Map) { for (final entry in rawCustom.entries) { customFields[entry.key.toString()] = entry.value.toString(); } }
     final supabaseId = row['id'] as String? ?? '';
-    // Get label name from joined labels table
-    final labelName = row['labels'] is Map ? (row['labels'] as Map)['name']?.toString() ?? '' : '';
+    final labelName = row['labels'] is Map ? (row['labels'] as Map)['name']?.toString() ?? '' : (row['label'] as String?) ?? '';
     final item = InventoryItem(
       id: supabaseId.isNotEmpty ? supabaseId : _uuid.v4(),
       name: row['name'] as String? ?? '', code: row['code'] as String? ?? '',
@@ -280,7 +286,6 @@ class InventoryService {
     if (_currentInventoryId == null) return;
     final box = _itemsBoxes[_currentInventoryId!]; if (box == null) return;
     item.inventoryId = _currentInventoryId; item.companyId = _currentCompanyId; item.isSynced = false;
-    // Resolve label_id from label name
     if (item.labelId == null && item.label.isNotEmpty) {
       final label = getLabelByName(item.label);
       if (label != null) { item.labelId = label.id; }
@@ -298,9 +303,8 @@ class InventoryService {
         'company_id': companyId, 'inventory_id': _currentInventoryId,
         'name': item.name, 'code': item.code, 'barcode': item.barcode,
         'color': item.color, 'material': item.material, 'size': item.size,
-        'quantity': item.quantity, 'note': item.note,
-        'label_name': item.label, 'label_id': item.labelId,
-        'custom_fields': item.userCustomFields,
+        'quantity': item.quantity, 'label': item.label, 'note': item.note,
+        'label_id': item.labelId, 'custom_fields': item.userCustomFields,
         'production_date': item.productionDate?.toIso8601String(),
         'expire_date': item.expireDate?.toIso8601String(), 'updated_at': now,
       };
