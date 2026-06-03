@@ -43,7 +43,6 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
   @override
   void initState() {
     super.initState();
-    // ✅ FIXED: Use microtask to avoid race with PostFrameCallback
     Future.microtask(() {
       if (mounted && !_authCheckDispatched) {
         _authCheckDispatched = true;
@@ -63,28 +62,18 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
           AuthStatus.initializing =>
             const Scaffold(body: Center(child: CircularProgressIndicator())),
           AuthStatus.authenticating =>
-            const Scaffold(
-                body: Center(
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Please wait...'),
+            const Scaffold(body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+              CircularProgressIndicator(), SizedBox(height: 16), Text('Please wait...'),
             ]))),
           AuthStatus.unauthenticated => const LoginScreen(),
           AuthStatus.authenticated => _buildAuthenticatedFlow(state),
           AuthStatus.emailUnconfirmed => const _EmailConfirmationScreen(),
           AuthStatus.emailConfirmed => const _EmailConfirmedScreen(),
-          AuthStatus.error => Scaffold(
-              body: Center(
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.error_outline, size: 64, color: Colors.red),
-                const SizedBox(height: 16),
-                Text(state.error ?? 'Unknown error'),
-                const SizedBox(height: 24),
-                FilledButton(
-                    onPressed: () => context.read<AuthBloc>().add(const AuthCheckRequested()),
-                    child: const Text('Retry')),
-              ]))),
+          AuthStatus.error => Scaffold(body: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.error_outline, size: 64, color: Colors.red), const SizedBox(height: 16),
+            Text(state.error ?? 'Unknown error'), const SizedBox(height: 24),
+            FilledButton(onPressed: () => context.read<AuthBloc>().add(const AuthCheckRequested()), child: const Text('Retry')),
+          ]))),
         };
       },
     );
@@ -97,13 +86,13 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
       return const OnboardingScreen();
     }
 
+    // FIX: Always show company setup first. Admin gate is shown inside company setup if needed.
     if (state.isAdmin) {
       return const _AdminGate();
     }
     return const CompanySetupScreen();
   }
 
-  // ✅ FIXED: Use try-catch for Hive read in build method
   bool _isOnboardingCompleted() {
     try {
       final appSettings = Hive.box(AppConstants.appSettingsBox);
@@ -128,9 +117,7 @@ class _AdminGateState extends State<_AdminGate> {
   void initState() {
     super.initState();
     Future.microtask(() {
-      if (mounted) {
-        _showAdminDialog();
-      }
+      if (mounted) _showAdminDialog();
     });
   }
 
@@ -143,16 +130,13 @@ class _AdminGateState extends State<_AdminGate> {
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Row(children: [
-          Icon(Icons.admin_panel_settings, color: Colors.blue),
-          SizedBox(width: 8),
-          Text('Admin Access'),
+          Icon(Icons.admin_panel_settings, color: Colors.blue), SizedBox(width: 8), Text('Admin Access'),
         ]),
         content: const Text('You have admin privileges. Where would you like to go?'),
         actions: [
           OutlinedButton(
             onPressed: () {
               Navigator.pop(ctx);
-              // ✅ FIXED: Use context from State, not dialog context
               if (mounted) {
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const CompanySetupScreen()),
@@ -197,53 +181,23 @@ class _EmailConfirmationScreen extends StatelessWidget {
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Theme.of(context).colorScheme.primary,
-              Theme.of(context).colorScheme.primary.withValues(alpha: 0.8),
-              Theme.of(context).colorScheme.surface,
-            ],
+            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            colors: [Theme.of(context).colorScheme.primary, Theme.of(context).colorScheme.primary.withValues(alpha: 0.8), Theme.of(context).colorScheme.surface],
           ),
         ),
         child: SafeArea(
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 100, height: 100,
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(25)),
-                    child: Icon(Icons.email_rounded, size: 50, color: Theme.of(context).colorScheme.primary),
-                  ),
-                  const SizedBox(height: 32),
-                  Text('Check Your Email',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold, color: Colors.white)),
-                  const SizedBox(height: 16),
-                  Text(
-                    'We sent a confirmation email to:\n${state.pendingEmail ?? ""}\n\nTap the confirmation link in the email to verify your account.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 15, height: 1.6),
-                  ),
-                  const SizedBox(height: 40),
-                  SizedBox(
-                    width: double.infinity, height: 50,
-                    child: FilledButton(
-                      onPressed: () => context.read<AuthBloc>().add(const AuthCheckRequested()),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Theme.of(context).colorScheme.primary,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: const Text('Back to Sign In',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                    ),
-                  ),
-                ],
-              ),
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Container(width: 100, height: 100, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(25)), child: Icon(Icons.email_rounded, size: 50, color: Theme.of(context).colorScheme.primary)),
+                const SizedBox(height: 32),
+                Text('Check Your Email', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold, color: Colors.white)),
+                const SizedBox(height: 16),
+                Text('We sent a confirmation email to:\n${state.pendingEmail ?? ""}\n\nTap the confirmation link in the email to verify your account.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 15, height: 1.6)),
+                const SizedBox(height: 40),
+                SizedBox(width: double.infinity, height: 50, child: FilledButton(onPressed: () => context.read<AuthBloc>().add(const AuthCheckRequested()), style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Theme.of(context).colorScheme.primary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Back to Sign In', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)))),
+              ]),
             ),
           ),
         ),
@@ -261,54 +215,23 @@ class _EmailConfirmedScreen extends StatelessWidget {
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.green.shade700,
-              Colors.green.shade500,
-              Theme.of(context).colorScheme.surface,
-            ],
+            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            colors: [Colors.green.shade700, Colors.green.shade500, Theme.of(context).colorScheme.surface],
           ),
         ),
         child: SafeArea(
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 100, height: 100,
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(25)),
-                    child: const Icon(Icons.check_circle_rounded, size: 60, color: Colors.green),
-                  ),
-                  const SizedBox(height: 32),
-                  Text('Email Confirmed!',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold, color: Colors.white)),
-                  const SizedBox(height: 16),
-                  Text('Your email has been successfully verified.\nYou can now sign in to your account.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 15, height: 1.6)),
-                  const SizedBox(height: 40),
-                  SizedBox(
-                    width: double.infinity, height: 50,
-                    child: FilledButton(
-                      // ✅ FIXED: Navigate to login instead of signing out
-                      onPressed: () {
-                        context.read<AuthBloc>().add(const AuthCheckRequested());
-                      },
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.green.shade700,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: const Text('Sign In Now',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                    ),
-                  ),
-                ],
-              ),
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Container(width: 100, height: 100, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(25)), child: const Icon(Icons.check_circle_rounded, size: 60, color: Colors.green)),
+                const SizedBox(height: 32),
+                Text('Email Confirmed!', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold, color: Colors.white)),
+                const SizedBox(height: 16),
+                Text('Your email has been successfully verified.\nYou can now sign in to your account.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 15, height: 1.6)),
+                const SizedBox(height: 40),
+                SizedBox(width: double.infinity, height: 50, child: FilledButton(onPressed: () { context.read<AuthBloc>().add(const AuthCheckRequested()); }, style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.green.shade700, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Sign In Now', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)))),
+              ]),
             ),
           ),
         ),
