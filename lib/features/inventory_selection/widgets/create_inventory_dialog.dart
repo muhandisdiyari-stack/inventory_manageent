@@ -16,19 +16,36 @@ class CreateInventoryDialog {
       builder: (dialogContext) => Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(dialogContext).viewInsets.bottom + 28,
-          left: 20,
-          right: 20,
-          top: 20,
+          left: 20, right: 20, top: 20,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildDragHandle(context),
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
             const SizedBox(height: 24),
-            _buildHeader(context),
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.add_rounded, color: Theme.of(context).colorScheme.primary, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Text('Create New Inventory', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+            ]),
             const SizedBox(height: 8),
-            _buildDescription(context),
+            Text('Give your inventory a descriptive name', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 14)),
             const SizedBox(height: 20),
             TextField(
               controller: controller,
@@ -37,59 +54,45 @@ class CreateInventoryDialog {
               decoration: InputDecoration(
                 hintText: 'e.g., Warehouse A, Storage Room 1',
                 prefixIcon: const Icon(Icons.inventory_2_rounded),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16)),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                 filled: true,
-                fillColor: Theme.of(context)
-                    .colorScheme
-                    .surfaceContainerHighest,
+                fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
               ),
               onSubmitted: (value) {
                 if (value.trim().isNotEmpty) {
-                  _createInventory(
-                      dialogContext, context, value.trim(), controller);
+                  _createInventory(dialogContext, context, value.trim(), controller);
                 }
               },
             ),
             const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(dialogContext),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: const Text('Cancel'),
+            Row(children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
+                  child: const Text('Cancel'),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: () {
-                      final name = controller.text.trim();
-                      if (name.isNotEmpty) {
-                        _createInventory(
-                            dialogContext, context, name, controller);
-                      }
-                    },
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: const Text(
-                      'Create',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: () {
+                    final name = controller.text.trim();
+                    if (name.isNotEmpty) {
+                      _createInventory(dialogContext, context, name, controller);
+                    }
+                  },
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
+                  child: const Text('Create', style: TextStyle(fontWeight: FontWeight.w700)),
                 ),
-              ],
-            ),
+              ),
+            ]),
           ],
         ),
       ),
@@ -102,82 +105,14 @@ class CreateInventoryDialog {
     String name,
     TextEditingController controller,
   ) {
-    try {
-      // Dispatch to InventoryListBloc to create the inventory
-      // The bloc handles initializing InventoryService and setting selectedInventoryId
-      // The InventorySelectionScreen will react to the state change via BlocListener
-      screenContext.read<InventoryListBloc>().add(CreateInventory(name));
+    // Dispatch to InventoryListBloc to create the inventory
+    // The bloc will set selectedInventoryId after successful creation
+    // The InventorySelectionScreen listener will handle auto-navigation
+    screenContext.read<InventoryListBloc>().add(CreateInventory(name));
 
-      // Pop the dialog immediately - do NOT try to read state here
-      // as the CreateInventory event is processed asynchronously
-      if (dialogContext.mounted) {
-        Navigator.pop(dialogContext);
-      }
-    } catch (e) {
-      if (dialogContext.mounted) {
-        ScaffoldMessenger.of(dialogContext).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(40)),
-            margin: const EdgeInsets.all(20),
-          ),
-        );
-      }
-      controller.clear();
+    // Pop the dialog immediately
+    if (dialogContext.mounted) {
+      Navigator.pop(dialogContext);
     }
-  }
-
-  static Widget _buildDragHandle(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 40,
-        height: 4,
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.outlineVariant,
-          borderRadius: BorderRadius.circular(4),
-        ),
-      ),
-    );
-  }
-
-  static Widget _buildHeader(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(
-            Icons.add_rounded,
-            color: Theme.of(context).colorScheme.primary,
-            size: 24,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          'Create New Inventory',
-          style: Theme.of(context)
-              .textTheme
-              .headlineSmall
-              ?.copyWith(fontWeight: FontWeight.w800),
-        ),
-      ],
-    );
-  }
-
-  static Widget _buildDescription(BuildContext context) {
-    return Text(
-      'Give your inventory a descriptive name',
-      style: TextStyle(
-        color:
-            Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-        fontSize: 14,
-      ),
-    );
   }
 }

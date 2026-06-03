@@ -6,6 +6,7 @@ import '../../inventory_management/screens/inventory_home_screen.dart';
 import '../widgets/empty_state_widget.dart';
 import '../widgets/inventory_list_widget.dart';
 import '../widgets/create_inventory_dialog.dart';
+import '../../../core/utils/snackbar_utils.dart';
 
 class InventorySelectionScreen extends StatefulWidget {
   const InventorySelectionScreen({super.key});
@@ -17,6 +18,7 @@ class InventorySelectionScreen extends StatefulWidget {
 
 class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
   String? _lastNavigatedInventoryId;
+  bool _isNavigating = false;
 
   @override
   void initState() {
@@ -29,18 +31,23 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
   }
 
   void _openInventory(String id) {
-    // Prevent duplicate navigation for the same inventory
-    if (_lastNavigatedInventoryId == id) return;
+    // Prevent duplicate navigation
+    if (_isNavigating || _lastNavigatedInventoryId == id) return;
+
+    _isNavigating = true;
     _lastNavigatedInventoryId = id;
 
     context.read<InventoryListBloc>().add(SelectInventory(id));
     context.read<InventoryBloc>().add(InitializeInventory(id));
+
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const InventoryHomeScreen()),
     ).then((_) {
-      // Reset navigation guard when returning from inventory screen
-      _lastNavigatedInventoryId = null;
+      // Reset navigation state when returning
+      _isNavigating = false;
+      // Clear the selection so we don't auto-navigate again
+      context.read<InventoryListBloc>().add(const ClearSelection());
     });
   }
 
@@ -52,18 +59,23 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
   Widget build(BuildContext context) {
     return BlocListener<InventoryListBloc, InventoryListState>(
       listener: (context, state) {
-        // Auto-navigate to newly created inventory
-        // The bloc sets selectedInventoryId after successful creation
+        // Auto-navigate to newly created inventory ONLY if not already navigating
         if (state.selectedInventoryId != null &&
             !state.isLoading &&
             state.isInitialized &&
+            !_isNavigating &&
             _lastNavigatedInventoryId != state.selectedInventoryId) {
           final inventoryId = state.selectedInventoryId!;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
+            if (mounted && !_isNavigating) {
               _openInventory(inventoryId);
             }
           });
+        }
+
+        // Show errors
+        if (state.error != null && mounted) {
+          SnackBarUtils.error(context, state.error!);
         }
       },
       child: BlocBuilder<InventoryListBloc, InventoryListState>(
@@ -82,6 +94,19 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
                       labelStyle:
                           TextStyle(color: Colors.white),
                       avatar: Icon(Icons.cloud_off,
+                          size: 14, color: Colors.white),
+                    ),
+                  ),
+                if (state.isCacheOnly && !state.isOffline)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: Chip(
+                      label: Text('Cached',
+                          style: TextStyle(fontSize: 10)),
+                      backgroundColor: Colors.blue,
+                      labelStyle:
+                          TextStyle(color: Colors.white),
+                      avatar: Icon(Icons.cloud_outlined,
                           size: 14, color: Colors.white),
                     ),
                   ),

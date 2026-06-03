@@ -7,7 +7,7 @@ class InventoryListState {
   final bool isLoading;
   final bool isInitialized;
   final bool isOffline;
-  final bool isCacheOnly; // NEW: true when showing cached data (not confirmed from server)
+  final bool isCacheOnly;
   final String? error;
 
   const InventoryListState({
@@ -33,10 +33,8 @@ class InventoryListState {
   }) {
     return InventoryListState(
       inventories: inventories ?? this.inventories,
-      selectedInventoryId:
-          selectedInventoryId ?? this.selectedInventoryId,
-      selectedInventoryName:
-          selectedInventoryName ?? this.selectedInventoryName,
+      selectedInventoryId: selectedInventoryId,
+      selectedInventoryName: selectedInventoryName,
       isLoading: isLoading ?? this.isLoading,
       isInitialized: isInitialized ?? this.isInitialized,
       isOffline: isOffline ?? this.isOffline,
@@ -52,7 +50,6 @@ class InventoryListState {
       identical(this, other) ||
       other is InventoryListState &&
           selectedInventoryId == other.selectedInventoryId &&
-          selectedInventoryName == other.selectedInventoryName &&
           isLoading == other.isLoading &&
           isInitialized == other.isInitialized &&
           isOffline == other.isOffline &&
@@ -61,12 +58,7 @@ class InventoryListState {
 
   @override
   int get hashCode => Object.hash(
-        selectedInventoryId,
-        selectedInventoryName,
-        isLoading,
-        isInitialized,
-        isOffline,
-        isCacheOnly,
-        error,
+        selectedInventoryId, isLoading, isInitialized,
+        isOffline, isCacheOnly, error,
       );
 }
