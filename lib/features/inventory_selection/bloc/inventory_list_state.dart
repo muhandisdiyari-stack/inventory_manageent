@@ -9,6 +9,7 @@ class InventoryListState {
   final bool isOffline;
   final bool isCacheOnly;
   final String? error;
+  final String? successMessage;
 
   const InventoryListState({
     this.inventories = const [],
@@ -19,6 +20,7 @@ class InventoryListState {
     this.isOffline = false,
     this.isCacheOnly = false,
     this.error,
+    this.successMessage,
   });
 
   InventoryListState copyWith({
@@ -30,6 +32,7 @@ class InventoryListState {
     bool? isOffline,
     bool? isCacheOnly,
     String? error,
+    String? successMessage,
   }) {
     return InventoryListState(
       inventories: inventories ?? this.inventories,
@@ -40,6 +43,7 @@ class InventoryListState {
       isOffline: isOffline ?? this.isOffline,
       isCacheOnly: isCacheOnly ?? this.isCacheOnly,
       error: error,
+      successMessage: successMessage,
     );
   }
 
@@ -54,11 +58,17 @@ class InventoryListState {
           isInitialized == other.isInitialized &&
           isOffline == other.isOffline &&
           isCacheOnly == other.isCacheOnly &&
-          error == other.error;
+          error == other.error &&
+          successMessage == other.successMessage;
 
   @override
   int get hashCode => Object.hash(
-        selectedInventoryId, isLoading, isInitialized,
-        isOffline, isCacheOnly, error,
+        selectedInventoryId,
+        isLoading,
+        isInitialized,
+        isOffline,
+        isCacheOnly,
+        error,
+        successMessage,
       );
 }

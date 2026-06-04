@@ -17,9 +17,6 @@ class InventorySelectionScreen extends StatefulWidget {
 }
 
 class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
-  String? _lastNavigatedInventoryId;
-  bool _isNavigating = false;
-
   @override
   void initState() {
     super.initState();
@@ -31,12 +28,6 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
   }
 
   void _openInventory(String id) {
-    // Prevent duplicate navigation
-    if (_isNavigating || _lastNavigatedInventoryId == id) return;
-
-    _isNavigating = true;
-    _lastNavigatedInventoryId = id;
-
     context.read<InventoryListBloc>().add(SelectInventory(id));
     context.read<InventoryBloc>().add(InitializeInventory(id));
 
@@ -44,10 +35,10 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
       context,
       MaterialPageRoute(builder: (_) => const InventoryHomeScreen()),
     ).then((_) {
-      // Reset navigation state when returning
-      _isNavigating = false;
-      // Clear the selection so we don't auto-navigate again
-      context.read<InventoryListBloc>().add(const ClearSelection());
+      // Clear selection when returning from inventory
+      if (mounted) {
+        context.read<InventoryListBloc>().add(const ClearSelection());
+      }
     });
   }
 
@@ -59,21 +50,7 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
   Widget build(BuildContext context) {
     return BlocListener<InventoryListBloc, InventoryListState>(
       listener: (context, state) {
-        // Auto-navigate to newly created inventory ONLY if not already navigating
-        if (state.selectedInventoryId != null &&
-            !state.isLoading &&
-            state.isInitialized &&
-            !_isNavigating &&
-            _lastNavigatedInventoryId != state.selectedInventoryId) {
-          final inventoryId = state.selectedInventoryId!;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && !_isNavigating) {
-              _openInventory(inventoryId);
-            }
-          });
-        }
-
-        // Show errors
+        // Show errors only - NO auto-navigate
         if (state.error != null && mounted) {
           SnackBarUtils.error(context, state.error!);
         }
@@ -88,26 +65,20 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
                   const Padding(
                     padding: EdgeInsets.only(right: 8),
                     child: Chip(
-                      label: Text('Offline',
-                          style: TextStyle(fontSize: 10)),
+                      label: Text('Offline', style: TextStyle(fontSize: 10)),
                       backgroundColor: Colors.orange,
-                      labelStyle:
-                          TextStyle(color: Colors.white),
-                      avatar: Icon(Icons.cloud_off,
-                          size: 14, color: Colors.white),
+                      labelStyle: TextStyle(color: Colors.white),
+                      avatar: Icon(Icons.cloud_off, size: 14, color: Colors.white),
                     ),
                   ),
                 if (state.isCacheOnly && !state.isOffline)
                   const Padding(
                     padding: EdgeInsets.only(right: 8),
                     child: Chip(
-                      label: Text('Cached',
-                          style: TextStyle(fontSize: 10)),
+                      label: Text('Cached', style: TextStyle(fontSize: 10)),
                       backgroundColor: Colors.blue,
-                      labelStyle:
-                          TextStyle(color: Colors.white),
-                      avatar: Icon(Icons.cloud_outlined,
-                          size: 14, color: Colors.white),
+                      labelStyle: TextStyle(color: Colors.white),
+                      avatar: Icon(Icons.cloud_outlined, size: 14, color: Colors.white),
                     ),
                   ),
               ],
@@ -125,9 +96,7 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
             body: RefreshIndicator(
               onRefresh: () async {
                 if (mounted) {
-                  context
-                      .read<InventoryListBloc>()
-                      .add(const RefreshInventories());
+                  context.read<InventoryListBloc>().add(const RefreshInventories());
                 }
               },
               child: state.isLoading && state.inventories.isEmpty
@@ -136,9 +105,7 @@ class _InventorySelectionScreenState extends State<InventorySelectionScreen> {
                       ? _buildError(state.error!)
                       : state.inventories.isEmpty
                           ? EmptyStateWidget(
-                              onCreateInventory: state.isOffline
-                                  ? null
-                                  : _showCreateDialog)
+                              onCreateInventory: state.isOffline ? null : _showCreateDialog)
                           : InventoryListWidget(
                               inventories: state.inventories,
                               onOpenInventory: _openInventory,

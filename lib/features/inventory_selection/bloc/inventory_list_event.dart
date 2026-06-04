@@ -33,7 +33,6 @@ class SelectInventory extends InventoryListEvent {
   const SelectInventory(this.id);
 }
 
-// NEW: Clear the selected inventory to prevent auto-navigate loop
 class ClearSelection extends InventoryListEvent {
   const ClearSelection();
 }

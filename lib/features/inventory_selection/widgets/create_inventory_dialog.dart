@@ -106,11 +106,9 @@ class CreateInventoryDialog {
     TextEditingController controller,
   ) {
     // Dispatch to InventoryListBloc to create the inventory
-    // The bloc will set selectedInventoryId after successful creation
-    // The InventorySelectionScreen listener will handle auto-navigation
     screenContext.read<InventoryListBloc>().add(CreateInventory(name));
 
-    // Pop the dialog immediately
+    // Just pop the dialog — DON'T navigate
     if (dialogContext.mounted) {
       Navigator.pop(dialogContext);
     }

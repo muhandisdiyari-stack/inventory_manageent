@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/company_bloc.dart';
 import '../../auth/bloc/auth_bloc.dart';
+import '../../admin/screens/admin_dashboard_screen.dart';
 import '../../inventory_selection/screens/inventory_selection_screen.dart';
 import '../../chat/bloc/unread_count_cubit.dart';
 import '../../chat/screens/messages_screen.dart';
@@ -85,6 +86,12 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
     );
   }
 
+  void _openAdminDashboard() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+    );
+  }
+
   void _signOut() {
     context.read<AuthBloc>().add(const SignOutRequested());
   }
@@ -92,6 +99,7 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isAdmin = context.watch<AuthBloc>().state.isAdmin;
 
     return BlocListener<CompanyBloc, CompanyState>(
       listener: (context, state) {
@@ -115,6 +123,12 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
             appBar: AppBar(
               title: const Text('Your Companies'),
               actions: [
+                if (isAdmin)
+                  IconButton(
+                    icon: const Icon(Icons.admin_panel_settings),
+                    tooltip: 'Admin Dashboard',
+                    onPressed: _openAdminDashboard,
+                  ),
                 BlocBuilder<UnreadCountCubit, int>(
                   builder: (context, unread) {
                     return Stack(
@@ -158,7 +172,11 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                     );
                   },
                 ),
-                IconButton(icon: const Icon(Icons.logout), tooltip: 'Sign Out', onPressed: _signOut),
+                IconButton(
+                  icon: const Icon(Icons.logout),
+                  tooltip: 'Sign Out',
+                  onPressed: _signOut,
+                ),
               ],
             ),
             body: state.isLoading && state.companies.isEmpty
@@ -197,7 +215,11 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                             padding: const EdgeInsets.only(bottom: 8),
                             child: Text(
                               '${state.companies.length} ${state.companies.length == 1 ? 'Company' : 'Companies'}',
-                              style: TextStyle(fontSize: 13, color: Colors.grey[600], fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ...state.companies.map((c) {
@@ -226,29 +248,36 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                                   ),
                                   const SizedBox(width: 16),
                                   Expanded(
-                                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                      Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-                                      const SizedBox(height: 4),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: isOwner
-                                              ? Colors.amber.withValues(alpha: 0.2)
-                                              : Colors.grey.withValues(alpha: 0.1),
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Text(role,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                                        const SizedBox(height: 4),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: isOwner
+                                                ? Colors.amber.withValues(alpha: 0.2)
+                                                : Colors.grey.withValues(alpha: 0.1),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Text(
+                                            role,
                                             style: TextStyle(
                                               fontSize: 11,
                                               fontWeight: FontWeight.w600,
                                               color: isOwner ? Colors.amber.shade800 : Colors.grey.shade700,
-                                            )),
-                                      ),
-                                    ]),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                   if (isDeleting)
-                                    const SizedBox(width: 24, height: 24,
-                                        child: CircularProgressIndicator(strokeWidth: 2))
+                                    const SizedBox(
+                                      width: 24, height: 24,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
                                   else if (isOwner)
                                     IconButton(
                                       icon: const Icon(Icons.delete_outline, color: Colors.red),
@@ -275,11 +304,20 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                                 child: Icon(Icons.business_outlined, size: 40, color: colorScheme.primary),
                               ),
                               const SizedBox(height: 16),
-                              Text('No Companies Yet',
-                                  style: TextStyle(fontSize: 18, color: Colors.grey[600], fontWeight: FontWeight.w600)),
+                              Text(
+                                'No Companies Yet',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                               const SizedBox(height: 8),
-                              Text('Create a company to get started or wait for an invitation',
-                                  style: TextStyle(color: Colors.grey[500]), textAlign: TextAlign.center),
+                              Text(
+                                'Create a company to get started or wait for an invitation',
+                                style: TextStyle(color: Colors.grey[500]),
+                                textAlign: TextAlign.center,
+                              ),
                             ]),
                           ),
                         if (_showCreateForm)
