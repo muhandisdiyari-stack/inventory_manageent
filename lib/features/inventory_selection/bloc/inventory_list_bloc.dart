@@ -2,11 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:uuid/uuid.dart';
 import '../models/inventory_list_item.dart';
 import '../../inventory_management/services/inventory_service.dart';
 import '../../../core/services/activity_log_service.dart';
-import '../../../core/models/activity_log_entry.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/config/app_config.dart';
 
@@ -17,6 +15,7 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
   final InventoryService _inventoryService;
   final ActivityLogService _logService;
   final Box _cacheBox;
+  bool _initialLoadDone = false;
 
   InventoryListBloc({
     required InventoryService inventoryService,
@@ -100,7 +99,7 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
     }
 
     final cached = _readCache(companyId);
-    if (cached.isNotEmpty) {
+    if (cached.isNotEmpty && _initialLoadDone) {
       emit(state.copyWith(
         inventories: cached,
         isLoading: false,
@@ -129,6 +128,7 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
         }
 
         final items = _readCache(companyId);
+        _initialLoadDone = true;
         if (!isClosed) {
           emit(state.copyWith(
             inventories: items,
@@ -176,7 +176,7 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
       return;
     }
 
-    emit(state.copyWith(error: null, successMessage: null));
+    emit(state.copyWith(isLoading: true, error: null, successMessage: null));
 
     try {
       final user = Supabase.instance.client.auth.currentUser;
@@ -184,6 +184,8 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
       final userId = user?.id;
       final userName =
           user?.userMetadata?['full_name'] ?? user?.email ?? 'Unknown';
+
+      debugPrint('📦 Creating inventory: $name for company: $companyId');
 
       final response = await Supabase.instance.client.from('inventories').insert({
         'company_id': companyId,
@@ -195,48 +197,25 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
       }).select();
 
       if (response.isEmpty) {
+        debugPrint('❌ No response from inventory insert');
         if (!isClosed) {
           emit(state.copyWith(
+              isLoading: false,
               error: 'Failed to create inventory - no response from server'));
         }
         return;
       }
 
-      final created = Map<String, dynamic>.from(response.first as Map);
-      final newId = created['id']?.toString() ?? '';
+      debugPrint('✅ Inventory created: ${response.first}');
 
-      final cacheList = _getRawCache();
-      cacheList.add(created);
-      await _writeCache(cacheList);
-
-      try {
-        await _inventoryService.initializeForInventory(newId);
-      } catch (e) {
-        debugPrint('⚠️ Failed to init new inventory: $e');
-      }
-
-      await _logService.addLog(ActivityLogEntry(
-        id: const Uuid().v4(),
-        timestamp: timestamp,
-        action: 'created',
-        entityType: 'inventory',
-        entityName: name,
-        inventoryId: newId,
-        inventoryName: name,
-        details: 'Created: "$name"',
-      ));
-
-      if (!isClosed) {
-        final items = _readCache(companyId);
-        emit(state.copyWith(
-          inventories: items,
-          isCacheOnly: false,
-          successMessage: 'Inventory "$name" created!',
-        ));
-      }
+      // Force a full reload from Supabase to get fresh data with RLS
+      _initialLoadDone = false;
+      add(const LoadInventories());
     } catch (e) {
+      debugPrint('❌ Create inventory error: $e');
       if (!isClosed) {
-        emit(state.copyWith(error: 'Failed to create inventory: $e'));
+        emit(state.copyWith(
+            isLoading: false, error: 'Failed to create inventory: $e'));
       }
     }
   }
