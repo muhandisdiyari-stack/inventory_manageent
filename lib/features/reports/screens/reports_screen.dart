@@ -49,8 +49,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
     allItems.addAll(state.currentItems);
     for (final result in state.searchResults) {
       final item = result['item'];
-      if (item is InventoryItem && !allItems.contains(item))
+      if (item is InventoryItem && !allItems.contains(item)) {
         allItems.add(item);
+      }
     }
     return allItems;
   }

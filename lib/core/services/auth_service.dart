@@ -105,27 +105,7 @@ class AuthService {
   }
 
   Future<List<Map<String, dynamic>>> getUserCompanies() async {
-    try {
-      final data = await _supabaseClient.client.rpc('get_user_companies');
-      if (data is List) {
-        return data
-            .map((item) => Map<String, dynamic>.from(item as Map))
-            .toList();
-      }
-      return [];
-    } catch (e) {
-      try {
-        final user = _supabaseClient.client.auth.currentUser;
-        if (user == null) return [];
-        final data = await _supabaseClient.client
-            .from('company_members')
-            .select('company_id, role, companies(id, name, created_at)')
-            .eq('user_id', user.id);
-        return List<Map<String, dynamic>>.from(data);
-      } catch (_) {
-        return [];
-      }
-    }
+    return await _supabaseClient.getUserCompanies();
   }
 
   Future<bool> signIn(String email, String password) async {
@@ -243,6 +223,8 @@ class AuthService {
     }
   }
 
+  // ─── Company Operations ──────────────────────────────────────
+
   Future<Map<String, dynamic>?> createCompany(String name) async =>
       await _supabaseClient.createCompany(name);
 
@@ -255,27 +237,84 @@ class AuthService {
   Future<Map<String, dynamic>?> getUserCompany() async =>
       await _supabaseClient.getUserCompany();
 
+  // ─── Inventory Member Operations ─────────────────────────────
+
+  Future<List<Map<String, dynamic>>> getInventoryMembers(
+          String inventoryId) async =>
+      await _supabaseClient.getInventoryMembers(inventoryId);
+
+  Future<bool> removeInventoryMember(
+          String memberId, String inventoryId) async =>
+      await _supabaseClient.removeInventoryMember(memberId, inventoryId);
+
+  Future<bool> updateInventoryMemberPermissions({
+    required String memberId,
+    required String inventoryId,
+    String? role,
+    bool? canCreate,
+    bool? canUpdate,
+    bool? canDelete,
+    bool? canExport,
+    bool? canViewActivity,
+    bool? canManageSettings,
+    bool? canInviteMembers,
+    bool? canRemoveMembers,
+    bool? canManageLabels,
+    bool? canChat,
+  }) async =>
+      await _supabaseClient.updateInventoryMemberPermissions(
+        memberId: memberId,
+        inventoryId: inventoryId,
+        role: role,
+        canCreate: canCreate,
+        canUpdate: canUpdate,
+        canDelete: canDelete,
+        canExport: canExport,
+        canViewActivity: canViewActivity,
+        canManageSettings: canManageSettings,
+        canInviteMembers: canInviteMembers,
+        canRemoveMembers: canRemoveMembers,
+        canManageLabels: canManageLabels,
+        canChat: canChat,
+      );
+
+  Future<bool> leaveInventory(String inventoryId) async =>
+      await _supabaseClient.leaveInventory(inventoryId);
+
+  Future<bool> deleteInventory(String inventoryId) async =>
+      await _supabaseClient.deleteInventory(inventoryId);
+
+  Future<bool> transferInventoryOwnership(
+          String inventoryId, String newOwnerUserId) async =>
+      await _supabaseClient.transferInventoryOwnership(
+          inventoryId, newOwnerUserId);
+
+  // ─── Invitation Operations ───────────────────────────────────
+
   Future<Map<String, dynamic>?> createInvitation({
     required String companyId,
+    required String inventoryId,
     required String email,
     required String role,
-    String? inventoryId,
   }) async =>
       await _supabaseClient.createInvitation(
-          companyId: companyId,
-          email: email,
-          role: role,
-          inventoryId: inventoryId);
+        companyId: companyId,
+        inventoryId: inventoryId,
+        email: email,
+        role: role,
+      );
 
   Future<List<Map<String, dynamic>>> getPendingInvitations(
-          String companyId) async =>
-      await _supabaseClient.getPendingInvitations(companyId);
+          String inventoryId) async =>
+      await _supabaseClient.getPendingInvitations(inventoryId);
 
   Future<bool> cancelInvitation(String invitationId) async =>
       await _supabaseClient.cancelInvitation(invitationId);
 
   Future<Map<String, dynamic>?> acceptInvitation(String token) async =>
       await _supabaseClient.acceptInvitation(token);
+
+  // ─── Company Member Operations (legacy) ──────────────────────
 
   Future<List<Map<String, dynamic>>> getCompanyMembers(
           String companyId) async =>
@@ -290,6 +329,8 @@ class AuthService {
 
   Future<bool> leaveCompany(String companyId) async =>
       await _supabaseClient.leaveCompany(companyId);
+
+  // ─── Cache ───────────────────────────────────────────────────
 
   Future<void> _cacheCurrentUser() async {
     if (_currentUser == null) return;

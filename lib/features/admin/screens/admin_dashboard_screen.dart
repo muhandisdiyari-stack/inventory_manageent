@@ -250,7 +250,7 @@ void _showCreateUserDialog() {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: selectedRole,  // ✅ FIXED: use 'value' not 'initialValue'
+                initialValue: selectedRole,  // ✅ FIXED: use 'value' not 'initialValue'
                 decoration: const InputDecoration(
                   labelText: 'Role',
                   border: OutlineInputBorder(),

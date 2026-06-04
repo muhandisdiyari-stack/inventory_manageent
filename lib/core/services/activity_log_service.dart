@@ -170,14 +170,29 @@ class ActivityLogService {
   }
 
   /// Sync a single log entry to Supabase for cross-device visibility.
+  /// Sync a single log entry to Supabase for cross-device visibility.
   Future<void> _syncLogToSupabase(ActivityLogEntry entry) async {
     if (!AppConfig.useSupabase) return;
 
     try {
+      // Get the actual company_id from the inventory
+      String? companyId;
+      if (entry.inventoryId != null) {
+        try {
+          final data = await Supabase.instance.client
+              .from('inventories')
+              .select('company_id')
+              .eq('id', entry.inventoryId!)
+              .maybeSingle();
+          companyId = data?['company_id']?.toString();
+        } catch (_) {
+          debugPrint('⚠️ Could not fetch company_id for inventory ${entry.inventoryId}');
+        }
+      }
+
       // Don't send the id field - let Supabase generate the UUID
-      // to avoid UUID format conflicts
       await Supabase.instance.client.from('activity_log').insert({
-        'company_id': entry.inventoryId,
+        'company_id': companyId,
         'inventory_id': entry.inventoryId,
         'user_id': Supabase.instance.client.auth.currentUser?.id,
         'user_name': Supabase.instance.client.auth.currentUser?.userMetadata?['display_name'],
@@ -191,7 +206,6 @@ class ActivityLogService {
         'created_at': entry.timestamp.toUtc().toIso8601String(),
       });
     } catch (e) {
-      // Silent — local storage is primary for activity logs
       debugPrint('Activity log sync to Supabase failed: $e');
     }
   }

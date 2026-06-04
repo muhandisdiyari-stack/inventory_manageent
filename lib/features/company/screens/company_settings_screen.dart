@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/company_bloc.dart';
 import '../../../core/utils/snackbar_utils.dart';
+import 'inventory_members_screen.dart';
 
 class CompanySettingsScreen extends StatefulWidget {
   final String inventoryId;
   final String inventoryName;
+
   const CompanySettingsScreen({
     super.key,
     this.inventoryId = 'default',
@@ -17,11 +19,6 @@ class CompanySettingsScreen extends StatefulWidget {
 }
 
 class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
-  final _emailController = TextEditingController();
-  String _selectedRole = 'data_operator';
-  bool _inviteToSpecificInventory = false;
-  bool _isSending = false;
-
   @override
   void initState() {
     super.initState();
@@ -32,220 +29,6 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
     });
   }
 
-  @override
-  void dispose() {
-    _emailController.dispose();
-    super.dispose();
-  }
-
-  bool get _canManageMembers {
-    final state = context.read<CompanyBloc>().state;
-    final company = state.selectedCompany;
-    if (company == null) return false;
-    final role = (company['role'] ?? company['user_role'] ?? company['membership_role'])
-        .toString()
-        .toLowerCase();
-    return role == 'owner' || role == 'admin';
-  }
-
-  String? get _selectedCompanyId {
-    final state = context.read<CompanyBloc>().state;
-    final company = state.selectedCompany;
-    if (company == null) return null;
-    return (company['id'] ?? company['company_id'] ?? '').toString();
-  }
-
-  bool get _hasSpecificInventory {
-    return widget.inventoryId != 'default' && widget.inventoryId.isNotEmpty;
-  }
-
-  void _inviteUser() {
-    final email = _emailController.text.trim();
-    if (email.isEmpty || !email.contains('@')) {
-      if (!mounted) return;
-      SnackBarUtils.error(context, 'Enter a valid email address');
-      return;
-    }
-
-    final companyId = _selectedCompanyId;
-    if (companyId == null || companyId.isEmpty) {
-      if (!mounted) return;
-      SnackBarUtils.show(
-        context,
-        message: 'No company selected. Please go back and select a company first.',
-        isError: true,
-      );
-      return;
-    }
-
-    setState(() => _isSending = true);
-
-    final inventoryId = _inviteToSpecificInventory && _hasSpecificInventory
-        ? widget.inventoryId
-        : null;
-
-    context.read<CompanyBloc>().add(CreateInvitation(
-          companyId: companyId,
-          email: email,
-          role: _selectedRole,
-          inventoryId: inventoryId,
-        ));
-
-    _emailController.clear();
-    setState(() {
-      _selectedRole = 'data_operator';
-      _inviteToSpecificInventory = false;
-      _isSending = false;
-    });
-  }
-
-  void _cancelInvitation(String invitationId) async {
-    // Show confirmation
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cancel Invitation'),
-        content: const Text('Are you sure you want to cancel this invitation?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('No'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Yes, Cancel'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true && mounted) {
-      // Optimistically remove from the list
-      final bloc = context.read<CompanyBloc>();
-      bloc.add(CancelInvitation(invitationId));
-      
-      // Force reload invitations after a short delay
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (mounted) {
-        final companyId = _selectedCompanyId;
-        if (companyId != null) {
-          bloc.add(const LoadCompanies()); // Full reload to ensure UI updates
-        }
-      }
-    }
-  }
-
-  void _removeMember(String memberId, String memberName) async {
-    final companyId = _selectedCompanyId;
-    if (companyId == null || companyId.isEmpty) return;
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove Member'),
-        content: Text('Remove $memberName from this company?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true && mounted) {
-      context.read<CompanyBloc>().add(RemoveMember(
-            memberId: memberId,
-            companyId: companyId,
-            memberName: memberName,
-          ));
-    }
-  }
-
-  void _changeRole(String memberId, String currentRole, String memberName) async {
-    final companyId = _selectedCompanyId;
-    if (companyId == null || companyId.isEmpty) return;
-
-    final newRole = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Change Role for $memberName'),
-        contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildRoleOption(ctx, 'admin', 'Admin', 'Full access except deleting company', currentRole),
-            const Divider(height: 1),
-            _buildRoleOption(ctx, 'data_operator', 'Data Operator', 'Create and update items only', currentRole),
-            const Divider(height: 1),
-            _buildRoleOption(ctx, 'viewer', 'Viewer', 'View only, no modifications', currentRole),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-        ],
-      ),
-    );
-
-    if (newRole != null && newRole != currentRole && mounted) {
-      context.read<CompanyBloc>().add(ChangeMemberRole(
-            memberId: memberId,
-            companyId: companyId,
-            newRole: newRole,
-          ));
-    }
-  }
-
-  Widget _buildRoleOption(
-      BuildContext ctx, String value, String title, String subtitle, String currentRole) {
-    final isSelected = value == currentRole;
-    return ListTile(
-      leading: Icon(
-        isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-        color: isSelected ? Theme.of(ctx).colorScheme.primary : Colors.grey,
-      ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-      selected: isSelected,
-      selectedTileColor: Theme.of(ctx).colorScheme.primaryContainer.withValues(alpha: 0.2),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      onTap: () => Navigator.pop(ctx, value),
-    );
-  }
-
-  String _getRoleDisplayName(String role) {
-    switch (role) {
-      case 'owner':
-        return 'Owner';
-      case 'admin':
-        return 'Admin';
-      case 'data_operator':
-        return 'Data Operator';
-      case 'viewer':
-        return 'Viewer';
-      default:
-        return role;
-    }
-  }
-
-  Color _getRoleColor(String role) {
-    switch (role) {
-      case 'owner':
-        return Colors.amber;
-      case 'admin':
-        return Colors.blue;
-      case 'data_operator':
-        return Colors.teal;
-      case 'viewer':
-        return Colors.grey;
-      default:
-        return Colors.grey;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -299,438 +82,143 @@ class _CompanySettingsScreenState extends State<CompanySettingsScreen> {
           }
 
           final companyName = state.selectedCompany!['name']?.toString() ?? 'Unknown';
+          final hasInventory = widget.inventoryId != 'default' && widget.inventoryId.isNotEmpty;
 
           return Scaffold(
-            appBar: AppBar(title: Text('$companyName - Members')),
-            body: SingleChildScrollView(
+            appBar: AppBar(
+              title: Text('$companyName - Settings'),
+            ),
+            body: ListView(
               padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Company info card
-                  Card(
-                    color: colorScheme.primaryContainer.withValues(alpha: 0.3),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: colorScheme.primaryContainer,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(Icons.business, color: colorScheme.primary, size: 24),
+              children: [
+                Card(
+                  color: colorScheme.primaryContainer.withValues(alpha: 0.3),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(companyName,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w700, fontSize: 16)),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${state.members.length} ${state.members.length == 1 ? 'member' : 'members'}',
-                                  style: TextStyle(color: Colors.grey[600], fontSize: 13),
-                                ),
-                              ],
-                            ),
+                          child: Icon(Icons.business, color: colorScheme.primary, size: 24),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(companyName,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700, fontSize: 16)),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Membership is managed per inventory',
+                                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-
-                  // Members Card
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.info_outline, color: Colors.blue, size: 20),
+                          ),
+                          const SizedBox(width: 12),
+                          const Text('How Membership Works',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        ]),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Membership is now managed at the inventory level. '
+                          'Each inventory has its own members, roles, and permissions.',
+                          style: TextStyle(fontSize: 14, height: 1.5),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'To manage members:',
+                          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          '• Open an inventory\n'
+                          '• Tap the People icon in the top bar\n'
+                          '• Invite, remove, or change roles for that inventory',
+                          style: TextStyle(fontSize: 14, height: 1.8),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (hasInventory)
+                  Card(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.people, color: Colors.green, size: 20),
+                      ),
+                      title: const Text('Manage Inventory Members',
+                          style: TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text('View and manage members for "${widget.inventoryName}"'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => InventoryMembersScreen(
+                              inventoryId: widget.inventoryId,
+                              inventoryName: widget.inventoryName,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                if (!hasInventory)
                   Card(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.green.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: const Icon(Icons.people, color: Colors.green, size: 20),
-                              ),
-                              const SizedBox(width: 12),
-                              Text('Company Members',
-                                  style: theme.textTheme.titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
+                          Icon(Icons.inventory_2, size: 48, color: Colors.grey[400]),
+                          const SizedBox(height: 12),
                           Text(
-                            'Company-level members can see all inventories they are invited to.',
-                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            'Open an inventory to manage its members',
+                            style: TextStyle(color: Colors.grey[600]),
+                            textAlign: TextAlign.center,
                           ),
-                          const SizedBox(height: 16),
-                          if (state.members.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.all(16),
-                              child: Center(
-                                  child:
-                                      Text('No members yet', style: TextStyle(color: Colors.grey))),
-                            )
-                          else
-                            ...state.members.map((member) {
-                              final name = (member['display_name'] ??
-                                      member['email'] ??
-                                      'Unknown')
-                                  .toString();
-                              final email = (member['email'] ?? '').toString();
-                              final role = (member['role'] ?? 'viewer').toString();
-                              final memberId = member['id']?.toString() ?? '';
-                              final isOwner = role == 'owner';
-                              final roleColor = _getRoleColor(role);
-
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.surfaceContainerHighest
-                                      .withValues(alpha: 0.5),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 20,
-                                      backgroundColor: roleColor.withValues(alpha: 0.15),
-                                      child: Text(
-                                        name.isNotEmpty ? name[0].toUpperCase() : '?',
-                                        style: TextStyle(
-                                          color: roleColor,
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(name,
-                                              style: const TextStyle(
-                                                  fontWeight: FontWeight.w600, fontSize: 14)),
-                                          if (email.isNotEmpty && email != name)
-                                            Text(email,
-                                                style: TextStyle(
-                                                    fontSize: 11, color: Colors.grey[500])),
-                                        ],
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: roleColor.withValues(alpha: 0.12),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        _getRoleDisplayName(role),
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                          color: roleColor,
-                                        ),
-                                      ),
-                                    ),
-                                    if (_canManageMembers && !isOwner)
-                                      PopupMenuButton<String>(
-                                        padding: EdgeInsets.zero,
-                                        icon: const Icon(Icons.more_vert, size: 20),
-                                        onSelected: (action) {
-                                          if (action == 'change_role') {
-                                            _changeRole(memberId, role, name);
-                                          } else if (action == 'remove') {
-                                            _removeMember(memberId, name);
-                                          }
-                                        },
-                                        itemBuilder: (ctx) => [
-                                          const PopupMenuItem(
-                                            value: 'change_role',
-                                            child: Row(
-                                              children: [
-                                                Icon(Icons.edit, size: 18),
-                                                SizedBox(width: 8),
-                                                Text('Change Role'),
-                                              ],
-                                            ),
-                                          ),
-                                          const PopupMenuItem(
-                                            value: 'remove',
-                                            child: Row(
-                                              children: [
-                                                Icon(Icons.person_remove,
-                                                    size: 18, color: Colors.red),
-                                                SizedBox(width: 8),
-                                                Text('Remove',
-                                                    style: TextStyle(color: Colors.red)),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                  ],
-                                ),
-                              );
-                            }),
                         ],
                       ),
                     ),
                   ),
-
-                  // Invite Member Card
-                  if (_canManageMembers) ...[
-                    const SizedBox(height: 16),
-                    Card(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: const Icon(Icons.person_add,
-                                      color: Colors.blue, size: 20),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text('Invite Member',
-                                          style: theme.textTheme.titleMedium
-                                              ?.copyWith(fontWeight: FontWeight.bold)),
-                                      Text(
-                                        'They will automatically join when they sign in with this email',
-                                        style: TextStyle(
-                                            fontSize: 12, color: Colors.grey[600]),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            TextField(
-                              controller: _emailController,
-                              keyboardType: TextInputType.emailAddress,
-                              textInputAction: TextInputAction.next,
-                              decoration: InputDecoration(
-                                hintText: 'Enter email address',
-                                prefixIcon: const Icon(Icons.email_outlined),
-                                border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12)),
-                                filled: true,
-                                fillColor: theme.colorScheme.surfaceContainerHighest,
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 14),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            // Role dropdown with fixed height to prevent overflow
-                            DropdownButtonFormField<String>(
-                              value: _selectedRole,
-                              decoration: InputDecoration(
-                                labelText: 'Role',
-                                prefixIcon: const Icon(Icons.badge_outlined),
-                                border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12)),
-                                filled: true,
-                                fillColor: theme.colorScheme.surfaceContainerHighest,
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 14),
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: 'admin',
-                                  child: Text('Admin - Full access except deleting company'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'data_operator',
-                                  child: Text('Data Operator - Create and update items only'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'viewer',
-                                  child: Text('Viewer - View only, no modifications'),
-                                ),
-                              ],
-                              onChanged: (v) => setState(() => _selectedRole = v!),
-                              menuMaxHeight: 200,
-                            ),
-                            // Toggle for inventory-specific invitation
-                            if (_hasSpecificInventory) ...[
-                              const SizedBox(height: 12),
-                              SwitchListTile(
-                                title: Text(
-                                    'Invite to "${widget.inventoryName}" only',
-                                    style: const TextStyle(fontSize: 14)),
-                                subtitle: const Text(
-                                    'If off, they can be invited to individual inventories later',
-                                    style: TextStyle(fontSize: 11)),
-                                value: _inviteToSpecificInventory,
-                                onChanged: (v) =>
-                                    setState(() => _inviteToSpecificInventory = v),
-                                contentPadding: EdgeInsets.zero,
-                                dense: true,
-                              ),
-                            ],
-                            const SizedBox(height: 20),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 48,
-                              child: FilledButton.icon(
-                                onPressed: _isSending ? null : _inviteUser,
-                                icon: _isSending
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2, color: Colors.white))
-                                    : const Icon(Icons.send, size: 18),
-                                label: Text(
-                                  _inviteToSpecificInventory && _hasSpecificInventory
-                                      ? 'Invite to ${widget.inventoryName}'
-                                      : 'Send Invitation',
-                                  style: const TextStyle(fontWeight: FontWeight.w600),
-                                ),
-                                style: FilledButton.styleFrom(
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12)),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-
-                  // Pending Invitations Card
-                  if (state.invitations.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    Card(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.orange.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: const Icon(Icons.pending_actions,
-                                      color: Colors.orange, size: 20),
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'Pending Invitations (${state.invitations.length})',
-                                  style: theme.textTheme.titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            ...state.invitations.map((inv) {
-                              final email = (inv['email'] ?? '').toString();
-                              final invId = inv['id']?.toString() ?? '';
-                              final role = (inv['role'] ?? 'viewer').toString();
-                              final roleColor = _getRoleColor(role);
-
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.surfaceContainerHighest
-                                      .withValues(alpha: 0.5),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 18,
-                                      backgroundColor:
-                                          Colors.orange.withValues(alpha: 0.15),
-                                      child: const Icon(Icons.person_outline,
-                                          color: Colors.orange, size: 18),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(email,
-                                              style: const TextStyle(
-                                                  fontWeight: FontWeight.w500,
-                                                  fontSize: 14)),
-                                          const SizedBox(height: 2),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: roleColor.withValues(alpha: 0.12),
-                                              borderRadius: BorderRadius.circular(6),
-                                            ),
-                                            child: Text(
-                                              _getRoleDisplayName(role),
-                                              style: TextStyle(
-                                                  fontSize: 10,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: roleColor),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    if (_canManageMembers)
-                                      IconButton(
-                                        icon: const Icon(Icons.close,
-                                            color: Colors.red, size: 20),
-                                        tooltip: 'Cancel invitation',
-                                        onPressed: () => _cancelInvitation(invId),
-                                        style: IconButton.styleFrom(
-                                          padding: EdgeInsets.zero,
-                                          minimumSize: const Size(36, 36),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              );
-                            }),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-
-                  const SizedBox(height: 32),
-                ],
-              ),
+                const SizedBox(height: 32),
+              ],
             ),
           );
         },

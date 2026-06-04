@@ -24,62 +24,10 @@ class DeleteCompany extends CompanyEvent {
   const DeleteCompany(this.companyId, this.companyName);
 }
 
-class LeaveCompany extends CompanyEvent {
-  final String companyId;
-  final String companyName;
-  const LeaveCompany(this.companyId, this.companyName);
-}
-
-class JoinCompany extends CompanyEvent {
-  final String token;
-  const JoinCompany(this.token);
-}
-
-class CreateInvitation extends CompanyEvent {
-  final String companyId;
-  final String email;
-  final String role;
-  final String? inventoryId;
-  const CreateInvitation({
-    required this.companyId,
-    required this.email,
-    this.role = 'data_operator',
-    this.inventoryId,
-  });
-}
-
-class CancelInvitation extends CompanyEvent {
-  final String invitationId;
-  const CancelInvitation(this.invitationId);
-}
-
-class RemoveMember extends CompanyEvent {
-  final String memberId;
-  final String companyId;
-  final String memberName;
-  const RemoveMember({
-    required this.memberId,
-    required this.companyId,
-    required this.memberName,
-  });
-}
-
-class ChangeMemberRole extends CompanyEvent {
-  final String memberId;
-  final String companyId;
-  final String newRole;
-  const ChangeMemberRole({
-    required this.memberId,
-    required this.companyId,
-    required this.newRole,
-  });
-}
-
 class ClearMessages extends CompanyEvent {
   const ClearMessages();
 }
 
 class RefreshCompanyData extends CompanyEvent {
-  final String companyId;
-  const RefreshCompanyData({required this.companyId});
+  const RefreshCompanyData();
 }

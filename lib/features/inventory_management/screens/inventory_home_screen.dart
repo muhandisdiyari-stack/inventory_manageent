@@ -12,7 +12,7 @@ import '../../reports/screens/reports_screen.dart';
 import '../../settings/screens/settings_screen.dart';
 import '../../activity_log/screens/activity_log_screen.dart';
 import '../../import/screens/bulk_import_screen.dart';
-import '../../company/screens/company_settings_screen.dart';
+import '../../company/screens/inventory_members_screen.dart';
 import '../../chat/screens/inventory_chat_screen.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/di/injection_container.dart';
@@ -57,56 +57,53 @@ class _InventoryHomeScreenState extends State<InventoryHomeScreen> {
     super.dispose();
   }
 
-Future<void> _loadPermissions() async {
-  if (_permissionsLoading) return;
-  _permissionsLoading = true;
+  Future<void> _loadPermissions() async {
+    if (_permissionsLoading) return;
+    _permissionsLoading = true;
 
-  try {
-    // Get bloc references synchronously before any async gap
-    final inventoryBloc = context.read<InventoryBloc>();
-    final companyBloc = context.read<CompanyBloc>();
-    final inventoryState = inventoryBloc.state;
-    final inventoryId = inventoryState.inventoryId;
+    try {
+      final inventoryBloc = context.read<InventoryBloc>();
+      final companyBloc = context.read<CompanyBloc>();
+      final inventoryState = inventoryBloc.state;
+      final inventoryId = inventoryState.inventoryId;
 
-    if (inventoryId == null) {
-      if (mounted) {
-        setState(() => _permissions = InventoryPermissions.fromRole('viewer'));
-      }
-      _permissionsLoading = false;
-      return;
-    }
-
-    if (AppConfig.useSupabase) {
-      try {
-        final permService = PermissionService();
-        final perms = await permService.getInventoryPermissions(inventoryId);
+      if (inventoryId == null) {
         if (mounted) {
-          setState(() => _permissions = perms);
+          setState(() => _permissions = InventoryPermissions.fromRole('viewer'));
         }
         _permissionsLoading = false;
         return;
-      } catch (e) {
-        debugPrint('⚠️ Failed to fetch inventory permissions: $e');
+      }
+
+      if (AppConfig.useSupabase) {
+        try {
+          final permService = PermissionService();
+          final perms = await permService.getInventoryPermissions(inventoryId);
+          if (mounted) {
+            setState(() => _permissions = perms);
+          }
+          _permissionsLoading = false;
+          return;
+        } catch (e) {
+          debugPrint('⚠️ Failed to fetch inventory permissions: $e');
+        }
+      }
+
+      if (mounted) {
+        final companyState = companyBloc.state;
+        final companyRole = companyState.selectedCompany?['role']?.toString() ?? 'viewer';
+        setState(() => _permissions = InventoryPermissions.fromRole(companyRole));
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _permissions = InventoryPermissions.fromRole('viewer'));
+      }
+    } finally {
+      if (mounted) {
+        _permissionsLoading = false;
       }
     }
-
-    // Fallback to company-level role
-    if (mounted) {
-      final companyState = companyBloc.state;
-      final companyRole =
-          companyState.selectedCompany?['role']?.toString() ?? 'viewer';
-      setState(() => _permissions = InventoryPermissions.fromRole(companyRole));
-    }
-  } catch (_) {
-    if (mounted) {
-      setState(() => _permissions = InventoryPermissions.fromRole('viewer'));
-    }
-  } finally {
-    if (mounted) {
-      _permissionsLoading = false;
-    }
   }
-}
 
   bool get _canCreate => _permissions?.canCreate ?? false;
   bool get _canUpdate => _permissions?.canUpdate ?? false;
@@ -114,6 +111,8 @@ Future<void> _loadPermissions() async {
   bool get _canExport => _permissions?.canExport ?? true;
   bool get _canManageSettings => _permissions?.canManageSettings ?? false;
   bool get _canViewActivity => _permissions?.canViewActivity ?? true;
+  bool get _canManageLabels => _permissions?.canManageLabels ?? false;
+  bool get _canChat => _permissions?.canChat ?? true;
 
   void _selectLabel(String label) {
     context.read<InventoryBloc>().add(SelectLabel(label));
@@ -155,7 +154,7 @@ Future<void> _loadPermissions() async {
   }
 
   void _showCreateLabelDialog() {
-    if (!_canCreate) {
+    if (!_canManageLabels && !_canCreate) {
       SnackBarUtils.show(context,
           message: 'You do not have permission to create labels', isError: true);
       return;
@@ -177,8 +176,7 @@ Future<void> _loadPermissions() async {
         onSubmit: (name) async {
           final state = context.read<InventoryBloc>().state;
           if (state.labels.contains(name)) {
-            SnackBarUtils.show(context,
-                message: '"$name" already exists', isError: true);
+            SnackBarUtils.show(context, message: '"$name" already exists', isError: true);
             return false;
           }
           try {
@@ -233,8 +231,7 @@ Future<void> _loadPermissions() async {
       return;
     }
 
-    final newQuantity =
-        (item.quantity + delta).clamp(0, InventoryItem.maxQuantity);
+    final newQuantity = (item.quantity + delta).clamp(0, InventoryItem.maxQuantity);
     if (newQuantity == item.quantity) return;
     context.read<InventoryBloc>().add(AdjustQuantity(item, delta));
   }
@@ -252,9 +249,7 @@ Future<void> _loadPermissions() async {
         title: const Text('Remove Item'),
         content: Text('Remove "${item.displayName}" from ${item.label}?'),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Remove', style: TextStyle(color: Colors.red)),
@@ -275,7 +270,7 @@ Future<void> _loadPermissions() async {
     final companyId = companyState.selectedCompany?['id']?.toString() ?? '';
     final companyName = companyState.selectedCompany?['name']?.toString() ?? '';
 
-    if (state.inventoryId != null && companyId.isNotEmpty) {
+    if (state.inventoryId != null && companyId.isNotEmpty && _canChat) {
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -287,7 +282,27 @@ Future<void> _loadPermissions() async {
           ),
         ),
       );
+    } else if (!_canChat) {
+      SnackBarUtils.show(context,
+          message: 'You do not have permission to access chat', isError: true);
     }
+  }
+
+  void _openMembers() {
+    final state = context.read<InventoryBloc>().state;
+    if (state.inventoryId == null) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => InventoryMembersScreen(
+          inventoryId: state.inventoryId!,
+          inventoryName: state.inventoryName ?? 'Inventory',
+        ),
+      ),
+    ).then((_) {
+      if (mounted) _loadPermissions();
+    });
   }
 
   Future<void> _refreshItems() async {
@@ -308,7 +323,6 @@ Future<void> _loadPermissions() async {
 
     return BlocBuilder<InventoryBloc, InventoryState>(
       builder: (context, state) {
-        // Reload permissions when inventory changes
         if (state.inventoryId != null &&
             state.isInitialized &&
             state.inventoryId != _lastInventoryId) {
@@ -318,25 +332,20 @@ Future<void> _loadPermissions() async {
           });
         }
 
-        // Handle view state cleanup
         if (_showItemsView && state.selectedLabel == null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) setState(() => _showItemsView = false);
           });
         }
 
-        // Show error snackbar if state has error
         if (state.error != null && state.isInitialized) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              SnackBarUtils.error(context, state.error!);
-            }
+            if (mounted) SnackBarUtils.error(context, state.error!);
           });
         }
 
         if (state.isLoading && !state.isInitialized) {
-          return const Scaffold(
-              body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
 
         if (state.error != null && !state.isInitialized) {
@@ -347,20 +356,16 @@ Future<void> _loadPermissions() async {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.error_outline,
-                        size: 64, color: Colors.red[300]),
+                    Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
                     const SizedBox(height: 16),
-                    Text(state.error!,
-                        textAlign: TextAlign.center,
+                    Text(state.error!, textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.red[700])),
                     const SizedBox(height: 24),
                     FilledButton.icon(
                       onPressed: () {
                         final currentId = state.inventoryId;
                         if (currentId != null) {
-                          context
-                              .read<InventoryBloc>()
-                              .add(InitializeInventory(currentId));
+                          context.read<InventoryBloc>().add(InitializeInventory(currentId));
                         }
                       },
                       icon: const Icon(Icons.refresh),
@@ -400,84 +405,60 @@ Future<void> _loadPermissions() async {
                     _showItemsView && state.selectedLabel != null
                         ? state.selectedLabel!
                         : state.inventoryName ?? 'Inventory',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w800, fontSize: 16),
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
                   ),
                   if (_showItemsView && state.selectedLabel != null)
                     Text(state.inventoryName ?? '',
                         style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context).colorScheme.primary)),
+                            fontSize: 12, color: Theme.of(context).colorScheme.primary)),
                 ],
               ),
               actions: [
                 _buildConnectivityIndicator(context),
                 if (!isMobile || !_showItemsView) ...[
-                  // Chat button
-                  IconButton(
-                    tooltip: 'Chat with inventory members',
-                    icon: const Icon(Icons.chat),
-                    onPressed: _openChat,
-                  ),
-                  // Members & Permissions
+                  if (_canChat)
+                    IconButton(
+                      tooltip: 'Chat with inventory members',
+                      icon: const Icon(Icons.chat),
+                      onPressed: _openChat,
+                    ),
                   IconButton(
                     tooltip: 'Members & Permissions',
                     icon: const Icon(Icons.people),
-                    onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => CompanySettingsScreen(
-                            inventoryId: state.inventoryId ?? 'default',
-                            inventoryName: state.inventoryName ?? 'Inventory',
-                          ),
-                        )),
+                    onPressed: _openMembers,
                   ),
-                  // Bulk Import
                   if (_canCreate)
                     IconButton(
                       tooltip: 'Bulk Import',
                       icon: const Icon(Icons.cloud_upload),
                       onPressed: _bulkImport,
                     ),
-                  // Activity Log
                   if (_canViewActivity)
                     IconButton(
                       tooltip: 'Activity Log',
                       icon: const Icon(Icons.history),
-                      onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) =>
-                                  const ActivityLogScreen())),
+                      onPressed: () => Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const ActivityLogScreen())),
                     ),
-                  // Search
                   IconButton(
                     tooltip: 'Search',
                     icon: const Icon(Icons.search),
-                    onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const SearchScreen())),
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const SearchScreen())),
                   ),
-                  // Reports
                   if (_canExport)
                     IconButton(
                       tooltip: 'Reports',
                       icon: const Icon(Icons.assessment),
-                      onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const ReportsScreen())),
+                      onPressed: () => Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const ReportsScreen())),
                     ),
-                  // Settings
                   if (_canManageSettings)
                     IconButton(
                       tooltip: 'Settings',
                       icon: const Icon(Icons.settings),
-                      onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const SettingsScreen())),
+                      onPressed: () => Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const SettingsScreen())),
                     ),
                 ],
               ],
@@ -500,25 +481,20 @@ Future<void> _loadPermissions() async {
       return Padding(
         padding: const EdgeInsets.only(right: 8),
         child: Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: Colors.red.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
-            border:
-                Border.all(color: Colors.red.withValues(alpha: 0.3)),
+            border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.wifi_off,
-                  size: 14, color: Colors.red.shade700),
+              Icon(Icons.wifi_off, size: 14, color: Colors.red.shade700),
               const SizedBox(width: 4),
               Text('Offline',
                   style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.red.shade700,
-                      fontWeight: FontWeight.w600)),
+                      fontSize: 10, color: Colors.red.shade700, fontWeight: FontWeight.w600)),
             ],
           ),
         ),
@@ -529,25 +505,20 @@ Future<void> _loadPermissions() async {
       return Padding(
         padding: const EdgeInsets.only(right: 8),
         child: Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: Colors.orange.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-                color: Colors.orange.withValues(alpha: 0.4)),
+            border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.cloud_off,
-                  size: 14, color: Colors.orange.shade700),
+              Icon(Icons.cloud_off, size: 14, color: Colors.orange.shade700),
               const SizedBox(width: 4),
               Text('Cached',
                   style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.orange.shade700,
-                      fontWeight: FontWeight.w600)),
+                      fontSize: 10, color: Colors.orange.shade700, fontWeight: FontWeight.w600)),
             ],
           ),
         ),
@@ -558,8 +529,7 @@ Future<void> _loadPermissions() async {
   }
 
   Widget _buildDesktopLayout(InventoryState state, double width) {
-    final sidebarWidth =
-        (width * AppConstants.sidebarWidthRatio).clamp(250.0, 400.0);
+    final sidebarWidth = (width * AppConstants.sidebarWidthRatio).clamp(250.0, 400.0);
 
     return Row(
       children: [
@@ -575,23 +545,15 @@ Future<void> _loadPermissions() async {
                       controller: _labelSearchController,
                       decoration: InputDecoration(
                         hintText: 'Search labels…',
-                        prefixIcon:
-                            const Icon(Icons.search, size: 16),
-                        suffixIcon: _labelSearchController
-                                .text.isNotEmpty
+                        prefixIcon: const Icon(Icons.search, size: 16),
+                        suffixIcon: _labelSearchController.text.isNotEmpty
                             ? IconButton(
-                                icon: const Icon(Icons.clear,
-                                    size: 16),
-                                onPressed: () =>
-                                    _labelSearchController.clear())
+                                icon: const Icon(Icons.clear, size: 16),
+                                onPressed: () => _labelSearchController.clear())
                             : null,
-                        border: OutlineInputBorder(
-                            borderRadius:
-                                BorderRadius.circular(40)),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
                         filled: true,
-                        fillColor: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest,
+                        fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                       ),
                     ),
                   ),
@@ -603,22 +565,18 @@ Future<void> _loadPermissions() async {
                         currentLabel: state.selectedLabel,
                         searchController: _labelSearchController,
                         onSelectLabel: _selectLabel,
-                        onRenameLabel: (oldName) =>
-                            _showRenameDialog(oldName),
-                        onDeleteLabel: (label) =>
-                            _deleteLabel(label),
+                        onRenameLabel: (oldName) => _showRenameDialog(oldName),
+                        onDeleteLabel: (label) => _deleteLabel(label),
                         sortType: state.sortType,
-                        onSortChanged: (sortType) => context
-                            .read<InventoryBloc>()
-                            .add(SetLabelSortType(sortType)),
-                        inventoryService:
-                            InjectionContainer.inventoryService,
+                        onSortChanged: (sortType) =>
+                            context.read<InventoryBloc>().add(SetLabelSortType(sortType)),
+                        inventoryService: InjectionContainer.inventoryService,
                       ),
                     ),
                   ),
                 ],
               ),
-              if (_canCreate)
+              if (_canManageLabels || _canCreate)
                 Positioned(
                   bottom: 24,
                   right: 24,
@@ -648,8 +606,7 @@ Future<void> _loadPermissions() async {
                       onAdjustQuantity: _adjustQuantity,
                       onDeleteItem: _deleteItem,
                       onAddItem: () => _showAddItemDialog(),
-                      onEditItem: (item) =>
-                          _showAddItemDialog(existingItem: item),
+                      onEditItem: (item) => _showAddItemDialog(existingItem: item),
                       onRefresh: _refreshItems,
                     ),
               if (state.selectedLabel != null && _canCreate)
@@ -684,8 +641,7 @@ Future<void> _loadPermissions() async {
             onAdjustQuantity: _adjustQuantity,
             onDeleteItem: _deleteItem,
             onAddItem: () => _showAddItemDialog(),
-            onEditItem: (item) =>
-                _showAddItemDialog(existingItem: item),
+            onEditItem: (item) => _showAddItemDialog(existingItem: item),
             onRefresh: _refreshItems,
           ),
           if (_canCreate)
@@ -717,15 +673,11 @@ Future<void> _loadPermissions() async {
                   suffixIcon: _labelSearchController.text.isNotEmpty
                       ? IconButton(
                           icon: const Icon(Icons.clear, size: 16),
-                          onPressed: () =>
-                              _labelSearchController.clear())
+                          onPressed: () => _labelSearchController.clear())
                       : null,
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(40)),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(40)),
                   filled: true,
-                  fillColor: Theme.of(context)
-                      .colorScheme
-                      .surfaceContainerHighest,
+                  fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                 ),
               ),
             ),
@@ -737,21 +689,18 @@ Future<void> _loadPermissions() async {
                   currentLabel: state.selectedLabel,
                   searchController: _labelSearchController,
                   onSelectLabel: _selectLabel,
-                  onRenameLabel: (oldName) =>
-                      _showRenameDialog(oldName),
+                  onRenameLabel: (oldName) => _showRenameDialog(oldName),
                   onDeleteLabel: (label) => _deleteLabel(label),
                   sortType: state.sortType,
-                  onSortChanged: (sortType) => context
-                      .read<InventoryBloc>()
-                      .add(SetLabelSortType(sortType)),
-                  inventoryService:
-                      InjectionContainer.inventoryService,
+                  onSortChanged: (sortType) =>
+                      context.read<InventoryBloc>().add(SetLabelSortType(sortType)),
+                  inventoryService: InjectionContainer.inventoryService,
                 ),
               ),
             ),
           ],
         ),
-        if (_canCreate)
+        if (_canManageLabels || _canCreate)
           Positioned(
             bottom: AppConstants.fabBottomMargin,
             right: AppConstants.fabRightMargin,
@@ -773,8 +722,7 @@ Future<void> _loadPermissions() async {
       isScrollControlled: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
-          borderRadius:
-              BorderRadius.vertical(top: Radius.circular(28))),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
       builder: (_) => _LabelNameSheet(
         title: 'Rename Label',
         hint: 'New label name',
@@ -784,14 +732,11 @@ Future<void> _loadPermissions() async {
           if (newName == oldLabel) return true;
           final state = context.read<InventoryBloc>().state;
           if (state.labels.contains(newName)) {
-            SnackBarUtils.show(context,
-                message: '"$newName" already exists', isError: true);
+            SnackBarUtils.show(context, message: '"$newName" already exists', isError: true);
             return false;
           }
           try {
-            context
-                .read<InventoryBloc>()
-                .add(RenameLabel(oldLabel, newName));
+            context.read<InventoryBloc>().add(RenameLabel(oldLabel, newName));
             _labelSearchController.clear();
             SnackBarUtils.success(context, 'Renamed to "$newName"');
             return true;
@@ -805,16 +750,19 @@ Future<void> _loadPermissions() async {
   }
 
   void _deleteLabel(String label) {
+    if (!_canManageLabels && !_canDelete) {
+      SnackBarUtils.show(context,
+          message: 'You do not have permission to delete labels', isError: true);
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Label'),
-        content: Text(
-            'Delete "$label" and all its items?\n\nThis cannot be undone.'),
+        content: Text('Delete "$label" and all its items?\n\nThis cannot be undone.'),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           TextButton(
             onPressed: () {
               final bloc = context.read<InventoryBloc>();
@@ -822,11 +770,9 @@ Future<void> _loadPermissions() async {
               bloc.add(DeleteLabel(label));
               _labelSearchController.clear();
               setState(() => _showItemsView = false);
-              SnackBarUtils.show(context,
-                  message: '🗑️ "$label" deleted');
+              SnackBarUtils.show(context, message: '🗑️ "$label" deleted');
             },
-            child: const Text('Delete',
-                style: TextStyle(color: Colors.red)),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -850,27 +796,19 @@ Future<void> _loadPermissions() async {
                       width: 64,
                       height: 64,
                       decoration: BoxDecoration(
-                          color: Colors.grey[200],
-                          borderRadius: BorderRadius.circular(20)),
-                      child: const Icon(Icons.folder_open,
-                          size: 28, color: Colors.grey),
+                          color: Colors.grey[200], borderRadius: BorderRadius.circular(20)),
+                      child: const Icon(Icons.folder_open, size: 28, color: Colors.grey),
                     ),
                     const SizedBox(height: 16),
                     const Text('No label selected',
-                        style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700)),
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 6),
                     Text('Choose a label or create one',
-                        style: TextStyle(
-                            color: Colors.grey[500], fontSize: 13)),
+                        style: TextStyle(color: Colors.grey[500], fontSize: 13)),
                     const SizedBox(height: 16),
                     Text('Pull down to refresh',
                         style: TextStyle(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.4),
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
                             fontSize: 12)),
                   ],
                 ),
@@ -882,8 +820,6 @@ Future<void> _loadPermissions() async {
     );
   }
 }
-
-// ─── Label Name Bottom Sheet ─────────────────────────────────────
 
 class _LabelNameSheet extends StatefulWidget {
   final String title;
@@ -919,10 +855,7 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
       return;
     }
 
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
+    setState(() { _saving = true; _error = null; });
     try {
       final ok = await widget.onSubmit(name);
       if (!mounted) return;
@@ -933,10 +866,7 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _saving = false;
-          _error = 'Error: $e';
-        });
+        setState(() { _saving = false; _error = 'Error: $e'; });
       }
     }
   }
@@ -946,26 +876,19 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
     return Padding(
       padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom + 28,
-          left: 20,
-          right: 20,
-          top: 20),
+          left: 20, right: 20, top: 20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Center(
               child: Container(
-                  width: 40,
-                  height: 4,
+                  width: 40, height: 4,
                   decoration: BoxDecoration(
-                      color: Colors.grey[400],
-                      borderRadius: BorderRadius.circular(4)))),
+                      color: Colors.grey[400], borderRadius: BorderRadius.circular(4)))),
           const SizedBox(height: 18),
           Text(widget.title,
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w800)),
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 16),
           TextField(
             controller: widget.controller,
@@ -973,8 +896,7 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
             textCapitalization: TextCapitalization.words,
             decoration: InputDecoration(
                 hintText: widget.hint,
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14)),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                 filled: true,
                 errorText: _error),
             onSubmitted: (_) => _saving ? null : _submit(),
@@ -984,34 +906,23 @@ class _LabelNameSheetState extends State<_LabelNameSheet> {
           Row(children: [
             Expanded(
                 child: OutlinedButton(
-                    onPressed:
-                        _saving ? null : () => Navigator.pop(context),
+                    onPressed: _saving ? null : () => Navigator.pop(context),
                     style: OutlinedButton.styleFrom(
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.circular(40))),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40))),
                     child: const Text('Cancel'))),
             const SizedBox(width: 10),
             Expanded(
                 child: FilledButton(
                     onPressed: _saving ? null : _submit,
                     style: FilledButton.styleFrom(
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.circular(40))),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40))),
                     child: _saving
-                        ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2))
+                        ? const SizedBox(height: 18, width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
                         : Text(widget.submitLabel,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w700)))),
+                            style: const TextStyle(fontWeight: FontWeight.w700)))),
           ]),
         ],
       ),

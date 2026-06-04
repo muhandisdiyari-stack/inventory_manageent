@@ -97,19 +97,22 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
         _FieldNames.note
       ]);
     }
-    if (!fields.contains(_FieldNames.name))
+    if (!fields.contains(_FieldNames.name)) {
       fields.insert(0, _FieldNames.name);
-    if (!fields.contains(_FieldNames.quantity))
+    }
+    if (!fields.contains(_FieldNames.quantity)) {
       fields.add(_FieldNames.quantity);
+    }
     return fields;
   }
 
   bool _isFieldRequired(String fieldName) {
     final state = context.read<InventoryBloc>().state;
     final settings = state.settings;
-    if (settings == null)
+    if (settings == null) {
       return fieldName == _FieldNames.name ||
           fieldName == _FieldNames.quantity;
+    }
     return settings.isFieldRequired(fieldName);
   }
 
@@ -210,8 +213,9 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
       } else if (Platform.isWindows) {
         final downloadsDir = Directory(
             '${Platform.environment['USERPROFILE']}\\Downloads');
-        if (!await downloadsDir.exists())
+        if (!await downloadsDir.exists()) {
           await downloadsDir.create(recursive: true);
+        }
         final savedPath = '${downloadsDir.path}\\$fileName';
         await File(savedPath).writeAsBytes(bytes);
         if (mounted) {
@@ -220,8 +224,9 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
       } else if (Platform.isMacOS || Platform.isLinux) {
         final homeDir = Platform.environment['HOME'] ?? '/tmp';
         final downloadsDir = Directory('$homeDir/Downloads');
-        if (!await downloadsDir.exists())
+        if (!await downloadsDir.exists()) {
           await downloadsDir.create(recursive: true);
+        }
         final savedPath = '${downloadsDir.path}/$fileName';
         await File(savedPath).writeAsBytes(bytes);
         if (mounted) {
@@ -320,11 +325,13 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
         stringRows.add(strRow);
       }
 
-      if (stringRows.isEmpty)
+      if (stringRows.isEmpty) {
         throw Exception('No valid data found in CSV file.');
-      if (stringRows.length < 2)
+      }
+      if (stringRows.length < 2) {
         throw Exception(
             'CSV only has a header row. Please add data rows.\nHeader: ${stringRows[0].join(", ")}');
+      }
 
       final headers = stringRows[0];
       final dataRows = stringRows.sublist(1);
@@ -410,8 +417,9 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
       for (var row in _rows!) {
         if (row.length > nameCol) {
           final name = row[nameCol].toString().trim();
-          if (name.isNotEmpty)
+          if (name.isNotEmpty) {
             byName.putIfAbsent(name, () => []).add(row);
+          }
         }
       }
       _addLog(
@@ -472,8 +480,9 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
               final col = _fieldMapping[field];
               if (col != null && row.length > col) {
                 final value = row[col].toString().trim();
-                if (value.isNotEmpty)
+                if (value.isNotEmpty) {
                   _setItemField(item, field, value);
+                }
               }
             }
             items.add(item);
@@ -544,8 +553,9 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
     if (!mounted) return;
     setState(() {
       _progressLog.add(message);
-      if (_progressLog.length > _maxLogEntries)
+      if (_progressLog.length > _maxLogEntries) {
         _progressLog.removeAt(0);
+      }
     });
   }
 
@@ -711,8 +721,9 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
       for (var row in _rows!) {
         if (row.length > nameCol) {
           final name = row[nameCol].toString().trim();
-          if (name.isNotEmpty)
+          if (name.isNotEmpty) {
             names[name] = (names[name] ?? 0) + 1;
+          }
         }
       }
     }

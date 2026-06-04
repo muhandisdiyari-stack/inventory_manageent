@@ -137,13 +137,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           return;
         }
 
+        // Auto-join any pending inventory invitations
         try {
           final result = await Supabase.instance.client
               .rpc('auto_join_pending_invitations');
           final resultMap = Map<String, dynamic>.from(result as Map);
           final joinedCount = resultMap['joined_count'] as int? ?? 0;
           if (joinedCount > 0) {
-            debugPrint('✅ Auto-joined $joinedCount companies from invitations');
+            debugPrint('✅ Auto-joined $joinedCount inventories from invitations');
           }
         } catch (e) {
           debugPrint('⚠️ Auto-join failed: $e');
@@ -209,11 +210,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     } on AuthException catch (e) {
       emit(state.copyWith(status: AuthStatus.unauthenticated, error: e.message));
     } catch (e) {
-      emit(state.copyWith(status: AuthStatus.unauthenticated, error: 'Registration failed. Please try again.'));
+      emit(state.copyWith(
+        status: AuthStatus.unauthenticated,
+        error: 'Registration failed. Please try again.',
+      ));
     }
   }
 
-  Future<void> _onSignOut(SignOutRequested event, Emitter<AuthState> emit) async {
+  Future<void> _onSignOut(
+      SignOutRequested event, Emitter<AuthState> emit) async {
     debugPrint('🔍 AuthBloc._onSignOut');
     try {
       await _authService.signOut();
@@ -225,20 +230,23 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
-  void _onEmailConfirmed(EmailConfirmationReceived event, Emitter<AuthState> emit) {
+  void _onEmailConfirmed(
+      EmailConfirmationReceived event, Emitter<AuthState> emit) {
     debugPrint('🔍 AuthBloc._onEmailConfirmed');
     _initialAuthCheckDone = false;
     emit(state.copyWith(status: AuthStatus.emailConfirmed));
   }
 
-  Future<void> _onAdminCheck(AdminCheckRequested event, Emitter<AuthState> emit) async {
+  Future<void> _onAdminCheck(
+      AdminCheckRequested event, Emitter<AuthState> emit) async {
     try {
       final isAdmin = await _adminService.isAdmin();
       emit(state.copyWith(isAdmin: isAdmin));
     } catch (_) {}
   }
 
-  Future<void> _onDeepLink(DeepLinkReceived event, Emitter<AuthState> emit) async {
+  Future<void> _onDeepLink(
+      DeepLinkReceived event, Emitter<AuthState> emit) async {
     final uriString = event.uri.toString();
     if (!uriString.contains('auth/callback') &&
         !uriString.contains('access_token') &&

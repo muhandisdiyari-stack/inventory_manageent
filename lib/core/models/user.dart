@@ -53,6 +53,10 @@ class InventoryPermissions {
   final bool canExport;
   final bool canViewActivity;
   final bool canManageSettings;
+  final bool canInviteMembers;
+  final bool canRemoveMembers;
+  final bool canManageLabels;
+  final bool canChat;
   final String role;
 
   const InventoryPermissions({
@@ -62,6 +66,10 @@ class InventoryPermissions {
     this.canExport = true,
     this.canViewActivity = true,
     this.canManageSettings = false,
+    this.canInviteMembers = false,
+    this.canRemoveMembers = false,
+    this.canManageLabels = false,
+    this.canChat = true,
     this.role = 'viewer',
   });
 
@@ -76,6 +84,10 @@ class InventoryPermissions {
       canExport: json['can_export'] as bool? ?? true,
       canViewActivity: json['can_view_activity'] as bool? ?? true,
       canManageSettings: json['can_manage_settings'] as bool? ?? false,
+      canInviteMembers: json['can_invite_members'] as bool? ?? false,
+      canRemoveMembers: json['can_remove_members'] as bool? ?? false,
+      canManageLabels: json['can_manage_labels'] as bool? ?? false,
+      canChat: json['can_chat'] as bool? ?? true,
       role: json['role'] as String? ?? 'viewer',
     );
   }
@@ -86,38 +98,50 @@ class InventoryPermissions {
         return const InventoryPermissions(
           canCreate: true, canUpdate: true, canDelete: true,
           canExport: true, canViewActivity: true, canManageSettings: true,
+          canInviteMembers: true, canRemoveMembers: true,
+          canManageLabels: true, canChat: true,
           role: 'owner',
         );
       case 'admin':
         return const InventoryPermissions(
           canCreate: true, canUpdate: true, canDelete: true,
           canExport: true, canViewActivity: true, canManageSettings: true,
+          canInviteMembers: true, canRemoveMembers: true,
+          canManageLabels: true, canChat: true,
           role: 'admin',
         );
       case 'data_operator':
         return const InventoryPermissions(
           canCreate: true, canUpdate: true, canDelete: false,
           canExport: true, canViewActivity: true, canManageSettings: false,
+          canInviteMembers: false, canRemoveMembers: false,
+          canManageLabels: false, canChat: true,
           role: 'data_operator',
         );
       default:
         return const InventoryPermissions(
           canCreate: false, canUpdate: false, canDelete: false,
           canExport: true, canViewActivity: true, canManageSettings: false,
+          canInviteMembers: false, canRemoveMembers: false,
+          canManageLabels: false, canChat: true,
           role: 'viewer',
         );
     }
   }
 
   Map<String, dynamic> toJson() => {
-        'can_create': canCreate,
-        'can_update': canUpdate,
-        'can_delete': canDelete,
-        'can_export': canExport,
-        'can_view_activity': canViewActivity,
-        'can_manage_settings': canManageSettings,
-        'role': role,
-      };
+    'can_create': canCreate,
+    'can_update': canUpdate,
+    'can_delete': canDelete,
+    'can_export': canExport,
+    'can_view_activity': canViewActivity,
+    'can_manage_settings': canManageSettings,
+    'can_invite_members': canInviteMembers,
+    'can_remove_members': canRemoveMembers,
+    'can_manage_labels': canManageLabels,
+    'can_chat': canChat,
+    'role': role,
+  };
 
   @override
   bool operator ==(Object other) =>
@@ -128,11 +152,19 @@ class InventoryPermissions {
           canDelete == other.canDelete &&
           canExport == other.canExport &&
           canViewActivity == other.canViewActivity &&
-          canManageSettings == other.canManageSettings;
+          canManageSettings == other.canManageSettings &&
+          canInviteMembers == other.canInviteMembers &&
+          canRemoveMembers == other.canRemoveMembers &&
+          canManageLabels == other.canManageLabels &&
+          canChat == other.canChat;
 
   @override
   int get hashCode => Object.hash(
-      canCreate, canUpdate, canDelete, canExport, canViewActivity, canManageSettings);
+        canCreate, canUpdate, canDelete, canExport,
+        canViewActivity, canManageSettings,
+        canInviteMembers, canRemoveMembers,
+        canManageLabels, canChat,
+      );
 }
 
 class User {
@@ -161,21 +193,14 @@ class User {
       displayNameOrEmail.isNotEmpty ? displayNameOrEmail[0].toUpperCase() : '?';
 
   User copyWith({
-    String? id,
-    String? email,
-    String? displayName,
-    UserRole? role,
-    String? companyId,
-    bool? isApproved,
-    DateTime? createdAt,
+    String? id, String? email, String? displayName, UserRole? role,
+    String? companyId, bool? isApproved, DateTime? createdAt,
     InventoryPermissions? inventoryPermissions,
   }) {
     return User(
-      id: id ?? this.id,
-      email: email ?? this.email,
+      id: id ?? this.id, email: email ?? this.email,
       displayName: displayName ?? this.displayName,
-      role: role ?? this.role,
-      companyId: companyId ?? this.companyId,
+      role: role ?? this.role, companyId: companyId ?? this.companyId,
       isApproved: isApproved ?? this.isApproved,
       createdAt: createdAt ?? this.createdAt,
       inventoryPermissions: inventoryPermissions ?? this.inventoryPermissions,
@@ -183,70 +208,50 @@ class User {
   }
 
   Map<String, dynamic> toCloudJson() => {
-        'id': id,
-        'email': email,
-        'display_name': displayName,
-        'role': role.name,
-        'company_id': companyId,
-        'is_approved': isApproved,
-        'created_at': createdAt?.toIso8601String(),
-      };
+    'id': id, 'email': email, 'display_name': displayName,
+    'role': role.name, 'company_id': companyId,
+    'is_approved': isApproved, 'created_at': createdAt?.toIso8601String(),
+  };
 
   factory User.fromCloudJson(Map<String, dynamic> json) {
     InventoryPermissions? perms;
     if (json['permissions'] is Map) {
-      perms = InventoryPermissions.fromSupabase(
-        Map<String, dynamic>.from(json['permissions']),
-      );
+      perms = InventoryPermissions.fromSupabase(Map<String, dynamic>.from(json['permissions']));
     }
-
     return User(
-      id: json['id'] as String,
-      email: json['email'] as String,
+      id: json['id'] as String, email: json['email'] as String,
       displayName: json['display_name'] as String?,
       role: UserRole.fromString(json['role'] as String? ?? 'viewer'),
       companyId: json['company_id'] as String?,
       isApproved: json['is_approved'] as bool? ?? false,
-      createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'] as String)
-          : null,
+      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at'] as String) : null,
       inventoryPermissions: perms,
     );
   }
 
   Map<String, dynamic> toLocalJson() => {
-        'id': id,
-        'email': email,
-        'displayName': displayName,
-        'role': role.name,
-        'companyId': companyId,
-        'isApproved': isApproved,
-        'createdAt': createdAt?.toIso8601String(),
-        'inventoryPermissions': inventoryPermissions?.toJson(),
-      };
+    'id': id, 'email': email, 'displayName': displayName,
+    'role': role.name, 'companyId': companyId,
+    'isApproved': isApproved, 'createdAt': createdAt?.toIso8601String(),
+    'inventoryPermissions': inventoryPermissions?.toJson(),
+  };
 
   factory User.fromLocalJson(Map<String, dynamic> json) {
     return User(
-      id: json['id'] as String,
-      email: json['email'] as String,
+      id: json['id'] as String, email: json['email'] as String,
       displayName: json['displayName'] as String?,
       role: UserRole.fromString(json['role'] as String? ?? 'viewer'),
       companyId: json['companyId'] as String?,
       isApproved: json['isApproved'] as bool? ?? false,
-      createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'] as String)
-          : null,
+      createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt'] as String) : null,
       inventoryPermissions: json['inventoryPermissions'] != null
-          ? InventoryPermissions.fromSupabase(
-              Map<String, dynamic>.from(json['inventoryPermissions']))
+          ? InventoryPermissions.fromSupabase(Map<String, dynamic>.from(json['inventoryPermissions']))
           : null,
     );
   }
 
   @override
-  bool operator ==(Object other) =>
-      identical(this, other) || other is User && id == other.id;
-
+  bool operator ==(Object other) => identical(this, other) || other is User && id == other.id;
   @override
   int get hashCode => id.hashCode;
 }

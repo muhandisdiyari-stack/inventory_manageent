@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:inventory_management/core/config/app_config.dart';
 import 'package:inventory_management/core/models/user.dart';
+import 'package:inventory_management/core/services/permission_service.dart';
 import '../../../core/utils/snackbar_utils.dart';
 import '../../inventory_management/bloc/inventory_bloc.dart';
 import '../../inventory_management/models/inventory_settings.dart';
@@ -44,18 +46,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
-  void _checkPermissions() {
+  void _checkPermissions() async {
     try {
-      final companyState = context.read<CompanyBloc>().state;
-      final companyRole =
-          companyState.selectedCompany?['role']?.toString() ??
-              'viewer';
-      final permissions = InventoryPermissions.fromRole(companyRole);
-      _canManageSettings = permissions.canManageSettings;
+      final inventoryId = context.read<InventoryBloc>().state.inventoryId;
+      
+      if (inventoryId != null && AppConfig.useSupabase) {
+        // Use inventory-scoped permissions from Supabase
+        final permService = PermissionService();
+        final perms = await permService.getInventoryPermissions(inventoryId);
+        if (mounted) {
+          setState(() => _canManageSettings = perms.canManageSettings);
+        }
+      } else {
+        // Fallback to company role
+        final companyState = context.read<CompanyBloc>().state;
+        final companyRole = companyState.selectedCompany?['role']?.toString() ?? 'viewer';
+        final permissions = InventoryPermissions.fromRole(companyRole);
+        if (mounted) {
+          setState(() => _canManageSettings = permissions.canManageSettings);
+        }
+      }
     } catch (_) {
-      _canManageSettings = false;
+      if (mounted) setState(() => _canManageSettings = false);
     }
-    setState(() {});
   }
 
   void _loadCurrentSettings() {
@@ -246,8 +259,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onPopInvokedWithResult: (didPop, result) async {
             if (didPop) return;
             final shouldPop = await _onWillPop();
-            if (shouldPop && context.mounted)
+            if (shouldPop && context.mounted) {
               Navigator.of(context).pop();
+            }
           },
           child: Scaffold(
             appBar: AppBar(

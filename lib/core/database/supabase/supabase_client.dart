@@ -50,7 +50,6 @@ class SupabaseClientService {
     }
   }
 
-  /// Returns the Supabase client. Throws if not initialized.
   SupabaseClient get client {
     if (!_isInitialized || _client == null) {
       throw SupabaseNotInitializedException(
@@ -59,7 +58,6 @@ class SupabaseClientService {
     return _client!;
   }
 
-  /// Safe client access — returns null if not initialized.
   SupabaseClient? get safeClient =>
       (_isInitialized && _client != null) ? _client : null;
 
@@ -86,8 +84,6 @@ class SupabaseClientService {
     }
   }
 
-// In the signIn method, change the catch block:
-
   Future<Map<String, dynamic>?> signIn(String email, String password) async {
     if (!isConfigured) return null;
     try {
@@ -98,7 +94,6 @@ class SupabaseClientService {
       final user = response.user;
       if (user == null) return null;
 
-      // Get profile data
       Map<String, dynamic>? profileData;
       try {
         profileData = await _client!
@@ -118,13 +113,12 @@ class SupabaseClientService {
             profileData?['display_name'] ?? user.userMetadata?['display_name'],
         'role': profileData?['role'] ?? 'viewer',
         'company_id': profileData?['company_id'],
-        'is_approved': profileData?['is_approved'] ?? true, // Default true after our migration
+        'is_approved': profileData?['is_approved'] ?? true,
         'email_confirmed': user.emailConfirmedAt != null,
         'created_at': user.createdAt,
         'permissions': profileData?['permissions'] ?? {},
       };
     } on AuthException {
-      // ✅ Re-throw so AuthBloc can show the proper message
       rethrow;
     } catch (e) {
       debugPrint('Sign in error: $e');
@@ -176,44 +170,28 @@ class SupabaseClientService {
     }
   }
 
-  /// Verifies the current session is valid.
-  /// Returns false only if definitively signed out, true otherwise.
   Future<bool> verifySession() async {
     if (!isConfigured) return false;
-
     try {
-      // Check if there's an existing session without refreshing
       final currentSession = _client!.auth.currentSession;
-      if (currentSession == null) {
-        debugPrint('🔍 verifySession: No current session');
-        return false;
-      }
+      if (currentSession == null) return false;
 
-      // Check if session is still valid (not expired)
       final expiresAt = currentSession.expiresAt;
       final nowInSeconds =
           DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
 
       if (expiresAt != null && expiresAt > nowInSeconds) {
-        // Session still valid, no need to refresh
-        debugPrint('🔍 verifySession: Session valid until ${DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000)}');
         return true;
       }
 
-      // Session expired or about to expire, try to refresh
-      debugPrint('🔍 verifySession: Session expired, attempting refresh...');
       try {
         await _client!.auth.refreshSession();
-        final newSession = _client!.auth.currentSession;
-        debugPrint('🔍 verifySession: Refresh ${newSession != null ? 'successful' : 'failed'}');
-        return newSession != null;
-      } catch (refreshError) {
-        debugPrint('🔍 verifySession: Refresh error: $refreshError');
-        // Check if there's still a current session despite refresh error
+        return _client!.auth.currentSession != null;
+      } catch (_) {
         return _client!.auth.currentSession != null;
       }
     } catch (e) {
-      debugPrint('🔍 verifySession: Unexpected error: $e');
+      debugPrint('Verify session error: $e');
       try {
         return _client!.auth.currentSession != null;
       } catch (_) {
@@ -311,7 +289,124 @@ class SupabaseClientService {
     }
   }
 
-  // ─── Members ──────────────────────────────────────────────────
+  // ─── Inventory Members (NEW - authoritative access control) ───
+
+  Future<List<Map<String, dynamic>>> getInventoryMembers(
+      String inventoryId) async {
+    if (!isConfigured) return [];
+    try {
+      final data = await _client!.rpc('get_inventory_members',
+          params: {'p_inventory_id': inventoryId});
+      if (data is List) return List<Map<String, dynamic>>.from(data);
+      return [];
+    } catch (e) {
+      debugPrint('Get inventory members error: $e');
+      return [];
+    }
+  }
+
+  Future<bool> removeInventoryMember(
+      String memberId, String inventoryId) async {
+    if (!isConfigured) return false;
+    try {
+      final result = await _client!.rpc('remove_inventory_member', params: {
+        'p_member_id': memberId,
+        'p_inventory_id': inventoryId,
+      });
+      if (result is Map) return result['success'] == true;
+      return false;
+    } catch (e) {
+      debugPrint('Remove inventory member error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> updateInventoryMemberPermissions({
+    required String memberId,
+    required String inventoryId,
+    String? role,
+    bool? canCreate,
+    bool? canUpdate,
+    bool? canDelete,
+    bool? canExport,
+    bool? canViewActivity,
+    bool? canManageSettings,
+    bool? canInviteMembers,
+    bool? canRemoveMembers,
+    bool? canManageLabels,
+    bool? canChat,
+  }) async {
+    if (!isConfigured) return false;
+    try {
+      final result = await _client!.rpc(
+          'update_inventory_member_permissions',
+          params: {
+            'p_member_id': memberId,
+            'p_inventory_id': inventoryId,
+            'p_role': role,
+            'p_can_create': canCreate,
+            'p_can_update': canUpdate,
+            'p_can_delete': canDelete,
+            'p_can_export': canExport,
+            'p_can_view_activity': canViewActivity,
+            'p_can_manage_settings': canManageSettings,
+            'p_can_invite_members': canInviteMembers,
+            'p_can_remove_members': canRemoveMembers,
+            'p_can_manage_labels': canManageLabels,
+            'p_can_chat': canChat,
+          });
+      if (result is Map) return result['success'] == true;
+      return false;
+    } catch (e) {
+      debugPrint('Update inventory member permissions error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> leaveInventory(String inventoryId) async {
+    if (!isConfigured) return false;
+    try {
+      final result = await _client!
+          .rpc('leave_inventory', params: {'p_inventory_id': inventoryId});
+      if (result is Map) return result['success'] == true;
+      return false;
+    } catch (e) {
+      debugPrint('Leave inventory error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteInventory(String inventoryId) async {
+    if (!isConfigured) return false;
+    try {
+      final result = await _client!
+          .rpc('delete_inventory', params: {'p_inventory_id': inventoryId});
+      if (result is Map) return result['success'] == true;
+      return false;
+    } catch (e) {
+      debugPrint('Delete inventory error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> transferInventoryOwnership(
+      String inventoryId, String newOwnerUserId) async {
+    if (!isConfigured) return false;
+    try {
+      final result = await _client!.rpc('transfer_inventory_ownership',
+          params: {
+            'p_inventory_id': inventoryId,
+            'p_new_owner_user_id': newOwnerUserId,
+          });
+      if (result is Map) return result['success'] == true;
+      return false;
+    } catch (e) {
+      debugPrint('Transfer ownership error: $e');
+      return false;
+    }
+  }
+
+  // ─── Company Members (legacy - for ownership tracking only) ───
 
   Future<List<Map<String, dynamic>>> getCompanyMembers(
       String companyId) async {
@@ -322,7 +417,7 @@ class SupabaseClientService {
       if (data is List) return List<Map<String, dynamic>>.from(data);
       return [];
     } catch (e) {
-      debugPrint('Get members error: $e');
+      debugPrint('Get company members error: $e');
       return [];
     }
   }
@@ -335,7 +430,7 @@ class SupabaseClientService {
       if (result is Map) return result['success'] == true;
       return false;
     } catch (e) {
-      debugPrint('Remove member error: $e');
+      debugPrint('Remove company member error: $e');
       return false;
     }
   }
@@ -352,35 +447,30 @@ class SupabaseClientService {
       if (result is Map) return result['success'] == true;
       return false;
     } catch (e) {
-      debugPrint('Update role error: $e');
+      debugPrint('Update company member role error: $e');
       return false;
     }
   }
 
-  // ─── Invitations ──────────────────────────────────────────────
+  // ─── Invitations (ALWAYS inventory-scoped) ───────────────────
 
   Future<Map<String, dynamic>?> createInvitation({
     required String companyId,
+    required String inventoryId,
     required String email,
     required String role,
-    String? inventoryId,
   }) async {
     if (!isConfigured) return null;
     try {
       final user = _client!.auth.currentUser;
       if (user == null) return null;
 
-      final params = <String, dynamic>{
+      final result = await _client!.rpc('create_invitation', params: {
         'p_company_id': companyId,
+        'p_inventory_id': inventoryId,
         'p_email': email.trim().toLowerCase(),
         'p_role': role,
-      };
-
-      if (inventoryId != null && inventoryId.isNotEmpty) {
-        params['p_inventory_id'] = inventoryId;
-      }
-
-      final result = await _client!.rpc('create_invitation', params: params);
+      });
 
       if (result is Map) return Map<String, dynamic>.from(result);
       return null;
@@ -391,18 +481,19 @@ class SupabaseClientService {
   }
 
   Future<List<Map<String, dynamic>>> getPendingInvitations(
-      String companyId) async {
+      String inventoryId) async {
     if (!isConfigured) return [];
     try {
-      final data = await _client!
-          .from('invitations')
-          .select()
-          .eq('company_id', companyId)
-          .eq('status', 'pending')
-          .order('created_at', ascending: false);
-      return List<Map<String, dynamic>>.from(data);
+      final data = await _client!.rpc('get_pending_invitations',
+          params: {'p_inventory_id': inventoryId});
+      if (data is List) {
+        return data
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+      }
+      return [];
     } catch (e) {
-      debugPrint('Get invitations error: $e');
+      debugPrint('Get pending invitations error: $e');
       return [];
     }
   }
@@ -410,11 +501,10 @@ class SupabaseClientService {
   Future<bool> cancelInvitation(String invitationId) async {
     if (!isConfigured) return false;
     try {
-      await _client!.from('invitations').update({
-        'status': 'cancelled',
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      }).eq('id', invitationId);
-      return true;
+      final result = await _client!
+          .rpc('cancel_invitation', params: {'p_invitation_id': invitationId});
+      if (result is Map) return result['success'] == true;
+      return false;
     } catch (e) {
       debugPrint('Cancel invitation error: $e');
       return false;
