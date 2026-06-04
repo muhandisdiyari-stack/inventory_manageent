@@ -36,11 +36,7 @@ class CompanyState {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is CompanyState &&
-          isLoading == other.isLoading &&
-          error == other.error &&
-          successMessage == other.successMessage;
+      identical(this, other) || other is CompanyState && isLoading == other.isLoading && error == other.error && successMessage == other.successMessage;
 
   @override
   int get hashCode => Object.hash(isLoading, error, successMessage);

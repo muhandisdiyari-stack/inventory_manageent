@@ -7,7 +7,6 @@ import 'features/theme/bloc/theme_bloc.dart';
 import 'features/auth/bloc/auth_bloc.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/company/screens/company_setup_screen.dart';
-import 'features/admin/screens/admin_dashboard_screen.dart';
 import 'features/onboarding/screens/onboarding_screen.dart';
 
 class InventoryProApp extends StatelessWidget {
@@ -86,10 +85,6 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
       return const OnboardingScreen();
     }
 
-    // FIX: Always show company setup first. Admin gate is shown inside company setup if needed.
-    if (state.isAdmin) {
-      return const _AdminGate();
-    }
     return const CompanySetupScreen();
   }
 
@@ -100,74 +95,6 @@ class _AppEntryPointState extends State<_AppEntryPoint> {
     } catch (_) {
       return false;
     }
-  }
-}
-
-class _AdminGate extends StatefulWidget {
-  const _AdminGate();
-
-  @override
-  State<_AdminGate> createState() => _AdminGateState();
-}
-
-class _AdminGateState extends State<_AdminGate> {
-  bool _dialogShown = false;
-
-  @override
-  void initState() {
-    super.initState();
-    Future.microtask(() {
-      if (mounted) _showAdminDialog();
-    });
-  }
-
-  void _showAdminDialog() {
-    if (_dialogShown || !mounted) return;
-    _dialogShown = true;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Row(children: [
-          Icon(Icons.admin_panel_settings, color: Colors.blue), SizedBox(width: 8), Text('Admin Access'),
-        ]),
-        content: const Text('You have admin privileges. Where would you like to go?'),
-        actions: [
-          OutlinedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              if (mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const CompanySetupScreen()),
-                  (route) => false,
-                );
-              }
-            },
-            child: const Text('User Dashboard'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.pop(ctx);
-              if (mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
-                  (route) => false,
-                );
-              }
-            },
-            icon: const Icon(Icons.dashboard),
-            label: const Text('Admin Dashboard'),
-            style: FilledButton.styleFrom(backgroundColor: Colors.blue),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }
 
