@@ -214,8 +214,8 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
 
   Future<void> _onAdjustQuantity(
       AdjustQuantity event, Emitter<InventoryState> emit) async {
-    final newQuantity =
-        (event.item.quantity + event.delta).clamp(0, InventoryItem.maxQuantity);
+    final newQuantity = (event.item.quantity + event.delta)
+        .clamp(0, InventoryItem.maxQuantity);
     if (newQuantity == event.item.quantity) return;
 
     event.item.quantity = newQuantity;

@@ -2,11 +2,6 @@ import 'package:uuid/uuid.dart';
 
 const _uuid = Uuid();
 
-/// Company model representing a multi-tenant organization.
-///
-/// Supabase is the authoritative source.
-/// UUIDs are generated locally for offline creation capability,
-/// but Supabase-generated UUIDs take precedence when syncing.
 class Company {
   final String id;
   final String name;
@@ -14,7 +9,7 @@ class Company {
   final String? subscriptionPlan;
   final String? createdBy;
   final DateTime? createdAt;
-  final DateTime? modifiedAt;
+  final DateTime? updatedAt;
   final bool isSynced;
   final bool isDeleted;
 
@@ -25,12 +20,11 @@ class Company {
     this.subscriptionPlan,
     this.createdBy,
     this.createdAt,
-    this.modifiedAt,
+    this.updatedAt,
     this.isSynced = false,
     this.isDeleted = false,
   });
 
-  /// Creates a new Company with a generated UUID.
   factory Company.create({
     required String name,
     String? ownerUserId,
@@ -47,17 +41,15 @@ class Company {
     return Company(
       id: json['id'] as String? ?? _uuid.v4(),
       name: json['name'] as String,
-      ownerUserId: json['owner_user_id'] as String? ??
-          json['ownerUserId'] as String?,
-      subscriptionPlan: json['subscription_plan'] as String? ??
-          json['subscriptionPlan'] as String?,
-      createdBy: json['created_by'] as String? ??
-          json['createdBy'] as String?,
+      ownerUserId: json['owner_user_id'] as String? ?? json['ownerUserId'] as String?,
+      subscriptionPlan: json['subscription_plan'] as String? ?? json['subscriptionPlan'] as String?,
+      createdBy: json['created_by'] as String? ?? json['createdBy'] as String?,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
-          : (json['createdAt'] != null
-              ? DateTime.parse(json['createdAt'] as String)
-              : null),
+          : (json['createdAt'] != null ? DateTime.parse(json['createdAt'] as String) : null),
+      updatedAt: json['updated_at'] != null
+          ? DateTime.parse(json['updated_at'] as String)
+          : null,
       isSynced: json['isSynced'] as bool? ?? false,
     );
   }
@@ -82,6 +74,7 @@ class Company {
       'subscriptionPlan': subscriptionPlan,
       'createdBy': createdBy,
       'createdAt': createdAt?.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
       'isSynced': isSynced,
     };
   }
@@ -101,6 +94,7 @@ class Company {
       subscriptionPlan: subscriptionPlan ?? this.subscriptionPlan,
       createdBy: createdBy,
       createdAt: createdAt,
+      updatedAt: updatedAt,
       isSynced: isSynced ?? this.isSynced,
       isDeleted: isDeleted ?? this.isDeleted,
     );
@@ -108,8 +102,7 @@ class Company {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Company && id == other.id;
+      identical(this, other) || other is Company && id == other.id;
 
   @override
   int get hashCode => id.hashCode;

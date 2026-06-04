@@ -109,6 +109,8 @@ class SupabaseClientService {
       return {
         'id': user.id,
         'email': user.email,
+        'full_name':
+            profileData?['full_name'] ?? user.userMetadata?['full_name'],
         'display_name':
             profileData?['display_name'] ?? user.userMetadata?['display_name'],
         'role': profileData?['role'] ?? 'viewer',
@@ -116,7 +118,6 @@ class SupabaseClientService {
         'is_approved': profileData?['is_approved'] ?? true,
         'email_confirmed': user.emailConfirmedAt != null,
         'created_at': user.createdAt,
-        'permissions': profileData?['permissions'] ?? {},
       };
     } on AuthException {
       rethrow;
@@ -127,7 +128,7 @@ class SupabaseClientService {
   }
 
   Future<Map<String, dynamic>?> signUp(
-      String email, String password, String displayName) async {
+      String email, String password, String fullName) async {
     if (!isConfigured) return null;
     try {
       final redirectUrl = _getEmailRedirectTo();
@@ -136,7 +137,7 @@ class SupabaseClientService {
       final response = await _client!.auth.signUp(
         email: email,
         password: password,
-        data: {'display_name': displayName},
+        data: {'full_name': fullName, 'display_name': fullName},
         emailRedirectTo: redirectUrl,
       );
 
@@ -148,7 +149,8 @@ class SupabaseClientService {
       return {
         'id': user.id,
         'email': user.email,
-        'display_name': displayName,
+        'full_name': fullName,
+        'display_name': fullName,
         'created_at': user.createdAt,
         'email_confirmed': !requiresConfirmation,
       };
@@ -229,7 +231,7 @@ class SupabaseClientService {
     }
   }
 
-  Future<bool> deleteCompany(String companyId) async {
+  Future<bool> deleteCompanyCascade(String companyId) async {
     if (!isConfigured) return false;
     try {
       final result = await _client!
@@ -237,23 +239,6 @@ class SupabaseClientService {
       return result is Map && result['success'] == true;
     } catch (e) {
       debugPrint('Delete company error: $e');
-      return false;
-    }
-  }
-
-  Future<bool> leaveCompany(String companyId) async {
-    if (!isConfigured) return false;
-    try {
-      final user = _client!.auth.currentUser;
-      if (user == null) return false;
-      await _client!
-          .from('company_members')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('company_id', companyId);
-      return true;
-    } catch (e) {
-      debugPrint('Leave company error: $e');
       return false;
     }
   }
@@ -289,6 +274,24 @@ class SupabaseClientService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getCompanyInventories(
+      String companyId) async {
+    if (!isConfigured) return [];
+    try {
+      final data = await _client!.rpc('get_company_inventories',
+          params: {'p_company_id': companyId});
+      if (data is List) {
+        return data
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Get company inventories error: $e');
+      return [];
+    }
+  }
+
   // ─── Inventory Members (NEW - authoritative access control) ───
 
   Future<List<Map<String, dynamic>>> getInventoryMembers(
@@ -302,6 +305,20 @@ class SupabaseClientService {
     } catch (e) {
       debugPrint('Get inventory members error: $e');
       return [];
+    }
+  }
+
+  Future<Map<String, dynamic>?> getUserInventoryPermissions(
+      String inventoryId) async {
+    if (!isConfigured) return null;
+    try {
+      final result = await _client!.rpc('get_user_inventory_permissions',
+          params: {'p_inventory_id': inventoryId});
+      if (result is Map) return Map<String, dynamic>.from(result);
+      return null;
+    } catch (e) {
+      debugPrint('Get user inventory permissions error: $e');
+      return null;
     }
   }
 
@@ -422,36 +439,6 @@ class SupabaseClientService {
     }
   }
 
-  Future<bool> removeMember(String memberId, String companyId) async {
-    if (!isConfigured) return false;
-    try {
-      final result = await _client!.rpc('remove_member',
-          params: {'p_member_id': memberId, 'p_company_id': companyId});
-      if (result is Map) return result['success'] == true;
-      return false;
-    } catch (e) {
-      debugPrint('Remove company member error: $e');
-      return false;
-    }
-  }
-
-  Future<bool> updateMemberRole(
-      String memberId, String companyId, String newRole) async {
-    if (!isConfigured) return false;
-    try {
-      final result = await _client!.rpc('update_member_role', params: {
-        'p_member_id': memberId,
-        'p_company_id': companyId,
-        'p_new_role': newRole,
-      });
-      if (result is Map) return result['success'] == true;
-      return false;
-    } catch (e) {
-      debugPrint('Update company member role error: $e');
-      return false;
-    }
-  }
-
   // ─── Invitations (ALWAYS inventory-scoped) ───────────────────
 
   Future<Map<String, dynamic>?> createInvitation({
@@ -462,16 +449,12 @@ class SupabaseClientService {
   }) async {
     if (!isConfigured) return null;
     try {
-      final user = _client!.auth.currentUser;
-      if (user == null) return null;
-
       final result = await _client!.rpc('create_invitation', params: {
         'p_company_id': companyId,
         'p_inventory_id': inventoryId,
         'p_email': email.trim().toLowerCase(),
         'p_role': role,
       });
-
       if (result is Map) return Map<String, dynamic>.from(result);
       return null;
     } catch (e) {
@@ -521,6 +504,18 @@ class SupabaseClientService {
     } catch (e) {
       debugPrint('Accept invitation error: $e');
       rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>?> autoJoinPendingInvitations() async {
+    if (!isConfigured) return null;
+    try {
+      final result = await _client!.rpc('auto_join_pending_invitations');
+      if (result is Map) return Map<String, dynamic>.from(result);
+      return null;
+    } catch (e) {
+      debugPrint('Auto-join pending invitations error: $e');
+      return null;
     }
   }
 

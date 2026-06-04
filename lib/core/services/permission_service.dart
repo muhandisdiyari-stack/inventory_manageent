@@ -13,6 +13,8 @@ class PermissionService {
 
   SupabaseClient get _client => _supabaseClient ?? Supabase.instance.client;
 
+  // ─── Device Permissions ───────────────────────────────────────
+
   static Future<Map<Permission, PermissionStatus>> requestAll() async {
     final results = <Permission, PermissionStatus>{};
     try {
@@ -51,8 +53,16 @@ class PermissionService {
     }
   }
 
-  Future<InventoryPermissions> getInventoryPermissions(String inventoryId) async {
-    if (!AppConfig.useSupabase) return InventoryPermissions.fromRole('owner');
+  // ─── Inventory Permissions ────────────────────────────────────
+
+  /// Get the current user's permissions for a specific inventory.
+  /// This queries the `get_user_inventory_permissions` RPC which returns
+  /// the user's role and all boolean permission flags from `inventory_members`.
+  Future<InventoryPermissions> getInventoryPermissions(
+      String inventoryId) async {
+    if (!AppConfig.useSupabase) {
+      return InventoryPermissions.fromRole('owner');
+    }
 
     try {
       final result = await _client.rpc('get_user_inventory_permissions',
@@ -80,6 +90,7 @@ class PermissionService {
     }
   }
 
+  /// Get all members of an inventory with their permissions.
   Future<List<Map<String, dynamic>>> getInventoryMembers(
       String inventoryId) async {
     if (!AppConfig.useSupabase) return [];
@@ -94,6 +105,7 @@ class PermissionService {
     }
   }
 
+  /// Update a member's permissions in an inventory.
   Future<bool> updateMemberPermissions({
     required String memberId,
     required String inventoryId,
@@ -111,28 +123,32 @@ class PermissionService {
   }) async {
     if (!AppConfig.useSupabase) return false;
     try {
-      await _client.rpc('update_inventory_member_permissions', params: {
-        'p_member_id': memberId,
-        'p_inventory_id': inventoryId,
-        'p_role': role,
-        'p_can_create': canCreate,
-        'p_can_update': canUpdate,
-        'p_can_delete': canDelete,
-        'p_can_export': canExport,
-        'p_can_view_activity': canViewActivity,
-        'p_can_manage_settings': canManageSettings,
-        'p_can_invite_members': canInviteMembers,
-        'p_can_remove_members': canRemoveMembers,
-        'p_can_manage_labels': canManageLabels,
-        'p_can_chat': canChat,
-      });
-      return true;
+      final result = await _client.rpc(
+          'update_inventory_member_permissions',
+          params: {
+            'p_member_id': memberId,
+            'p_inventory_id': inventoryId,
+            'p_role': role,
+            'p_can_create': canCreate,
+            'p_can_update': canUpdate,
+            'p_can_delete': canDelete,
+            'p_can_export': canExport,
+            'p_can_view_activity': canViewActivity,
+            'p_can_manage_settings': canManageSettings,
+            'p_can_invite_members': canInviteMembers,
+            'p_can_remove_members': canRemoveMembers,
+            'p_can_manage_labels': canManageLabels,
+            'p_can_chat': canChat,
+          });
+      if (result is Map) return result['success'] == true;
+      return false;
     } catch (e) {
       debugPrint('Update member permissions error: $e');
       return false;
     }
   }
 
+  /// Remove a member from an inventory.
   Future<bool> removeMember({
     required String memberId,
     required String inventoryId,

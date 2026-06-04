@@ -4,7 +4,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/utils/snackbar_utils.dart';
 import 'inventory_chat_screen.dart';
 
-/// Shows inventory chat rooms for a specific company.
 class CompanyChatScreen extends StatefulWidget {
   final String companyId;
   final String companyName;
@@ -115,12 +114,13 @@ class _CompanyChatScreenState extends State<CompanyChatScreen> {
     await _loadInventories();
   }
 
-  int get _totalUnread =>
-      _inventories.fold<int>(0, (sum, i) => sum + ((i['unread_count'] as int?) ?? 0));
+  int get _totalUnread => _inventories.fold<int>(
+      0, (sum, i) => sum + ((i['unread_count'] as int?) ?? 0));
 
   void _openInventoryChat(Map<String, dynamic> inventory) {
     final inventoryId = inventory['inventory_id'] as String?;
-    final inventoryName = inventory['inventory_name'] as String? ?? 'Unknown';
+    final inventoryName =
+        inventory['inventory_name'] as String? ?? 'Unknown';
 
     if (inventoryId == null || inventoryId.isEmpty) {
       SnackBarUtils.error(context, 'Cannot open chat: Invalid inventory');
@@ -155,7 +155,8 @@ class _CompanyChatScreenState extends State<CompanyChatScreen> {
           if (_totalUnread > 0) ...[
             const SizedBox(width: 8),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
                 color: Colors.red,
                 borderRadius: BorderRadius.circular(10),
@@ -238,7 +239,8 @@ class _CompanyChatScreenState extends State<CompanyChatScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.inventory_2_outlined, size: 64, color: Colors.grey[400]),
+            Icon(Icons.inventory_2_outlined,
+                size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
             const Text(
               'No inventory chats',
@@ -261,7 +263,8 @@ class _CompanyChatScreenState extends State<CompanyChatScreen> {
     );
   }
 
-  Widget _buildInventoryCard(Map<String, dynamic> inventory, ColorScheme colorScheme) {
+  Widget _buildInventoryCard(
+      Map<String, dynamic> inventory, ColorScheme colorScheme) {
     final unread = (inventory['unread_count'] as int?) ?? 0;
     final name = inventory['inventory_name'] as String? ?? 'Unknown';
     final lastMsg = inventory['last_message'] as String?;
@@ -288,7 +291,8 @@ class _CompanyChatScreenState extends State<CompanyChatScreen> {
                     decoration: BoxDecoration(
                       color: unread > 0
                           ? Colors.red.shade50
-                          : colorScheme.primaryContainer.withValues(alpha: 0.3),
+                          : colorScheme.primaryContainer
+                              .withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
@@ -331,7 +335,8 @@ class _CompanyChatScreenState extends State<CompanyChatScreen> {
                       name,
                       style: TextStyle(
                         fontSize: 15,
-                        fontWeight: unread > 0 ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight:
+                            unread > 0 ? FontWeight.w700 : FontWeight.w500,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -339,19 +344,26 @@ class _CompanyChatScreenState extends State<CompanyChatScreen> {
                     const SizedBox(height: 4),
                     if (lastMsg != null)
                       Text(
-                        lastSender != null ? '$lastSender: $lastMsg' : lastMsg,
+                        lastSender != null
+                            ? '$lastSender: $lastMsg'
+                            : lastMsg,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12,
-                          color: unread > 0 ? Colors.grey[800] : Colors.grey[600],
-                          fontWeight: unread > 0 ? FontWeight.w500 : FontWeight.normal,
+                          color: unread > 0
+                              ? Colors.grey[800]
+                              : Colors.grey[600],
+                          fontWeight: unread > 0
+                              ? FontWeight.w500
+                              : FontWeight.normal,
                         ),
                       )
                     else
                       Text(
                         '$memberCount ${memberCount == 1 ? 'member' : 'members'}',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                        style: TextStyle(
+                            fontSize: 12, color: Colors.grey[500]),
                       ),
                   ],
                 ),
@@ -364,12 +376,17 @@ class _CompanyChatScreenState extends State<CompanyChatScreen> {
                       _formatLastMessageTime(lastMsgTime),
                       style: TextStyle(
                         fontSize: 10,
-                        color: unread > 0 ? Colors.red.shade600 : Colors.grey[500],
-                        fontWeight: unread > 0 ? FontWeight.w600 : FontWeight.normal,
+                        color: unread > 0
+                            ? Colors.red.shade600
+                            : Colors.grey[500],
+                        fontWeight: unread > 0
+                            ? FontWeight.w600
+                            : FontWeight.normal,
                       ),
                     ),
                   const SizedBox(height: 4),
-                  Icon(Icons.chevron_right, color: Colors.grey[400], size: 20),
+                  Icon(Icons.chevron_right,
+                      color: Colors.grey[400], size: 20),
                 ],
               ),
             ],

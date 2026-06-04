@@ -89,7 +89,6 @@ class RealtimeLabelsChanged extends InventoryEvent {
   const RealtimeLabelsChanged();
 }
 
-// ✅ FIX: Added missing event class
 class ClearInventoryError extends InventoryEvent {
   const ClearInventoryError();
 }

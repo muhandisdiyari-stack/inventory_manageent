@@ -4,7 +4,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/utils/snackbar_utils.dart';
 import 'company_chat_screen.dart';
 
-/// Top-level messages screen showing companies with unread message counts.
 class MessagesScreen extends StatefulWidget {
   const MessagesScreen({super.key});
 
@@ -97,8 +96,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
     });
   }
 
-  int get _totalUnread =>
-      _companies.fold<int>(0, (sum, c) => sum + ((c['total_unread'] as int?) ?? 0));
+  int get _totalUnread => _companies.fold<int>(
+      0, (sum, c) => sum + ((c['total_unread'] as int?) ?? 0));
 
   Future<void> _onRefresh() async {
     await _loadCompanies();
@@ -139,7 +138,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
           if (_totalUnread > 0) ...[
             const SizedBox(width: 8),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
                 color: Colors.red,
                 borderRadius: BorderRadius.circular(10),
@@ -222,7 +222,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[400]),
+            Icon(Icons.chat_bubble_outline,
+                size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
             const Text(
               'No messages yet',
@@ -245,7 +246,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
     );
   }
 
-  Widget _buildCompanyCard(Map<String, dynamic> company, ColorScheme colorScheme) {
+  Widget _buildCompanyCard(
+      Map<String, dynamic> company, ColorScheme colorScheme) {
     final unread = (company['total_unread'] as int?) ?? 0;
     final companyName = company['company_name'] as String? ?? 'Unknown';
 
@@ -265,7 +267,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
                 decoration: BoxDecoration(
                   color: unread > 0
                       ? Colors.red.shade50
-                      : colorScheme.primaryContainer.withValues(alpha: 0.3),
+                      : colorScheme.primaryContainer
+                          .withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
@@ -283,7 +286,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
                       companyName,
                       style: TextStyle(
                         fontSize: 15,
-                        fontWeight: unread > 0 ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight:
+                            unread > 0 ? FontWeight.w700 : FontWeight.w500,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -304,7 +308,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
               ),
               if (unread > 0)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
                     color: Colors.red,
                     borderRadius: BorderRadius.circular(12),

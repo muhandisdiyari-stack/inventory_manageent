@@ -54,10 +54,14 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
 
       List<Map<String, dynamic>> invitations = [];
       try {
-        final data = await Supabase.instance.client
-            .rpc('get_pending_invitations', params: {'p_inventory_id': widget.inventoryId});
+        final data = await Supabase.instance.client.rpc(
+          'get_pending_invitations',
+          params: {'p_inventory_id': widget.inventoryId},
+        );
         if (data is List) {
-          invitations = data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          invitations = data
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
         }
       } catch (e) {
         debugPrint('Failed to load invitations: $e');
@@ -123,7 +127,8 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
     setState(() => _isSending = true);
 
     try {
-      final result = await Supabase.instance.client.rpc('create_invitation', params: {
+      final result =
+          await Supabase.instance.client.rpc('create_invitation', params: {
         'p_company_id': _companyId,
         'p_inventory_id': widget.inventoryId,
         'p_email': email,
@@ -138,7 +143,8 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
           SnackBarUtils.success(context, 'Invitation sent to $email');
           _loadData();
         } else {
-          SnackBarUtils.error(context, resultMap['message']?.toString() ?? 'Failed to send invitation');
+          SnackBarUtils.error(context,
+              resultMap['message']?.toString() ?? 'Failed to send invitation');
         }
       }
     } catch (e) {
@@ -153,9 +159,12 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Cancel Invitation'),
-        content: const Text('Are you sure you want to cancel this invitation?'),
+        content:
+            const Text('Are you sure you want to cancel this invitation?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('No')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('No')),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -167,8 +176,10 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
 
     if (confirm == true && mounted) {
       try {
-        await Supabase.instance.client
-            .rpc('cancel_invitation', params: {'p_invitation_id': invitationId});
+        await Supabase.instance.client.rpc(
+          'cancel_invitation',
+          params: {'p_invitation_id': invitationId},
+        );
         if (mounted) {
           SnackBarUtils.success(context, 'Invitation cancelled');
           _loadData();
@@ -184,12 +195,16 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Remove Member'),
-        content: Text('Remove $memberName from this inventory?\n\nTheir historical data will remain.'),
+        content: Text(
+            'Remove $memberName from this inventory?\n\nTheir historical data will remain.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove', style: TextStyle(color: Colors.red)),
+            child:
+                const Text('Remove', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -214,10 +229,13 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
       } catch (e) {
         if (mounted) {
           final errorMsg = e.toString();
-          if (errorMsg.contains('last admin') || errorMsg.contains('Cannot remove')) {
-            SnackBarUtils.error(context, 'Cannot remove the last admin/owner of the inventory.');
+          if (errorMsg.contains('last admin') ||
+              errorMsg.contains('Cannot remove')) {
+            SnackBarUtils.error(context,
+                'Cannot remove the last admin/owner of the inventory.');
           } else if (errorMsg.contains('Cannot delete the inventory owner')) {
-            SnackBarUtils.error(context, 'Cannot remove the owner. Transfer ownership first.');
+            SnackBarUtils.error(context,
+                'Cannot remove the owner. Transfer ownership first.');
           } else {
             SnackBarUtils.error(context, 'Error: $e');
           }
@@ -226,7 +244,8 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
     }
   }
 
-  Future<void> _changeRole(String memberId, String currentRole, String memberName) async {
+  Future<void> _changeRole(
+      String memberId, String currentRole, String memberName) async {
     final newRole = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -237,13 +256,16 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
               .where((r) => r != currentRole)
               .map((role) => ListTile(
                     title: Text(_getRoleDisplayName(role)),
-                    subtitle: Text(_getRoleDescription(role), style: const TextStyle(fontSize: 12)),
+                    subtitle: Text(_getRoleDescription(role),
+                        style: const TextStyle(fontSize: 12)),
                     onTap: () => Navigator.pop(ctx, role),
                   ))
               .toList(),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
         ],
       ),
     );
@@ -259,7 +281,8 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
 
         if (mounted) {
           if (result) {
-            SnackBarUtils.success(context, 'Role updated to ${_getRoleDisplayName(newRole)}');
+            SnackBarUtils.success(
+                context, 'Role updated to ${_getRoleDisplayName(newRole)}');
             _loadData();
           } else {
             SnackBarUtils.error(context, 'Failed to update role');
@@ -268,10 +291,13 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
       } catch (e) {
         if (mounted) {
           final errorMsg = e.toString();
-          if (errorMsg.contains('last admin') || errorMsg.contains('Cannot downgrade')) {
-            SnackBarUtils.error(context, 'Cannot downgrade the last admin.');
+          if (errorMsg.contains('last admin') ||
+              errorMsg.contains('Cannot downgrade')) {
+            SnackBarUtils.error(
+                context, 'Cannot downgrade the last admin.');
           } else if (errorMsg.contains('Cannot change owner role')) {
-            SnackBarUtils.error(context, 'Cannot change the owner\'s role. Transfer ownership first.');
+            SnackBarUtils.error(context,
+                'Cannot change the owner\'s role. Transfer ownership first.');
           } else {
             SnackBarUtils.error(context, 'Error: $e');
           }
@@ -280,13 +306,15 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
     }
   }
 
-  Future<void> _transferOwnership(String currentOwnerId, String currentOwnerName) async {
-    final eligibleMembers = _members
-        .where((m) => m['id']?.toString() != currentOwnerId)
-        .toList();
+  Future<void> _transferOwnership(
+      String currentOwnerId, String currentOwnerName) async {
+    final eligibleMembers =
+        _members.where((m) => m['id']?.toString() != currentOwnerId).toList();
 
     if (eligibleMembers.isEmpty) {
-      SnackBarUtils.show(context, message: 'No other members to transfer ownership to', isError: true);
+      SnackBarUtils.show(context,
+          message: 'No other members to transfer ownership to',
+          isError: true);
       return;
     }
 
@@ -303,13 +331,16 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
             const Text('Select new owner:'),
             const SizedBox(height: 8),
             ...eligibleMembers.map((m) {
-              final name = (m['display_name'] ?? m['email'] ?? 'Unknown').toString();
+              final name =
+                  (m['display_name'] ?? m['email'] ?? 'Unknown').toString();
               final userId = m['user_id']?.toString() ?? '';
               return ListTile(
                 title: Text(name),
-                subtitle: Text(_getRoleDisplayName(m['role']?.toString() ?? 'viewer')),
+                subtitle: Text(
+                    _getRoleDisplayName(m['role']?.toString() ?? 'viewer')),
                 leading: CircleAvatar(
-                  child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?'),
+                  child: Text(
+                      name.isNotEmpty ? name[0].toUpperCase() : '?'),
                 ),
                 onTap: () => Navigator.pop(ctx, userId),
               );
@@ -317,25 +348,32 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
         ],
       ),
     );
 
     if (newOwnerUserId != null && mounted) {
       try {
-        final result = await Supabase.instance.client.rpc('transfer_inventory_ownership', params: {
-          'p_inventory_id': widget.inventoryId,
-          'p_new_owner_user_id': newOwnerUserId,
-        });
+        final result = await Supabase.instance.client.rpc(
+          'transfer_inventory_ownership',
+          params: {
+            'p_inventory_id': widget.inventoryId,
+            'p_new_owner_user_id': newOwnerUserId,
+          },
+        );
 
         final resultMap = Map<String, dynamic>.from(result as Map);
         if (mounted) {
           if (resultMap['success'] == true) {
-            SnackBarUtils.success(context, 'Ownership transferred successfully');
+            SnackBarUtils.success(
+                context, 'Ownership transferred successfully');
             _loadData();
           } else {
-            SnackBarUtils.error(context, resultMap['message']?.toString() ?? 'Failed to transfer');
+            SnackBarUtils.error(context,
+                resultMap['message']?.toString() ?? 'Failed to transfer');
           }
         }
       } catch (e) {
@@ -347,7 +385,8 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
   Future<void> _leaveInventory() async {
     if (_isOwner) {
       SnackBarUtils.show(context,
-          message: 'As the owner, you cannot leave. Transfer ownership first or delete the inventory.',
+          message:
+              'As the owner, you cannot leave. Transfer ownership first or delete the inventory.',
           isError: true);
       return;
     }
@@ -356,12 +395,16 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Leave Inventory'),
-        content: const Text('Are you sure you want to leave this inventory? You will lose access to all items and chat.'),
+        content: const Text(
+            'Are you sure you want to leave this inventory? You will lose access to all items and chat.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Leave', style: TextStyle(color: Colors.orange)),
+            child: const Text('Leave',
+                style: TextStyle(color: Colors.orange)),
           ),
         ],
       ),
@@ -369,8 +412,10 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
 
     if (confirm == true && mounted) {
       try {
-        final result = await Supabase.instance.client
-            .rpc('leave_inventory', params: {'p_inventory_id': widget.inventoryId});
+        final result = await Supabase.instance.client.rpc(
+          'leave_inventory',
+          params: {'p_inventory_id': widget.inventoryId},
+        );
 
         final resultMap = Map<String, dynamic>.from(result as Map);
         if (mounted) {
@@ -378,7 +423,8 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
             SnackBarUtils.success(context, 'You have left the inventory');
             Navigator.pop(context, true);
           } else {
-            SnackBarUtils.error(context, resultMap['message']?.toString() ?? 'Failed to leave');
+            SnackBarUtils.error(context,
+                resultMap['message']?.toString() ?? 'Failed to leave');
           }
         }
       } catch (e) {
@@ -389,30 +435,44 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
 
   String _getRoleDisplayName(String role) {
     switch (role) {
-      case 'owner': return 'Owner';
-      case 'admin': return 'Admin';
-      case 'data_operator': return 'Data Operator';
-      case 'viewer': return 'Viewer';
-      default: return role;
+      case 'owner':
+        return 'Owner';
+      case 'admin':
+        return 'Admin';
+      case 'data_operator':
+        return 'Data Operator';
+      case 'viewer':
+        return 'Viewer';
+      default:
+        return role;
     }
   }
 
   String _getRoleDescription(String role) {
     switch (role) {
-      case 'admin': return 'Full access. Can manage members, items, and settings.';
-      case 'data_operator': return 'Can add and update items. Cannot manage members or settings.';
-      case 'viewer': return 'View only. Can view items and participate in chat.';
-      default: return '';
+      case 'admin':
+        return 'Full access. Can manage members, items, and settings.';
+      case 'data_operator':
+        return 'Can add and update items. Cannot manage members or settings.';
+      case 'viewer':
+        return 'View only. Can view items and participate in chat.';
+      default:
+        return '';
     }
   }
 
   Color _getRoleColor(String role) {
     switch (role) {
-      case 'owner': return Colors.amber;
-      case 'admin': return Colors.blue;
-      case 'data_operator': return Colors.teal;
-      case 'viewer': return Colors.grey;
-      default: return Colors.grey;
+      case 'owner':
+        return Colors.amber;
+      case 'admin':
+        return Colors.blue;
+      case 'data_operator':
+        return Colors.teal;
+      case 'viewer':
+        return Colors.grey;
+      default:
+        return Colors.grey;
     }
   }
 
@@ -436,12 +496,18 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.inventoryName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            Text('Members & Permissions', style: TextStyle(fontSize: 12, color: Colors.grey[400])),
+            Text(widget.inventoryName,
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w600)),
+            Text('Members & Permissions',
+                style: TextStyle(fontSize: 12, color: Colors.grey[400])),
           ],
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData, tooltip: 'Refresh'),
+          IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _loadData,
+              tooltip: 'Refresh'),
         ],
       ),
       body: _isLoading
@@ -456,38 +522,42 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
                       margin: const EdgeInsets.only(bottom: 16),
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: colorScheme.primaryContainer.withValues(alpha: 0.3),
+                        color: colorScheme.primaryContainer
+                            .withValues(alpha: 0.3),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.1)),
+                        border: Border.all(
+                            color: colorScheme.primary
+                                .withValues(alpha: 0.1)),
                       ),
                       child: Row(children: [
-                        Icon(Icons.badge, color: colorScheme.primary, size: 20),
+                        Icon(Icons.badge,
+                            color: colorScheme.primary, size: 20),
                         const SizedBox(width: 8),
-                        Text('Your Role: ${_getRoleDisplayName(_permissions!.role)}',
-                            style: TextStyle(fontWeight: FontWeight.w600, color: colorScheme.primary)),
+                        Text(
+                            'Your Role: ${_getRoleDisplayName(_permissions!.role)}',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.primary)),
                         const Spacer(),
                         if (!_isOwner)
                           TextButton.icon(
                             onPressed: _leaveInventory,
                             icon: const Icon(Icons.exit_to_app, size: 16),
-                            label: const Text('Leave', style: TextStyle(color: Colors.orange, fontSize: 12)),
-                            style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+                            label: const Text('Leave',
+                                style: TextStyle(
+                                    color: Colors.orange, fontSize: 12)),
+                            style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8)),
                           ),
                       ]),
                     ),
-
                   _buildMembersSection(theme),
-
                   const SizedBox(height: 16),
-
                   if (_pendingInvitations.isNotEmpty)
                     _buildPendingInvitationsSection(theme),
-
                   const SizedBox(height: 16),
-
-                  if (_canInvite)
-                    _buildInviteSection(theme, colorScheme),
-
+                  if (_canInvite) _buildInviteSection(theme, colorScheme),
                   const SizedBox(height: 32),
                 ],
               ),
@@ -510,11 +580,13 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
                   color: Colors.green.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.people, color: Colors.green, size: 20),
+                child:
+                    const Icon(Icons.people, color: Colors.green, size: 20),
               ),
               const SizedBox(width: 12),
               Text('Inventory Members (${_members.length})',
-                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold)),
             ]),
             const SizedBox(height: 4),
             Text('These users have access to this inventory.',
@@ -524,11 +596,13 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
               const Center(
                 child: Padding(
                   padding: EdgeInsets.all(16),
-                  child: Text('No members yet', style: TextStyle(color: Colors.grey)),
+                  child: Text('No members yet',
+                      style: TextStyle(color: Colors.grey)),
                 ),
               )
             else
-              ..._members.map((member) => _buildMemberTile(member, theme)),
+              ..._members
+                  .map((member) => _buildMemberTile(member, theme)),
           ],
         ),
       ),
@@ -550,14 +624,18 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
                   color: Colors.orange.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.pending_actions, color: Colors.orange, size: 20),
+                child: const Icon(Icons.pending_actions,
+                    color: Colors.orange, size: 20),
               ),
               const SizedBox(width: 12),
-              Text('Pending Invitations (${_pendingInvitations.length})',
-                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                  'Pending Invitations (${_pendingInvitations.length})',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold)),
             ]),
             const SizedBox(height: 12),
-            ..._pendingInvitations.map((inv) => _buildInvitationTile(inv, theme)),
+            ..._pendingInvitations
+                .map((inv) => _buildInvitationTile(inv, theme)),
           ],
         ),
       ),
@@ -579,11 +657,13 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
                   color: Colors.blue.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.person_add, color: Colors.blue, size: 20),
+                child: const Icon(Icons.person_add,
+                    color: Colors.blue, size: 20),
               ),
               const SizedBox(width: 12),
               const Text('Invite New Member',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16)),
             ]),
             const SizedBox(height: 4),
             Text('They will automatically join when they sign in with this email.',
@@ -596,7 +676,8 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
               decoration: InputDecoration(
                 hintText: 'Enter email address',
                 prefixIcon: const Icon(Icons.email_outlined),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12)),
                 filled: true,
                 fillColor: colorScheme.surfaceContainerHighest,
               ),
@@ -607,14 +688,23 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
               decoration: InputDecoration(
                 labelText: 'Role',
                 prefixIcon: const Icon(Icons.badge_outlined),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12)),
                 filled: true,
                 fillColor: colorScheme.surfaceContainerHighest,
               ),
               items: const [
-                DropdownMenuItem(value: 'admin', child: Text('Admin - Full access, can manage members')),
-                DropdownMenuItem(value: 'data_operator', child: Text('Data Operator - Can add and update items')),
-                DropdownMenuItem(value: 'viewer', child: Text('Viewer - View and chat only')),
+                DropdownMenuItem(
+                    value: 'admin',
+                    child:
+                        Text('Admin - Full access, can manage members')),
+                DropdownMenuItem(
+                    value: 'data_operator',
+                    child:
+                        Text('Data Operator - Can add and update items')),
+                DropdownMenuItem(
+                    value: 'viewer',
+                    child: Text('Viewer - View and chat only')),
               ],
               onChanged: (v) => setState(() => _selectedRole = v!),
             ),
@@ -625,8 +715,11 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
               child: FilledButton.icon(
                 onPressed: _isSending ? null : _inviteUser,
                 icon: _isSending
-                    ? const SizedBox(width: 18, height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
                     : const Icon(Icons.send, size: 18),
                 label: Text(_isSending ? 'Sending...' : 'Send Invitation',
                     style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -639,13 +732,16 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
   }
 
   Widget _buildMemberTile(Map<String, dynamic> member, ThemeData theme) {
-    final name = (member['display_name'] ?? member['email'] ?? 'Unknown').toString();
+    final name =
+        (member['display_name'] ?? member['full_name'] ?? member['email'] ?? 'Unknown')
+            .toString();
     final email = (member['email'] ?? '').toString();
     final role = (member['role'] ?? 'viewer').toString();
     final memberId = member['id']?.toString() ?? '';
     final userId = member['user_id']?.toString() ?? '';
     final isOwner = role == 'owner';
-    final isCurrentUser = userId == Supabase.instance.client.auth.currentUser?.id;
+    final isCurrentUser =
+        userId == Supabase.instance.client.auth.currentUser?.id;
     final roleColor = _getRoleColor(role);
     final joinedAt = _formatDate(member['joined_at']?.toString());
 
@@ -655,10 +751,12 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
       decoration: BoxDecoration(
         color: isCurrentUser
             ? theme.colorScheme.primaryContainer.withValues(alpha: 0.15)
-            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            : theme.colorScheme.surfaceContainerHighest
+                .withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(12),
         border: isCurrentUser
-            ? Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.2))
+            ? Border.all(
+                color: theme.colorScheme.primary.withValues(alpha: 0.2))
             : null,
       ),
       child: Column(
@@ -671,7 +769,10 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
                 backgroundColor: roleColor.withValues(alpha: 0.15),
                 child: Text(
                   name.isNotEmpty ? name[0].toUpperCase() : '?',
-                  style: TextStyle(color: roleColor, fontWeight: FontWeight.w700, fontSize: 16),
+                  style: TextStyle(
+                      color: roleColor,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16),
                 ),
               ),
               const SizedBox(width: 12),
@@ -682,33 +783,45 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
                     Row(children: [
                       Flexible(
                         child: Text(name,
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w600, fontSize: 14),
                             overflow: TextOverflow.ellipsis),
                       ),
                       if (isCurrentUser)
                         Container(
                           margin: const EdgeInsets.only(left: 4),
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                            color: theme.colorScheme.primary
+                                .withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: const Text('You', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600)),
+                          child: const Text('You',
+                              style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w600)),
                         ),
                     ]),
                     if (email.isNotEmpty && email != name)
-                      Text(email, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                      Text(email,
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.grey[500])),
                   ],
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: roleColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(_getRoleDisplayName(role),
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: roleColor)),
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: roleColor)),
               ),
               if (_canManageMembers && !isOwner && !isCurrentUser)
                 PopupMenuButton<String>(
@@ -725,14 +838,19 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
                     const PopupMenuItem(
                       value: 'change_role',
                       child: Row(children: [
-                        Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Change Role'),
+                        Icon(Icons.edit, size: 18),
+                        SizedBox(width: 8),
+                        Text('Change Role'),
                       ]),
                     ),
                     const PopupMenuItem(
                       value: 'remove',
                       child: Row(children: [
-                        Icon(Icons.person_remove, size: 18, color: Colors.red),
-                        SizedBox(width: 8), Text('Remove', style: TextStyle(color: Colors.red)),
+                        Icon(Icons.person_remove,
+                            size: 18, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Remove',
+                            style: TextStyle(color: Colors.red)),
                       ]),
                     ),
                   ],
@@ -745,7 +863,8 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
               child: TextButton.icon(
                 onPressed: () => _transferOwnership(memberId, name),
                 icon: const Icon(Icons.swap_horiz, size: 16),
-                label: const Text('Transfer Ownership', style: TextStyle(fontSize: 12)),
+                label: const Text('Transfer Ownership',
+                    style: TextStyle(fontSize: 12)),
                 style: TextButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   visualDensity: VisualDensity.compact,
@@ -755,14 +874,16 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
           if (joinedAt.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4, left: 52),
-              child: Text('Joined: $joinedAt', style: TextStyle(fontSize: 10, color: Colors.grey[400])),
-            ),
-        ],
+              child: Text('Joined: $joinedAt',
+                  style:
+                      TextStyle(fontSize: 10, color: Colors.grey[400])),
+      )],
       ),
     );
   }
 
-  Widget _buildInvitationTile(Map<String, dynamic> invitation, ThemeData theme) {
+  Widget _buildInvitationTile(
+      Map<String, dynamic> invitation, ThemeData theme) {
     final email = (invitation['email'] ?? '').toString();
     final role = (invitation['role'] ?? 'viewer').toString();
     final invId = invitation['id']?.toString() ?? '';
@@ -773,50 +894,65 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        color: theme.colorScheme.surfaceContainerHighest
+            .withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange.withValues(alpha: 0.2)),
+        border:
+            Border.all(color: Colors.orange.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
           CircleAvatar(
             radius: 18,
             backgroundColor: Colors.orange.withValues(alpha: 0.15),
-            child: const Icon(Icons.person_outline, color: Colors.orange, size: 18),
+            child: const Icon(Icons.person_outline,
+                color: Colors.orange, size: 18),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(email, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+                Text(email,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w500, fontSize: 14)),
                 const SizedBox(height: 4),
                 Row(children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: roleColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(_getRoleDisplayName(role),
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: roleColor)),
+                        style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: roleColor)),
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.orange.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: const Text('Pending',
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.orange)),
+                        style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.orange)),
                   ),
                 ]),
                 if (expiresAt != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
-                    child: Text('Expires: ${_formatDate(expiresAt)}',
-                        style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+                    child: Text(
+                        'Expires: ${_formatDate(expiresAt)}',
+                        style: TextStyle(
+                            fontSize: 10, color: Colors.grey[400])),
                   ),
               ],
             ),
@@ -826,7 +962,9 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
               icon: const Icon(Icons.close, color: Colors.red, size: 20),
               tooltip: 'Cancel invitation',
               onPressed: () => _cancelInvitation(invId),
-              style: IconButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(36, 36)),
+              style: IconButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(36, 36)),
             ),
         ],
       ),

@@ -3,19 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/auth_bloc.dart';
 
-/// LoginScreen handles the login and sign-up form only.
-///
-/// Auth state routing (email confirmation screens, admin gate, company setup)
-/// is handled by _AppEntryPoint in app.dart. This screen is only shown when
-/// the user is unauthenticated.
-///
-/// Deep-link flow (Android / iOS):
-///   User taps "Confirm Email" in Gmail / Mail app
-///     → OS opens the app via the "inventory://auth/callback" scheme
-///     → AppLinks picks up the URI in initState
-///     → DeepLinkReceived event is dispatched to AuthBloc
-///     → AuthBloc handles the token exchange and emits emailConfirmed status
-///     → _AppEntryPoint picks up the new status and shows _EmailConfirmedScreen
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -38,12 +25,8 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    // Delay deep link initialization to avoid processing
-    // the initial URL on web which may not be an auth callback
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _initDeepLinks();
-      }
+      if (mounted) _initDeepLinks();
     });
   }
 
@@ -53,30 +36,21 @@ class _LoginScreenState extends State<LoginScreen> {
 
     _appLinks = AppLinks();
 
-    // App was already running when the link was tapped.
     _appLinks.uriLinkStream.listen(
       (uri) {
-        if (mounted) {
-          _handleDeepLink(uri);
-        }
+        if (mounted) _handleDeepLink(uri);
       },
       onError: (e) => debugPrint('Deep link stream error: $e'),
     );
 
-    // App was cold-started by tapping the link.
-    // Only process if it's an actual deep link with content,
-    // not the initial empty/navigation URL on web.
     _appLinks.getInitialLink().then((uri) {
-      if (uri != null && mounted) {
-        _handleDeepLink(uri);
-      }
+      if (uri != null && mounted) _handleDeepLink(uri);
     }).catchError((e) {
       debugPrint('Initial deep link error: $e');
     });
   }
 
   void _handleDeepLink(Uri uri) {
-    // Only forward URIs that contain auth-related tokens
     final uriString = uri.toString();
     if (uriString.contains('access_token') ||
         uriString.contains('refresh_token') ||
@@ -99,8 +73,6 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // ─── Submit ───────────────────────────────────────────────────
-
   void _submit() {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
@@ -121,8 +93,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // ─── Admin Login ──────────────────────────────────────────────
-
   Future<void> _goToAdminLogin() async {
     final result = await showDialog<Map<String, String>>(
       context: context,
@@ -138,8 +108,6 @@ class _LoginScreenState extends State<LoginScreen> {
       _submit();
     }
   }
-
-  // ─── Build ────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -166,52 +134,37 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(24),
                   child: ConstrainedBox(
-                    constraints:
-                        const BoxConstraints(maxWidth: 400),
+                    constraints: const BoxConstraints(maxWidth: 400),
                     child: Form(
                       key: _formKey,
                       child: Column(
-                        mainAxisAlignment:
-                            MainAxisAlignment.center,
-                        crossAxisAlignment:
-                            CrossAxisAlignment.stretch,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // ── Logo ─────────────────────────────
                           Center(
                             child: Container(
                               width: 80,
                               height: 80,
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius:
-                                    BorderRadius.circular(20),
+                                borderRadius: BorderRadius.circular(20),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black
-                                        .withValues(alpha: 0.2),
+                                    color: Colors.black.withValues(alpha: 0.2),
                                     blurRadius: 20,
-                                    offset:
-                                        const Offset(0, 10),
+                                    offset: const Offset(0, 10),
                                   ),
                                 ],
                               ),
-                              child: Icon(
-                                  Icons
-                                      .inventory_2_rounded,
-                                  size: 40,
-                                  color:
-                                      colorScheme.primary),
+                              child: Icon(Icons.inventory_2_rounded,
+                                  size: 40, color: colorScheme.primary),
                             ),
                           ),
                           const SizedBox(height: 32),
-
-                          // ── Title ───────────────────────────
                           Text(
                             'Inventory Pro',
                             textAlign: TextAlign.center,
-                            style: theme
-                                .textTheme.headlineMedium
-                                ?.copyWith(
+                            style: theme.textTheme.headlineMedium?.copyWith(
                               fontWeight: FontWeight.bold,
                               color: Colors.white,
                             ),
@@ -223,172 +176,109 @@ class _LoginScreenState extends State<LoginScreen> {
                                 : 'Create your account',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                                color: Colors.white
-                                    .withValues(alpha: 0.8),
+                                color: Colors.white.withValues(alpha: 0.8),
                                 fontSize: 16),
                           ),
                           const SizedBox(height: 40),
-
-                          // ── Error banner ────────────────────
                           if (state.error != null)
                             Container(
-                              margin: const EdgeInsets.only(
-                                  bottom: 16),
+                              margin: const EdgeInsets.only(bottom: 16),
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Colors.red
-                                    .withValues(alpha: 0.1),
-                                borderRadius:
-                                    BorderRadius.circular(12),
+                                color: Colors.red.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                    color: Colors.red
-                                        .withValues(
-                                            alpha: 0.3)),
+                                    color: Colors.red.withValues(alpha: 0.3)),
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(
-                                      Icons.error_outline,
-                                      color: Colors.red,
-                                      size: 20),
+                                  const Icon(Icons.error_outline,
+                                      color: Colors.red, size: 20),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(state.error!,
                                         style: const TextStyle(
-                                            color: Colors.red,
-                                            fontSize: 13)),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(
-                                        Icons.close,
-                                        size: 16),
-                                    onPressed: () {
-                                      // Clear error manually
-                                      context
-                                          .read<AuthBloc>()
-                                          .add(
-                                              const AuthCheckRequested());
-                                    },
+                                            color: Colors.red, fontSize: 13)),
                                   ),
                                 ],
                               ),
                             ),
-
-                          // ── Form card ───────────────────────
                           Card(
                             elevation: 4,
                             shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(
-                                        20)),
+                                borderRadius: BorderRadius.circular(20)),
                             child: Padding(
                               padding: const EdgeInsets.all(24),
                               child: Column(
                                 children: [
-                                  // Display Name (register only)
                                   if (!_isLogin) ...[
                                     TextFormField(
-                                      controller:
-                                          _displayNameController,
-                                      textCapitalization:
-                                          TextCapitalization
-                                              .words,
-                                      textInputAction:
-                                          TextInputAction.next,
-                                      decoration:
-                                          InputDecoration(
-                                        labelText:
-                                            'Display Name',
-                                        prefixIcon:
-                                            const Icon(
-                                                Icons.person),
+                                      controller: _displayNameController,
+                                      textCapitalization: TextCapitalization.words,
+                                      textInputAction: TextInputAction.next,
+                                      decoration: InputDecoration(
+                                        labelText: 'Full Name',
+                                        prefixIcon: const Icon(Icons.person),
                                         border: OutlineInputBorder(
                                             borderRadius:
-                                                BorderRadius
-                                                    .circular(
-                                                        12)),
+                                                BorderRadius.circular(12)),
                                         filled: true,
                                       ),
                                       validator: (v) =>
-                                          (!_isLogin &&
-                                                  (v == null ||
-                                                      v.trim()
-                                                          .isEmpty))
+                                          (!_isLogin && (v == null || v.trim().isEmpty))
                                               ? 'Enter your name'
                                               : null,
                                     ),
                                     const SizedBox(height: 16),
                                   ],
-
-                                  // Email
                                   TextFormField(
-                                    controller:
-                                        _emailController,
-                                    keyboardType: TextInputType
-                                        .emailAddress,
-                                    textInputAction:
-                                        TextInputAction.next,
-                                    decoration:
-                                        InputDecoration(
+                                    controller: _emailController,
+                                    keyboardType: TextInputType.emailAddress,
+                                    textInputAction: TextInputAction.next,
+                                    decoration: InputDecoration(
                                       labelText: 'Email',
-                                      prefixIcon: const Icon(
-                                          Icons.email),
+                                      prefixIcon: const Icon(Icons.email),
                                       border: OutlineInputBorder(
                                           borderRadius:
-                                              BorderRadius
-                                                  .circular(12)),
+                                              BorderRadius.circular(12)),
                                       filled: true,
                                     ),
                                     validator: (v) {
-                                      if (v == null ||
-                                          v.trim().isEmpty) {
+                                      if (v == null || v.trim().isEmpty) {
                                         return 'Enter your email';
                                       }
-                                      if (!v.contains('@') ||
-                                          !v.contains('.')) {
+                                      if (!v.contains('@') || !v.contains('.')) {
                                         return 'Enter a valid email';
                                       }
                                       return null;
                                     },
                                   ),
                                   const SizedBox(height: 16),
-
-                                  // Password
                                   TextFormField(
-                                    controller:
-                                        _passwordController,
-                                    obscureText:
-                                        _obscurePassword,
+                                    controller: _passwordController,
+                                    obscureText: _obscurePassword,
                                     textInputAction: _isLogin
                                         ? TextInputAction.done
                                         : TextInputAction.next,
-                                    onFieldSubmitted: _isLogin
-                                        ? (_) => _submit()
-                                        : null,
-                                    decoration:
-                                        InputDecoration(
+                                    onFieldSubmitted:
+                                        _isLogin ? (_) => _submit() : null,
+                                    decoration: InputDecoration(
                                       labelText: 'Password',
-                                      prefixIcon: const Icon(
-                                          Icons.lock),
+                                      prefixIcon: const Icon(Icons.lock),
                                       suffixIcon: IconButton(
                                         icon: Icon(_obscurePassword
-                                            ? Icons
-                                                .visibility_off
+                                            ? Icons.visibility_off
                                             : Icons.visibility),
-                                        onPressed: () =>
-                                            setState(() =>
-                                                _obscurePassword =
-                                                    !_obscurePassword),
+                                        onPressed: () => setState(
+                                            () => _obscurePassword = !_obscurePassword),
                                       ),
                                       border: OutlineInputBorder(
                                           borderRadius:
-                                              BorderRadius
-                                                  .circular(12)),
+                                              BorderRadius.circular(12)),
                                       filled: true,
                                     ),
                                     validator: (v) {
-                                      if (v == null ||
-                                          v.isEmpty) {
+                                      if (v == null || v.isEmpty) {
                                         return 'Enter your password';
                                       }
                                       if (v.length < 6) {
@@ -398,44 +288,33 @@ class _LoginScreenState extends State<LoginScreen> {
                                     },
                                   ),
                                   const SizedBox(height: 24),
-
-                                  // Submit button
                                   SizedBox(
                                     width: double.infinity,
                                     height: 50,
                                     child: FilledButton(
                                       onPressed: state.status ==
-                                              AuthStatus
-                                                  .authenticating
+                                              AuthStatus.authenticating
                                           ? null
                                           : _submit,
                                       style: FilledButton.styleFrom(
                                         shape: RoundedRectangleBorder(
                                             borderRadius:
-                                                BorderRadius
-                                                    .circular(
-                                                        12)),
+                                                BorderRadius.circular(12)),
                                       ),
                                       child: state.status ==
-                                              AuthStatus
-                                                  .authenticating
+                                              AuthStatus.authenticating
                                           ? const SizedBox(
                                               height: 20,
                                               width: 20,
                                               child: CircularProgressIndicator(
                                                   strokeWidth: 2,
-                                                  color: Colors
-                                                      .white),
+                                                  color: Colors.white),
                                             )
                                           : Text(
-                                              _isLogin
-                                                  ? 'Sign In'
-                                                  : 'Create Account',
+                                              _isLogin ? 'Sign In' : 'Create Account',
                                               style: const TextStyle(
                                                   fontSize: 16,
-                                                  fontWeight:
-                                                      FontWeight
-                                                          .w600),
+                                                  fontWeight: FontWeight.w600),
                                             ),
                                     ),
                                   ),
@@ -444,34 +323,25 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                           const SizedBox(height: 16),
-
-                          // ── Toggle login / register ─────────
                           TextButton(
-                            onPressed: () => setState(() {
-                              _isLogin = !_isLogin;
-                            }),
+                            onPressed: () => setState(() => _isLogin = !_isLogin),
                             child: Text(
                               _isLogin
                                   ? "Don't have an account? Sign Up"
                                   : 'Already have an account? Sign In',
                               style: TextStyle(
-                                  color: Colors.white
-                                      .withValues(alpha: 0.9),
+                                  color: Colors.white.withValues(alpha: 0.9),
                                   fontWeight: FontWeight.w500),
                             ),
                           ),
-
-                          // ── Admin access ────────────────────
                           const SizedBox(height: 8),
                           TextButton.icon(
                             onPressed: _goToAdminLogin,
-                            icon: const Icon(
-                                Icons.admin_panel_settings,
-                                size: 18),
+                            icon: const Icon(Icons.admin_panel_settings, size: 18),
                             label: const Text('Admin Access'),
                             style: TextButton.styleFrom(
-                              foregroundColor: Colors.white
-                                  .withValues(alpha: 0.7),
+                              foregroundColor:
+                                  Colors.white.withValues(alpha: 0.7),
                             ),
                           ),
                         ],
@@ -488,12 +358,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// ─── Admin Login Dialog ───────────────────────────────────────────
-
 class _AdminLoginDialog extends StatefulWidget {
   @override
-  State<_AdminLoginDialog> createState() =>
-      _AdminLoginDialogState();
+  State<_AdminLoginDialog> createState() => _AdminLoginDialogState();
 }
 
 class _AdminLoginDialogState extends State<_AdminLoginDialog> {
@@ -526,8 +393,7 @@ class _AdminLoginDialogState extends State<_AdminLoginDialog> {
           children: [
             const Text(
               'Enter your admin credentials to access the dashboard.',
-              style:
-                  TextStyle(color: Colors.grey, fontSize: 13),
+              style: TextStyle(color: Colors.grey, fontSize: 13),
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -537,14 +403,11 @@ class _AdminLoginDialogState extends State<_AdminLoginDialog> {
                 labelText: 'Admin Email',
                 prefixIcon: const Icon(Icons.email),
                 border: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12)),
                 filled: true,
               ),
               validator: (v) =>
-                  (v == null || v.trim().isEmpty)
-                      ? 'Required'
-                      : null,
+                  (v == null || v.trim().isEmpty) ? 'Required' : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -557,17 +420,15 @@ class _AdminLoginDialogState extends State<_AdminLoginDialog> {
                   icon: Icon(_obscurePassword
                       ? Icons.visibility_off
                       : Icons.visibility),
-                  onPressed: () => setState(() =>
-                      _obscurePassword = !_obscurePassword),
+                  onPressed: () => setState(
+                      () => _obscurePassword = !_obscurePassword),
                 ),
                 border: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12)),
                 filled: true,
               ),
-              validator: (v) => (v == null || v.isEmpty)
-                  ? 'Required'
-                  : null,
+              validator: (v) =>
+                  (v == null || v.isEmpty) ? 'Required' : null,
             ),
           ],
         ),
@@ -588,8 +449,7 @@ class _AdminLoginDialogState extends State<_AdminLoginDialog> {
           },
           icon: const Icon(Icons.login),
           label: const Text('Sign In as Admin'),
-          style: FilledButton.styleFrom(
-              backgroundColor: Colors.blue),
+          style: FilledButton.styleFrom(backgroundColor: Colors.blue),
         ),
       ],
     );

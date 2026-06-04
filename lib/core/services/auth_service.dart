@@ -223,16 +223,13 @@ class AuthService {
     }
   }
 
-  // ─── Company Operations ──────────────────────────────────────
+// ─── Company Operations ──────────────────────────────────────
 
   Future<Map<String, dynamic>?> createCompany(String name) async =>
       await _supabaseClient.createCompany(name);
 
-  Future<bool> updateCompany(String companyId, String newName) async =>
-      await _supabaseClient.updateCompany(companyId, newName);
-
   Future<bool> deleteCompany(String companyId) async =>
-      await _supabaseClient.deleteCompany(companyId);
+      await _supabaseClient.deleteCompanyCascade(companyId);
 
   Future<Map<String, dynamic>?> getUserCompany() async =>
       await _supabaseClient.getUserCompany();
@@ -242,6 +239,10 @@ class AuthService {
   Future<List<Map<String, dynamic>>> getInventoryMembers(
           String inventoryId) async =>
       await _supabaseClient.getInventoryMembers(inventoryId);
+
+  Future<Map<String, dynamic>?> getUserInventoryPermissions(
+          String inventoryId) async =>
+      await _supabaseClient.getUserInventoryPermissions(inventoryId);
 
   Future<bool> removeInventoryMember(
           String memberId, String inventoryId) async =>
@@ -314,21 +315,23 @@ class AuthService {
   Future<Map<String, dynamic>?> acceptInvitation(String token) async =>
       await _supabaseClient.acceptInvitation(token);
 
-  // ─── Company Member Operations (legacy) ──────────────────────
+  Future<void> autoJoinPendingInvitations() async {
+    try {
+      await _supabaseClient.autoJoinPendingInvitations();
+    } catch (e) {
+      debugPrint('⚠️ Auto-join failed: $e');
+    }
+  }
+
+  // ─── Company Member Operations (legacy - ownership only) ─────
 
   Future<List<Map<String, dynamic>>> getCompanyMembers(
           String companyId) async =>
       await _supabaseClient.getCompanyMembers(companyId);
 
-  Future<bool> removeMember(String memberId, String companyId) async =>
-      await _supabaseClient.removeMember(memberId, companyId);
-
-  Future<bool> updateMemberRole(
-          String memberId, String companyId, String newRole) async =>
-      await _supabaseClient.updateMemberRole(memberId, companyId, newRole);
-
-  Future<bool> leaveCompany(String companyId) async =>
-      await _supabaseClient.leaveCompany(companyId);
+  Future<List<Map<String, dynamic>>> getCompanyInventories(
+          String companyId) async =>
+      await _supabaseClient.getCompanyInventories(companyId);
 
   // ─── Cache ───────────────────────────────────────────────────
 

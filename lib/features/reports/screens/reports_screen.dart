@@ -24,16 +24,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        context
-            .read<ReportsBloc>()
-            .add(const InitializeReportFields());
-        final inventoryState =
-            context.read<InventoryBloc>().state;
+        context.read<ReportsBloc>().add(const InitializeReportFields());
+        final inventoryState = context.read<InventoryBloc>().state;
         final settings = inventoryState.settings;
-        if (settings != null &&
-            settings.customFieldNames.isNotEmpty) {
-          context.read<ReportsBloc>().add(UpdateAvailableFields(
-              customFieldNames: settings.customFieldNames));
+        if (settings != null && settings.customFieldNames.isNotEmpty) {
+          context.read<ReportsBloc>().add(
+              UpdateAvailableFields(customFieldNames: settings.customFieldNames));
         }
         if (inventoryState.inventoryId != null) {
           context.read<InventoryBloc>().add(
@@ -56,8 +52,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return allItems;
   }
 
-  void _previewReport(InventoryState inventoryState,
-      ReportsState reportsState) {
+  void _previewReport(
+      InventoryState inventoryState, ReportsState reportsState) {
     final allItems = _getAllItems(inventoryState);
 
     if (allItems.isEmpty) {
@@ -68,8 +64,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
 
     if (reportsState.selectedFields.isEmpty) {
-      SnackBarUtils.error(
-          context, 'Please select at least one field');
+      SnackBarUtils.error(context, 'Please select at least one field');
       return;
     }
 
@@ -78,14 +73,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
         inventoryName: inventoryState.inventoryName ?? 'Unknown'));
   }
 
-  void _generateAndSaveReport(InventoryState inventoryState,
-      ReportsState reportsState) {
+  void _generateAndSaveReport(
+      InventoryState inventoryState, ReportsState reportsState) {
     final allItems = _getAllItems(inventoryState);
 
     if (allItems.isEmpty) {
       SnackBarUtils.show(context,
-          message: 'No items found for selected filter',
-          isError: true);
+          message: 'No items found for selected filter', isError: true);
       return;
     }
 
@@ -107,28 +101,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget build(BuildContext context) {
     return BlocBuilder<InventoryBloc, InventoryState>(
       builder: (context, inventoryState) {
-        final inventoryName =
-            inventoryState.inventoryName ?? '';
+        final inventoryName = inventoryState.inventoryName ?? '';
 
         return BlocListener<ReportsBloc, ReportsState>(
           listener: (context, reportsState) {
             if (reportsState.successMessage != null) {
               if (!mounted) return;
-              SnackBarUtils.success(
-                  context, reportsState.successMessage!);
-              context
-                  .read<ReportsBloc>()
-                  .add(const ClearReportMessages());
+              SnackBarUtils.success(context, reportsState.successMessage!);
+              context.read<ReportsBloc>().add(const ClearReportMessages());
             }
             if (reportsState.error != null &&
                 reportsState.generatedCsv == null &&
                 reportsState.previewData == null) {
               if (!mounted) return;
-              SnackBarUtils.error(
-                  context, reportsState.error!);
-              context
-                  .read<ReportsBloc>()
-                  .add(const ClearReportMessages());
+              SnackBarUtils.error(context, reportsState.error!);
+              context.read<ReportsBloc>().add(const ClearReportMessages());
             }
           },
           child: BlocBuilder<ReportsBloc, ReportsState>(
@@ -137,41 +124,37 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 return Scaffold(
                   appBar: AppBar(
                     title: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        children: [
-                          const Text('Generate Report',
-                              style: TextStyle(fontSize: 16)),
-                          Text(inventoryName,
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .primary)),
-                        ]),
-                  ),
-                  body: ProgressView(
-                      progress: reportsState.progress,
-                      statusMessage:
-                          reportsState.statusMessage),
-                );
-              }
-
-              return Scaffold(
-                appBar: AppBar(
-                  title: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text('Generate Report',
                             style: TextStyle(fontSize: 16)),
                         Text(inventoryName,
                             style: TextStyle(
                                 fontSize: 12,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .primary)),
-                      ]),
+                                color: Theme.of(context).colorScheme.primary)),
+                      ],
+                    ),
+                  ),
+                  body: ProgressView(
+                    progress: reportsState.progress,
+                    statusMessage: reportsState.statusMessage,
+                  ),
+                );
+              }
+
+              return Scaffold(
+                appBar: AppBar(
+                  title: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Generate Report',
+                          style: TextStyle(fontSize: 16)),
+                      Text(inventoryName,
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.primary)),
+                    ],
+                  ),
                 ),
                 body: ListView(
                   padding: const EdgeInsets.all(16),
@@ -179,28 +162,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     if (reportsState.error != null &&
                         reportsState.generatedCsv == null)
                       Container(
-                        margin:
-                            const EdgeInsets.only(bottom: 16),
+                        margin: const EdgeInsets.only(bottom: 16),
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.red
-                              .withValues(alpha: 0.1),
-                          borderRadius:
-                              BorderRadius.circular(12),
+                          color: Colors.red.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                              color: Colors.red
-                                  .withValues(alpha: 0.3)),
+                              color: Colors.red.withValues(alpha: 0.3)),
                         ),
                         child: Row(children: [
                           const Icon(Icons.error_outline,
                               color: Colors.red, size: 20),
                           const SizedBox(width: 8),
                           Expanded(
-                              child: Text(
-                                  reportsState.error!,
-                                  style: const TextStyle(
-                                      color: Colors.red,
-                                      fontSize: 13))),
+                            child: Text(reportsState.error!,
+                                style: const TextStyle(
+                                    color: Colors.red, fontSize: 13)),
+                          ),
                         ]),
                       ),
                     ReportTypeCard(
@@ -211,10 +189,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ),
                     const SizedBox(height: 16),
                     FieldSelectorCard(
-                      availableFields:
-                          reportsState.availableFields,
-                      selectedFields:
-                          reportsState.selectedFields,
+                      availableFields: reportsState.availableFields,
+                      selectedFields: reportsState.selectedFields,
                       onSelectionChanged: () => context
                           .read<ReportsBloc>()
                           .add(const ClearReportMessages()),
@@ -230,13 +206,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ),
                     const SizedBox(height: 24),
                     ActionButtons(
-                      hasSelection: reportsState
-                          .selectedFields.isNotEmpty,
-                      onPreview: () => _previewReport(
+                      hasSelection: reportsState.selectedFields.isNotEmpty,
+                      onPreview: () =>
+                          _previewReport(inventoryState, reportsState),
+                      onDownload: () => _generateAndSaveReport(
                           inventoryState, reportsState),
-                      onDownload: () =>
-                          _generateAndSaveReport(
-                              inventoryState, reportsState),
                     ),
                     if (reportsState.generatedCsv != null) ...[
                       const SizedBox(height: 16),

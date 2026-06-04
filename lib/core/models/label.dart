@@ -2,8 +2,6 @@ import 'package:uuid/uuid.dart';
 
 const _uuid = Uuid();
 
-/// Label model with UUID primary key.
-/// Supabase is authoritative; Hive stores a cached copy only.
 class Label {
   final String id;
   final String name;
@@ -132,8 +130,7 @@ class Label {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Label && id == other.id;
+      identical(this, other) || other is Label && id == other.id;
 
   @override
   int get hashCode => id.hashCode;

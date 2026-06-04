@@ -1,49 +1,25 @@
 library;
 
 enum UserRole {
-  owner,
-  admin,
-  dataOperator,
-  viewer;
+  owner, admin, dataOperator, viewer;
 
   static UserRole fromString(String value) {
-    final lower = value.toLowerCase().replaceAll(' ', '_');
-    switch (lower) {
-      case 'owner':
-        return UserRole.owner;
-      case 'admin':
-        return UserRole.admin;
-      case 'data_operator':
-      case 'staff':
-      case 'editor':
-        return UserRole.dataOperator;
-      case 'viewer':
-      default:
-        return UserRole.viewer;
+    switch (value.toLowerCase().replaceAll(' ', '_')) {
+      case 'owner': return UserRole.owner;
+      case 'admin': return UserRole.admin;
+      case 'data_operator': case 'staff': case 'editor': return UserRole.dataOperator;
+      default: return UserRole.viewer;
     }
   }
 
   String get displayName {
     switch (this) {
-      case UserRole.owner:
-        return 'Owner';
-      case UserRole.admin:
-        return 'Admin';
-      case UserRole.dataOperator:
-        return 'Data Operator';
-      case UserRole.viewer:
-        return 'Viewer';
+      case UserRole.owner: return 'Owner';
+      case UserRole.admin: return 'Admin';
+      case UserRole.dataOperator: return 'Data Operator';
+      case UserRole.viewer: return 'Viewer';
     }
   }
-
-  bool get canManageCompany => this == owner;
-  bool get canManageMembers => this == owner || this == admin;
-  bool get canCreateItems => this == owner || this == admin || this == dataOperator;
-  bool get canUpdateItems => this == owner || this == admin || this == dataOperator;
-  bool get canDeleteItems => this == owner || this == admin;
-  bool get canExportReports => true;
-  bool get canViewActivity => true;
-  bool get canManageSettings => this == owner || this == admin;
 }
 
 class InventoryPermissions {
@@ -170,6 +146,7 @@ class InventoryPermissions {
 class User {
   final String id;
   final String email;
+  final String? fullName;
   final String? displayName;
   final UserRole role;
   final String? companyId;
@@ -180,6 +157,7 @@ class User {
   const User({
     required this.id,
     required this.email,
+    this.fullName,
     this.displayName,
     this.role = UserRole.viewer,
     this.companyId,
@@ -188,19 +166,28 @@ class User {
     this.inventoryPermissions,
   });
 
-  String get displayNameOrEmail => displayName ?? email;
+  String get displayNameOrEmail => fullName ?? displayName ?? email;
   String get displayNameInitial =>
       displayNameOrEmail.isNotEmpty ? displayNameOrEmail[0].toUpperCase() : '?';
 
   User copyWith({
-    String? id, String? email, String? displayName, UserRole? role,
-    String? companyId, bool? isApproved, DateTime? createdAt,
+    String? id,
+    String? email,
+    String? fullName,
+    String? displayName,
+    UserRole? role,
+    String? companyId,
+    bool? isApproved,
+    DateTime? createdAt,
     InventoryPermissions? inventoryPermissions,
   }) {
     return User(
-      id: id ?? this.id, email: email ?? this.email,
+      id: id ?? this.id,
+      email: email ?? this.email,
+      fullName: fullName ?? this.fullName,
       displayName: displayName ?? this.displayName,
-      role: role ?? this.role, companyId: companyId ?? this.companyId,
+      role: role ?? this.role,
+      companyId: companyId ?? this.companyId,
       isApproved: isApproved ?? this.isApproved,
       createdAt: createdAt ?? this.createdAt,
       inventoryPermissions: inventoryPermissions ?? this.inventoryPermissions,
@@ -208,50 +195,75 @@ class User {
   }
 
   Map<String, dynamic> toCloudJson() => {
-    'id': id, 'email': email, 'display_name': displayName,
-    'role': role.name, 'company_id': companyId,
-    'is_approved': isApproved, 'created_at': createdAt?.toIso8601String(),
+    'id': id,
+    'email': email,
+    'full_name': fullName,
+    'display_name': displayName,
+    'role': role.name,
+    'company_id': companyId,
+    'is_approved': isApproved,
+    'created_at': createdAt?.toIso8601String(),
   };
 
   factory User.fromCloudJson(Map<String, dynamic> json) {
     InventoryPermissions? perms;
     if (json['permissions'] is Map) {
-      perms = InventoryPermissions.fromSupabase(Map<String, dynamic>.from(json['permissions']));
+      perms = InventoryPermissions.fromSupabase(
+          Map<String, dynamic>.from(json['permissions']));
     }
     return User(
-      id: json['id'] as String, email: json['email'] as String,
+      id: json['id'] as String,
+      email: json['email'] as String,
+      fullName: json['full_name'] as String?,
       displayName: json['display_name'] as String?,
       role: UserRole.fromString(json['role'] as String? ?? 'viewer'),
       companyId: json['company_id'] as String?,
       isApproved: json['is_approved'] as bool? ?? false,
-      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at'] as String) : null,
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'] as String)
+          : null,
       inventoryPermissions: perms,
     );
   }
 
   Map<String, dynamic> toLocalJson() => {
-    'id': id, 'email': email, 'displayName': displayName,
-    'role': role.name, 'companyId': companyId,
-    'isApproved': isApproved, 'createdAt': createdAt?.toIso8601String(),
+    'id': id,
+    'email': email,
+    'fullName': fullName,
+    'displayName': displayName,
+    'role': role.name,
+    'companyId': companyId,
+    'isApproved': isApproved,
+    'createdAt': createdAt?.toIso8601String(),
     'inventoryPermissions': inventoryPermissions?.toJson(),
   };
 
   factory User.fromLocalJson(Map<String, dynamic> json) {
     return User(
-      id: json['id'] as String, email: json['email'] as String,
+      id: json['id'] as String,
+      email: json['email'] as String,
+      fullName: json['fullName'] as String?,
       displayName: json['displayName'] as String?,
       role: UserRole.fromString(json['role'] as String? ?? 'viewer'),
       companyId: json['companyId'] as String?,
       isApproved: json['isApproved'] as bool? ?? false,
-      createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt'] as String) : null,
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'] as String)
+          : null,
       inventoryPermissions: json['inventoryPermissions'] != null
-          ? InventoryPermissions.fromSupabase(Map<String, dynamic>.from(json['inventoryPermissions']))
+          ? InventoryPermissions.fromSupabase(
+              Map<String, dynamic>.from(json['inventoryPermissions']))
           : null,
     );
   }
 
   @override
-  bool operator ==(Object other) => identical(this, other) || other is User && id == other.id;
+  bool operator ==(Object other) =>
+      identical(this, other) || other is User && id == other.id;
+
   @override
   int get hashCode => id.hashCode;
+
+  @override
+  String toString() => 'User(id: $id, email: $email, fullName: $fullName)';
 }

@@ -36,7 +36,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   void _setupAuthListener() {
     try {
-      _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen(
+      _authSubscription =
+          Supabase.instance.client.auth.onAuthStateChange.listen(
         (data) {
           debugPrint('🔍 AuthBloc: Auth state change: ${data.event}');
           if (data.event == AuthChangeEvent.signedIn ||
@@ -112,7 +113,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       debugPrint('❌ AuthBloc._onAuthCheck error: $e');
       emit(state.copyWith(
         status: AuthStatus.error,
-        error: 'Connection failed. Please check your internet and try again.',
+        error:
+            'Connection failed. Please check your internet and try again.',
       ));
     }
   }
@@ -123,7 +125,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(state.copyWith(status: AuthStatus.authenticating, error: null));
 
     try {
-      final success = await _authService.signIn(event.email, event.password);
+      final success =
+          await _authService.signIn(event.email, event.password);
 
       if (success && _authService.currentUser != null) {
         final user = _authService.currentUser!;
@@ -139,13 +142,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
         // Auto-join any pending inventory invitations
         try {
-          final result = await Supabase.instance.client
-              .rpc('auto_join_pending_invitations');
-          final resultMap = Map<String, dynamic>.from(result as Map);
-          final joinedCount = resultMap['joined_count'] as int? ?? 0;
-          if (joinedCount > 0) {
-            debugPrint('✅ Auto-joined $joinedCount inventories from invitations');
-          }
+          await _authService.autoJoinPendingInvitations();
         } catch (e) {
           debugPrint('⚠️ Auto-join failed: $e');
         }
@@ -167,12 +164,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       } else {
         emit(state.copyWith(
           status: AuthStatus.unauthenticated,
-          error: 'Invalid email or password. Please check your credentials.',
+          error:
+              'Invalid email or password. Please check your credentials.',
         ));
       }
     } on AuthException catch (e) {
       debugPrint('❌ AuthBloc AuthException: ${e.message}');
-      emit(state.copyWith(status: AuthStatus.unauthenticated, error: e.message));
+      emit(state.copyWith(
+          status: AuthStatus.unauthenticated, error: e.message));
     } catch (e) {
       debugPrint('❌ AuthBloc._onSignIn error: $e');
       emit(state.copyWith(
@@ -189,7 +188,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
     try {
       final result = await _authService.register(
-        event.email, event.password, event.displayName,
+        event.email,
+        event.password,
+        event.displayName,
       );
 
       if (result.success) {
@@ -208,7 +209,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         ));
       }
     } on AuthException catch (e) {
-      emit(state.copyWith(status: AuthStatus.unauthenticated, error: e.message));
+      emit(state.copyWith(
+          status: AuthStatus.unauthenticated, error: e.message));
     } catch (e) {
       emit(state.copyWith(
         status: AuthStatus.unauthenticated,

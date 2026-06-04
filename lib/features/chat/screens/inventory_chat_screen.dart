@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/utils/snackbar_utils.dart';
 
-/// Chat screen for a specific inventory.
-/// Desktop: sidebar with inventory list + chat. Mobile: chat with drawer.
 class InventoryChatScreen extends StatefulWidget {
   final String inventoryId;
   final String inventoryName;
@@ -60,26 +58,27 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
 
   Future<void> _init() async {
     await _loadInventories();
+    if (_inventories.isEmpty) {
+      if (mounted) {
+        setState(() => _loading = false);
+        SnackBarUtils.error(context, 'No chat room found for this inventory');
+      }
+      return;
+    }
     final inv = _inventories.firstWhere(
       (i) => i['inventory_id'] == widget.inventoryId,
-      orElse: () => _inventories.isNotEmpty ? _inventories.first : {},
+      orElse: () => _inventories.first,
     );
-    if (inv.isNotEmpty) {
-      _roomId = inv['room_id'] as String?;
-      _selInvName = inv['inventory_name'] as String? ?? widget.inventoryName;
+    _roomId = inv['room_id'] as String?;
+    _selInvName = inv['inventory_name'] as String? ?? widget.inventoryName;
 
-      if (_roomId != null && _roomId!.isNotEmpty) {
-        _setupRealtime();
-        await _loadMessages();
-      } else {
-        if (mounted) {
-          setState(() => _loading = false);
-          SnackBarUtils.error(context, 'No chat room found for this inventory');
-        }
-      }
+    if (_roomId != null && _roomId!.isNotEmpty) {
+      _setupRealtime();
+      await _loadMessages();
     } else {
       if (mounted) {
         setState(() => _loading = false);
+        SnackBarUtils.error(context, 'No chat room found for this inventory');
       }
     }
   }
@@ -93,7 +92,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
       );
       if (_isDisposed) return;
       if (mounted) {
-        setState(() => _inventories = List<Map<String, dynamic>>.from(data as List));
+        setState(() =>
+            _inventories = List<Map<String, dynamic>>.from(data as List));
       }
     } catch (e) {
       debugPrint('Failed to load inventory list: $e');
@@ -103,10 +103,13 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
   Future<void> _loadMessages({DateTime? cursor}) async {
     if (_roomId == null || _isDisposed) return;
     try {
-      final data = await Supabase.instance.client.rpc('get_chat_room_messages', params: {
-        'p_room_id': _roomId!,
-        'p_cursor': cursor?.toUtc().toIso8601String(),
-      });
+      final data = await Supabase.instance.client.rpc(
+        'get_chat_room_messages',
+        params: {
+          'p_room_id': _roomId!,
+          'p_cursor': cursor?.toUtc().toIso8601String(),
+        },
+      );
 
       if (_isDisposed) return;
 
@@ -180,7 +183,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
               final m = Map<String, dynamic>.from(p.newRecord);
               if (mounted) {
                 setState(() {
-                  final i = _messages.indexWhere((x) => x['id'] == m['id']);
+                  final i =
+                      _messages.indexWhere((x) => x['id'] == m['id']);
                   if (i >= 0) _messages[i] = m;
                 });
               }
@@ -276,7 +280,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
           if (i >= 0) _messages[i]['status'] = 'failed';
           _sending = false;
         });
-        SnackBarUtils.error(context, 'Failed to send message. Pull to retry.');
+        SnackBarUtils.error(
+            context, 'Failed to send message. Pull to retry.');
       }
     }
   }
@@ -336,7 +341,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Message'),
-        content: const Text('Delete this message? This cannot be undone.'),
+        content:
+            const Text('Delete this message? This cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -344,7 +350,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child:
+                const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -369,12 +376,11 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
   }
 
   void _retryFailed(String id) {
-    // Remove the failed message
     setState(() {
       _messages.removeWhere((m) => m['id'] == id);
     });
-    // Restore content to input for retry
-    final failedMsg = _messages.firstWhere((m) => m['id'] == id, orElse: () => {});
+    final failedMsg = _messages.firstWhere((m) => m['id'] == id,
+        orElse: () => {});
     if (failedMsg.isNotEmpty) {
       _msgCtrl.text = failedMsg['content'] as String? ?? '';
     }
@@ -399,7 +405,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
           children: [
             Text(
               _selInvName ?? widget.inventoryName,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                  fontSize: 16, fontWeight: FontWeight.w600),
             ),
             Text(
               widget.companyName,
@@ -468,7 +475,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[400]),
+            Icon(Icons.chat_bubble_outline,
+                size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
             const Text(
               'No chat room found',
@@ -489,93 +497,99 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
   Widget _drawer() {
     return Drawer(
       child: SafeArea(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.grey.shade100,
-            child: Text(
-              'Inventories',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
-                color: Colors.grey[800],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              color: Colors.grey.shade100,
+              child: Text(
+                'Inventories',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                  color: Colors.grey[800],
+                ),
               ),
             ),
-          ),
-          Expanded(
-            child: _inventories.isEmpty
-                ? Center(
-                    child: Text(
-                      'No inventories available',
-                      style: TextStyle(color: Colors.grey[500]),
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: _inventories.length,
-                    itemBuilder: (_, i) {
-                      final inv = _inventories[i];
-                      final unread = (inv['unread_count'] as int?) ?? 0;
-                      final selected = inv['room_id'] == _roomId;
-                      return ListTile(
-                        selected: selected,
-                        selectedTileColor: Theme.of(context)
-                            .colorScheme
-                            .primaryContainer
-                            .withValues(alpha: 0.3),
-                        leading: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            Icon(
-                              Icons.inventory_2,
-                              size: 20,
-                              color: selected
-                                  ? Theme.of(context).colorScheme.primary
-                                  : Colors.grey,
-                            ),
-                            if (unread > 0)
-                              Positioned(
-                                top: -2,
-                                right: -4,
-                                child: Container(
-                                  width: 16,
-                                  height: 16,
-                                  decoration: const BoxDecoration(
-                                    color: Colors.red,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      unread > 9 ? '9+' : '$unread',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.bold,
+            Expanded(
+              child: _inventories.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No inventories available',
+                        style: TextStyle(color: Colors.grey[500]),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _inventories.length,
+                      itemBuilder: (_, i) {
+                        final inv = _inventories[i];
+                        final unread =
+                            (inv['unread_count'] as int?) ?? 0;
+                        final selected = inv['room_id'] == _roomId;
+                        return ListTile(
+                          selected: selected,
+                          selectedTileColor: Theme.of(context)
+                              .colorScheme
+                              .primaryContainer
+                              .withValues(alpha: 0.3),
+                          leading: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Icon(
+                                Icons.inventory_2,
+                                size: 20,
+                                color: selected
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.grey,
+                              ),
+                              if (unread > 0)
+                                Positioned(
+                                  top: -2,
+                                  right: -4,
+                                  child: Container(
+                                    width: 16,
+                                    height: 16,
+                                    decoration: const BoxDecoration(
+                                      color: Colors.red,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        unread > 9 ? '9+' : '$unread',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
-                        title: Text(
-                          inv['inventory_name'] ?? '',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                            ],
                           ),
-                        ),
-                        onTap: () {
-                          _switchRoom(
-                            inv['room_id'] as String? ?? '',
-                            inv['inventory_name'] as String? ?? '',
-                          );
-                          Navigator.pop(context);
-                        },
-                      );
-                    },
-                  ),
-          ),
-        ]),
+                          title: Text(
+                            inv['inventory_name'] ?? '',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            ),
+                          ),
+                          onTap: () {
+                            _switchRoom(
+                              inv['room_id'] as String? ?? '',
+                              inv['inventory_name'] as String? ?? '',
+                            );
+                            Navigator.pop(context);
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -602,14 +616,16 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                 ? Center(
                     child: Text(
                       'No inventories',
-                      style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                      style: TextStyle(
+                          color: Colors.grey[500], fontSize: 12),
                     ),
                   )
                 : ListView.builder(
                     itemCount: _inventories.length,
                     itemBuilder: (_, i) {
                       final inv = _inventories[i];
-                      final unread = (inv['unread_count'] as int?) ?? 0;
+                      final unread =
+                          (inv['unread_count'] as int?) ?? 0;
                       final selected = inv['room_id'] == _roomId;
                       return ListTile(
                         selected: selected,
@@ -656,7 +672,9 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                           inv['inventory_name'] ?? '',
                           style: TextStyle(
                             fontSize: 13,
-                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
                           ),
                         ),
                         subtitle: inv['last_message'] != null
@@ -706,14 +724,17 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child:
+                              CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Text('Load older messages'),
                 ),
               );
             }
             final gi = _hasMore ? i - 1 : i;
-            if (gi < 0 || gi >= groups.length) return const SizedBox.shrink();
+            if (gi < 0 || gi >= groups.length) {
+              return const SizedBox.shrink();
+            }
             return _buildGroup(groups[gi]);
           },
         ),
@@ -756,16 +777,15 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                 filled: true,
                 fillColor: colorScheme.surfaceContainerHighest,
                 contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
+                    horizontal: 16, vertical: 10),
                 counterText: '',
               ),
             ),
           ),
           const SizedBox(width: 8),
           CircleAvatar(
-            backgroundColor: _sending ? Colors.grey : colorScheme.primary,
+            backgroundColor:
+                _sending ? Colors.grey : colorScheme.primary,
             child: IconButton(
               icon: _sending
                   ? const SizedBox(
@@ -776,7 +796,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                         color: Colors.white,
                       ),
                     )
-                  : const Icon(Icons.send, color: Colors.white, size: 18),
+                  : const Icon(Icons.send,
+                      color: Colors.white, size: 18),
               onPressed: _sending ? null : _send,
             ),
           ),
@@ -784,8 +805,6 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
       ),
     );
   }
-
-  // ─── Message Grouping ──────────────────────────────────────────
 
   List<_MsgGroup> _groupMsgs(List<Map<String, dynamic>> msgs) {
     if (msgs.isEmpty) return [];
@@ -821,7 +840,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
         Center(
           child: Container(
             margin: const EdgeInsets.symmetric(vertical: 12),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
               color: Colors.grey.shade200,
               borderRadius: BorderRadius.circular(12),
@@ -847,7 +867,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
-        mainAxisAlignment: isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment:
+            isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isMine)
@@ -868,10 +889,14 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
             ),
           Flexible(
             child: GestureDetector(
-              onLongPress: isMine && !isDel ? () => _showOptions(m) : null,
-              onTap: isFailed ? () => _retryFailed(m['id'] as String) : null,
+              onLongPress:
+                  isMine && !isDel ? () => _showOptions(m) : null,
+              onTap: isFailed
+                  ? () => _retryFailed(m['id'] as String)
+                  : null,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 10),
                 constraints: BoxConstraints(
                   maxWidth: MediaQuery.of(context).size.width * 0.7,
                 ),
@@ -884,11 +909,16 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                   borderRadius: BorderRadius.only(
                     topLeft: const Radius.circular(18),
                     topRight: const Radius.circular(18),
-                    bottomLeft: isMine ? const Radius.circular(18) : const Radius.circular(4),
-                    bottomRight: isMine ? const Radius.circular(4) : const Radius.circular(18),
+                    bottomLeft: isMine
+                        ? const Radius.circular(18)
+                        : const Radius.circular(4),
+                    bottomRight: isMine
+                        ? const Radius.circular(4)
+                        : const Radius.circular(18),
                   ),
                   border: isFailed
-                      ? Border.all(color: Colors.red.withValues(alpha: 0.3))
+                      ? Border.all(
+                          color: Colors.red.withValues(alpha: 0.3))
                       : null,
                 ),
                 child: Column(
@@ -913,14 +943,17 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                         fontStyle: isDel ? FontStyle.italic : null,
                         color: isDel
                             ? Colors.grey
-                            : (isOpt && !isFailed ? Colors.grey.shade600 : null),
+                            : (isOpt && !isFailed
+                                ? Colors.grey.shade600
+                                : null),
                       ),
                     ),
                     const SizedBox(height: 2),
                     Row(mainAxisSize: MainAxisSize.min, children: [
                       Text(
                         _fmtTime(m['created_at'] as String?),
-                        style: TextStyle(fontSize: 9, color: Colors.grey[500]),
+                        style: TextStyle(
+                            fontSize: 9, color: Colors.grey[500]),
                       ),
                       if (isEdit && !isDel) ...[
                         const SizedBox(width: 4),
@@ -974,7 +1007,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
       case 'seen':
         return const Icon(Icons.done_all, size: 14, color: Colors.blue);
       case 'failed':
-        return const Icon(Icons.error_outline, size: 14, color: Colors.red);
+        return const Icon(Icons.error_outline,
+            size: 14, color: Colors.red);
       default:
         return const SizedBox.shrink();
     }
@@ -984,7 +1018,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) => SafeArea(
         child: Padding(
@@ -1010,8 +1045,10 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.delete, color: Colors.red),
-                title: const Text('Delete', style: TextStyle(color: Colors.red)),
+                leading:
+                    const Icon(Icons.delete, color: Colors.red),
+                title: const Text('Delete',
+                    style: TextStyle(color: Colors.red)),
                 onTap: () {
                   Navigator.pop(ctx);
                   _delete(m['id'] as String);
@@ -1038,14 +1075,22 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
 
   String _getDayName(int weekday) {
     switch (weekday) {
-      case 1: return 'Monday';
-      case 2: return 'Tuesday';
-      case 3: return 'Wednesday';
-      case 4: return 'Thursday';
-      case 5: return 'Friday';
-      case 6: return 'Saturday';
-      case 7: return 'Sunday';
-      default: return '';
+      case 1:
+        return 'Monday';
+      case 2:
+        return 'Tuesday';
+      case 3:
+        return 'Wednesday';
+      case 4:
+        return 'Thursday';
+      case 5:
+        return 'Friday';
+      case 6:
+        return 'Saturday';
+      case 7:
+        return 'Sunday';
+      default:
+        return '';
     }
   }
 

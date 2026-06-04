@@ -56,5 +56,6 @@ class AuthState {
           isAdmin == other.isAdmin;
 
   @override
-  int get hashCode => Object.hash(status, user?.id, error, pendingEmail, isAdmin);
+  int get hashCode =>
+      Object.hash(status, user?.id, error, pendingEmail, isAdmin);
 }

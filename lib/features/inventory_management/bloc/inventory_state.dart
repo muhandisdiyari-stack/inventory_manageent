@@ -71,11 +71,7 @@ class InventoryState {
           selectedLabel == other.selectedLabel &&
           isLoading == other.isLoading &&
           isInitialized == other.isInitialized &&
-          error == other.error &&
-          _listEquals(labels, other.labels) &&
-          _listEquals(currentItems, other.currentItems) &&
-          _listEquals(allItems, other.allItems) &&
-          _listEquals(searchResults, other.searchResults);
+          error == other.error;
 
   @override
   int get hashCode => Object.hash(
@@ -87,14 +83,4 @@ class InventoryState {
         isInitialized,
         error,
       );
-
-  static bool _listEquals<T>(List<T>? a, List<T>? b) {
-    if (a == null) return b == null;
-    if (b == null) return false;
-    if (a.length != b.length) return false;
-    for (int i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
 }

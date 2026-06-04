@@ -22,13 +22,10 @@ class _SearchScreenState extends State<SearchScreen> {
   Timer? _debounce;
   bool _isSearching = false;
   bool _hasSearched = false;
-  bool _isServerSearch = true; // Prefer server search over local
+  bool _isServerSearch = true;
   InventoryPermissions? _permissions;
-
-  // Server search results (RLS-enforced)
   List<Map<String, dynamic>> _serverResults = [];
 
-  // Local search results (fallback)
   List<Map<String, dynamic>> get _localResults {
     final state = context.read<InventoryBloc>().state;
     return state.searchResults;
@@ -90,14 +87,9 @@ class _SearchScreenState extends State<SearchScreen> {
     });
   }
 
-  /// Performs a server-side search using Supabase RLS.
-  /// The RLS policies ensure users only see items from inventories they are members of.
   Future<void> _performServerSearch(String query) async {
     try {
       final client = Supabase.instance.client;
-
-      // Search across all items the user has access to (RLS-enforced)
-      // Uses ilike for case-insensitive matching across multiple fields
       final data = await client
           .from('inventory_items')
           .select('*, inventories(name)')
@@ -116,18 +108,15 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!mounted) return;
 
       final results = <Map<String, dynamic>>[];
-
       for (final row in data) {
         final itemData = Map<String, dynamic>.from(row);
         final inventoryName =
             itemData['inventories']?['name']?.toString() ?? 'Unknown';
-
-        // Build InventoryItem from server data
         final item = _buildItemFromServerData(itemData);
-
         results.add({
           'item': item,
-          'inventoryId': itemData['inventory_id']?.toString() ?? '',
+          'inventoryId':
+              itemData['inventory_id']?.toString() ?? '',
           'inventoryName': inventoryName,
         });
       }
@@ -138,22 +127,19 @@ class _SearchScreenState extends State<SearchScreen> {
         _hasSearched = true;
       });
     } catch (e) {
-      debugPrint('⚠️ Server search failed, falling back to local: $e');
-
-      // Fall back to local search
-      if (mounted) {
-        _performLocalSearch(query);
-      }
+      debugPrint(
+          '⚠️ Server search failed, falling back to local: $e');
+      if (mounted) _performLocalSearch(query);
     }
   }
 
-  /// Builds an InventoryItem from Supabase server data.
   InventoryItem _buildItemFromServerData(Map<String, dynamic> data) {
     final customFields = <String, String>{};
     final rawCustom = data['custom_fields'];
     if (rawCustom is Map) {
       for (final entry in rawCustom.entries) {
-        customFields[entry.key.toString()] = entry.value.toString();
+        customFields[entry.key.toString()] =
+            entry.value.toString();
       }
     }
 
@@ -191,11 +177,9 @@ class _SearchScreenState extends State<SearchScreen> {
     item.rowVersion = data['row_version'] as int? ?? 1;
     item.companyId = data['company_id']?.toString();
     item.inventoryId = data['inventory_id']?.toString();
-
     return item;
   }
 
-  /// Fallback local search using Hive cache.
   void _performLocalSearch(String query) {
     if (!mounted) return;
     context.read<InventoryBloc>().add(SearchItems(query.trim()));
@@ -210,7 +194,8 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('You do not have permission to edit items'),
+          content: Text(
+              'You do not have permission to edit items'),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
@@ -223,7 +208,8 @@ class _SearchScreenState extends State<SearchScreen> {
       isScrollControlled: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) => _SimpleEditSheet(item: item),
     );
@@ -238,7 +224,8 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('You do not have permission to update quantities'),
+          content: Text(
+              'You do not have permission to update quantities'),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
@@ -246,22 +233,28 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
-    // Perform optimistic update
-    final newQuantity =
-        (item.quantity + delta).clamp(0, InventoryItem.maxQuantity);
+    final newQuantity = (item.quantity + delta)
+        .clamp(0, InventoryItem.maxQuantity);
     if (newQuantity == item.quantity) return;
 
     item.quantity = newQuantity;
     item.modified = DateTime.now();
-    context.read<InventoryBloc>().add(AdjustQuantity(item, delta));
+    context
+        .read<InventoryBloc>()
+        .add(AdjustQuantity(item, delta));
   }
 
   void _navigateToInventory(String inventoryId) {
-    context.read<InventoryListBloc>().add(SelectInventory(inventoryId));
-    context.read<InventoryBloc>().add(InitializeInventory(inventoryId));
+    context
+        .read<InventoryListBloc>()
+        .add(SelectInventory(inventoryId));
+    context
+        .read<InventoryBloc>()
+        .add(InitializeInventory(inventoryId));
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const InventoryHomeScreen()),
+      MaterialPageRoute(
+          builder: (_) => const InventoryHomeScreen()),
     );
   }
 
@@ -280,7 +273,6 @@ class _SearchScreenState extends State<SearchScreen> {
             suffixIcon: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Toggle search mode (server vs local)
                 if (_searchController.text.isNotEmpty)
                   IconButton(
                     icon: Icon(
@@ -296,7 +288,8 @@ class _SearchScreenState extends State<SearchScreen> {
                         ? 'Searching server (tap for local)'
                         : 'Searching local cache (tap for server)',
                     onPressed: () {
-                      setState(() => _isServerSearch = !_isServerSearch);
+                      setState(() => _isServerSearch =
+                          !_isServerSearch);
                       if (_searchController.text.isNotEmpty) {
                         _performSearch(_searchController.text);
                       }
@@ -331,7 +324,8 @@ class _SearchScreenState extends State<SearchScreen> {
                   SizedBox(height: 8),
                   Text(
                     'Checking across all your inventories',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey),
                   ),
                 ],
               ),
@@ -342,9 +336,9 @@ class _SearchScreenState extends State<SearchScreen> {
             return _buildInitialState();
           }
 
-          // Prefer server results if available
-          final displayResults =
-              _serverResults.isNotEmpty ? _serverResults : _localResults;
+          final displayResults = _serverResults.isNotEmpty
+              ? _serverResults
+              : _localResults;
 
           if (displayResults.isEmpty && _hasSearched) {
             return Center(
@@ -400,7 +394,8 @@ class _SearchScreenState extends State<SearchScreen> {
                     fontWeight: FontWeight.w600,
                     color: Colors.grey[600])),
             const SizedBox(height: 8),
-            Text('Search by name, code, barcode, size, color, or material',
+            Text(
+                'Search by name, code, barcode, size, color, or material',
                 style: TextStyle(color: Colors.grey[500]),
                 textAlign: TextAlign.center),
             const SizedBox(height: 24),
@@ -422,42 +417,6 @@ class _SearchScreenState extends State<SearchScreen> {
                       visualDensity: VisualDensity.compact))
                   .toList(),
             ),
-            const SizedBox(height: 32),
-            // Server/local indicator
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: _isServerSearch
-                    ? Colors.blue.withValues(alpha: 0.05)
-                    : Colors.orange.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: _isServerSearch
-                      ? Colors.blue.withValues(alpha: 0.2)
-                      : Colors.orange.withValues(alpha: 0.2),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    _isServerSearch ? Icons.cloud : Icons.cloud_off,
-                    size: 16,
-                    color: _isServerSearch ? Colors.blue : Colors.orange,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _isServerSearch
-                        ? 'Searching across all your inventories (online)'
-                        : 'Searching local cache only',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: _isServerSearch ? Colors.blue : Colors.orange,
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),
@@ -465,20 +424,21 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildResults(List<Map<String, dynamic>> results) {
-    // Group results by inventory
-    final groupedResults = <String, List<Map<String, dynamic>>>{};
+    final groupedResults =
+        <String, List<Map<String, dynamic>>>{};
     for (var result in results) {
       final inventoryName =
           (result['inventoryName'] as String?) ?? 'Unknown';
-      groupedResults.putIfAbsent(inventoryName, () => []).add(result);
+      groupedResults
+          .putIfAbsent(inventoryName, () => [])
+          .add(result);
     }
 
     return Column(
       children: [
-        // Results header
         Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 16, vertical: 8),
           color: Theme.of(context)
               .colorScheme
               .primaryContainer
@@ -494,22 +454,10 @@ class _SearchScreenState extends State<SearchScreen> {
                   style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
-                      color: Theme.of(context).colorScheme.primary)),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary)),
             ),
-            if (!_isServerSearch)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text('Local',
-                    style: TextStyle(
-                        fontSize: 9,
-                        color: Colors.orange,
-                        fontWeight: FontWeight.w600)),
-              ),
           ]),
         ),
         Expanded(
@@ -521,62 +469,63 @@ class _SearchScreenState extends State<SearchScreen> {
                   groupedResults.keys.elementAt(index);
               final items = groupedResults[inventoryName]!;
               return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding:
-                          const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                      child: Row(children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .primaryContainer,
-                              borderRadius:
-                                  BorderRadius.circular(20)),
-                          child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.inventory_2,
-                                    size: 18,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                        16, 16, 16, 8),
+                    child: Row(children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primaryContainer,
+                          borderRadius:
+                              BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.inventory_2,
+                                size: 18,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primary),
+                            const SizedBox(width: 8),
+                            Text(inventoryName,
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w700,
                                     color: Theme.of(context)
                                         .colorScheme
-                                        .primary),
-                                const SizedBox(width: 8),
-                                Text(inventoryName,
-                                    style: TextStyle(
-                                        fontWeight:
-                                            FontWeight.w700,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary,
-                                        fontSize: 15)),
-                              ]),
+                                        .primary,
+                                    fontSize: 15)),
+                          ],
                         ),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: () {
-                            final inventoryId = items
-                                .first['inventoryId'] as String?;
-                            if (inventoryId != null) {
-                              _navigateToInventory(
-                                  inventoryId);
-                            }
-                          },
-                          icon: const Icon(Icons.open_in_new,
-                              size: 16),
-                          label: const Text('Open',
-                              style: TextStyle(fontSize: 12)),
-                        ),
-                      ]),
-                    ),
-                    ...items.map((result) => _buildItemCard(
-                        result['item'] as InventoryItem,
-                        inventoryName)),
-                    const SizedBox(height: 8),
-                  ]);
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: () {
+                          final inventoryId = items
+                              .first['inventoryId'] as String?;
+                          if (inventoryId != null) {
+                            _navigateToInventory(inventoryId);
+                          }
+                        },
+                        icon: const Icon(Icons.open_in_new,
+                            size: 16),
+                        label: const Text('Open',
+                            style: TextStyle(fontSize: 12)),
+                      ),
+                    ]),
+                  ),
+                  ...items.map((result) => _buildItemCard(
+                      result['item'] as InventoryItem,
+                      inventoryName)),
+                  const SizedBox(height: 8),
+                ],
+              );
             },
           ),
         ),
@@ -584,12 +533,13 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildItemCard(InventoryItem item, String inventoryName) {
+  Widget _buildItemCard(
+      InventoryItem item, String inventoryName) {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Card(
-      margin:
-          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      margin: const EdgeInsets.symmetric(
+          horizontal: 8, vertical: 4),
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
@@ -620,143 +570,123 @@ class _SearchScreenState extends State<SearchScreen> {
             _buildBadge('EXPIRING', Colors.orange),
         ]),
         subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (item.code.isNotEmpty)
-                Text('Code: ${item.code}',
-                    style: const TextStyle(fontSize: 12)),
-              if (item.barcode.isNotEmpty)
-                Text('Barcode: ${item.barcode}',
-                    style: const TextStyle(fontSize: 12)),
-              const SizedBox(height: 6),
-              Row(children: [
-                _buildInfoChip(
-                    Icons.label,
-                    item.label,
-                    colorScheme.secondaryContainer),
-                const SizedBox(width: 8),
-                _buildInfoChip(
-                    Icons.inventory_2,
-                    inventoryName,
-                    colorScheme.tertiaryContainer),
-              ]),
-              const SizedBox(height: 2),
-              Text('👤 ${item.creatorDisplayName}',
-                  style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.grey[500])),
-              if (item.updatedByName != null &&
-                  item.updatedByName != item.createdByName)
-                Text('✏️ ${item.updaterDisplayName}',
-                    style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.grey[400])),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (item.code.isNotEmpty)
+              Text('Code: ${item.code}',
+                  style: const TextStyle(fontSize: 12)),
+            if (item.barcode.isNotEmpty)
+              Text('Barcode: ${item.barcode}',
+                  style: const TextStyle(fontSize: 12)),
+            const SizedBox(height: 6),
+            Row(children: [
+              _buildInfoChip(Icons.label, item.label,
+                  colorScheme.secondaryContainer),
+              const SizedBox(width: 8),
+              _buildInfoChip(Icons.inventory_2, inventoryName,
+                  colorScheme.tertiaryContainer),
             ]),
+            const SizedBox(height: 2),
+            Text('👤 ${item.creatorDisplayName}',
+                style: TextStyle(
+                    fontSize: 10, color: Colors.grey[500])),
+          ],
+        ),
         trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('${item.quantity}',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w700)),
-              Text('Qty',
-                  style: TextStyle(
-                      color: Colors.grey[600], fontSize: 11)),
-            ]),
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('${item.quantity}',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700)),
+            Text('Qty',
+                style: TextStyle(
+                    color: Colors.grey[600], fontSize: 11)),
+          ],
+        ),
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (item.barcode.isNotEmpty)
-                    _infoRow('Barcode', item.barcode),
-                  if (item.color.isNotEmpty)
-                    _infoRow('Color', item.color),
-                  if (item.material.isNotEmpty)
-                    _infoRow('Material', item.material),
-                  if (item.size.isNotEmpty)
-                    _infoRow('Size', item.size),
-                  if (item.productionDate != null)
-                    _infoRow('Production',
-                        item.productionDate
-                            .toString()
-                            .split(' ')[0]),
-                  if (item.expireDate != null)
-                    _infoRow('Expires',
-                        item.expireDate
-                            .toString()
-                            .split(' ')[0]),
-                  if (item.note.isNotEmpty)
-                    _infoRow('Note', item.note),
-                  ...item.userCustomFields.entries
-                      .map((e) => _infoRow(e.key, e.value)),
-                  const Divider(height: 16),
-                  _infoRow('Inventory', inventoryName),
-                  _infoRow('Label', item.label),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (item.barcode.isNotEmpty)
+                  _infoRow('Barcode', item.barcode),
+                if (item.color.isNotEmpty)
+                  _infoRow('Color', item.color),
+                if (item.material.isNotEmpty)
+                  _infoRow('Material', item.material),
+                if (item.size.isNotEmpty)
+                  _infoRow('Size', item.size),
+                if (item.productionDate != null)
+                  _infoRow('Production',
+                      item.productionDate.toString().split(' ')[0]),
+                if (item.expireDate != null)
+                  _infoRow('Expires',
+                      item.expireDate.toString().split(' ')[0]),
+                if (item.note.isNotEmpty)
+                  _infoRow('Note', item.note),
+                ...item.userCustomFields.entries
+                    .map((e) => _infoRow(e.key, e.value)),
+                const Divider(height: 16),
+                _infoRow('Inventory', inventoryName),
+                _infoRow('Label', item.label),
+                _infoRow('Created by', item.creatorDisplayName),
+                if (item.updatedByName != null &&
+                    item.updatedByName != item.createdByName)
                   _infoRow(
-                      'Created by', item.creatorDisplayName),
-                  if (item.updatedByName != null &&
-                      item.updatedByName !=
-                          item.createdByName)
-                    _infoRow('Updated by',
-                        item.updaterDisplayName),
-                  const SizedBox(height: 8),
-                  if (_canUpdate)
-                    Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.spaceEvenly,
-                        children: [
-                          IconButton.filled(
-                            onPressed: item.quantity > 0
-                                ? () =>
-                                    _adjustQuantity(item, -1)
-                                : null,
-                            icon: const Icon(Icons.remove,
-                                size: 20),
-                            style: IconButton.styleFrom(
-                                backgroundColor:
-                                    colorScheme.errorContainer,
-                                foregroundColor:
-                                    colorScheme.error),
-                          ),
-                          Text('${item.quantity}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                      fontWeight:
-                                          FontWeight.w700)),
-                          IconButton.filled(
-                            onPressed: item.quantity <
-                                    InventoryItem
-                                        .maxQuantity
-                                ? () =>
-                                    _adjustQuantity(item, 1)
-                                : null,
-                            icon: const Icon(Icons.add,
-                                size: 20),
-                            style: IconButton.styleFrom(
-                                backgroundColor:
-                                    colorScheme.primaryContainer,
-                                foregroundColor:
-                                    colorScheme.primary),
-                          ),
-                          IconButton(
-                              onPressed: () =>
-                                  _editItem(item),
-                              icon: const Icon(Icons.edit,
-                                  size: 20),
-                              tooltip: 'Edit item'),
-                        ])
-                  else
-                    Center(
-                        child: Text('View only',
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey[500]))),
-                ]),
+                      'Updated by', item.updaterDisplayName),
+                const SizedBox(height: 8),
+                if (_canUpdate)
+                  Row(
+                    mainAxisAlignment:
+                        MainAxisAlignment.spaceEvenly,
+                    children: [
+                      IconButton.filled(
+                        onPressed: item.quantity > 0
+                            ? () => _adjustQuantity(item, -1)
+                            : null,
+                        icon: const Icon(Icons.remove, size: 20),
+                        style: IconButton.styleFrom(
+                            backgroundColor:
+                                colorScheme.errorContainer,
+                            foregroundColor: colorScheme.error),
+                      ),
+                      Text('${item.quantity}',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(
+                                  fontWeight: FontWeight.w700)),
+                      IconButton.filled(
+                        onPressed: item.quantity <
+                                InventoryItem.maxQuantity
+                            ? () => _adjustQuantity(item, 1)
+                            : null,
+                        icon: const Icon(Icons.add, size: 20),
+                        style: IconButton.styleFrom(
+                            backgroundColor:
+                                colorScheme.primaryContainer,
+                            foregroundColor:
+                                colorScheme.primary),
+                      ),
+                      IconButton(
+                        onPressed: () => _editItem(item),
+                        icon: const Icon(Icons.edit, size: 20),
+                        tooltip: 'Edit item',
+                      ),
+                    ],
+                  )
+                else
+                  Center(
+                    child: Text('View only',
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[500])),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -765,13 +695,13 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildBadge(String label, Color color) {
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(
+          horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border:
-            Border.all(color: color.withValues(alpha: 0.3)),
+        border: Border.all(
+            color: color.withValues(alpha: 0.3)),
       ),
       child: Text(label,
           style: TextStyle(
@@ -787,20 +717,20 @@ class _SearchScreenState extends State<SearchScreen> {
       padding: const EdgeInsets.symmetric(
           horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(12)),
-      child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 12),
-            const SizedBox(width: 4),
-            Flexible(
-                child: Text(label,
-                    style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500),
-                    overflow: TextOverflow.ellipsis)),
-          ]),
+        color: color.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 12),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(label,
+              style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500),
+              overflow: TextOverflow.ellipsis),
+        ),
+      ]),
     );
   }
 
@@ -808,23 +738,22 @@ class _SearchScreenState extends State<SearchScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-                width: 120,
-                child: Text('$label: ',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13))),
-            Expanded(
-                child: Text(value,
-                    style: const TextStyle(fontSize: 13))),
-          ]),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+              width: 120,
+              child: Text('$label: ',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13))),
+          Expanded(
+              child: Text(value,
+                  style: const TextStyle(fontSize: 13))),
+        ],
+      ),
     );
   }
 }
-
-// ─── Simple Edit Sheet ─────────────────────────────────────────────
 
 class _SimpleEditSheet extends StatefulWidget {
   final InventoryItem item;
@@ -845,10 +774,12 @@ class _SimpleEditSheetState extends State<_SimpleEditSheet> {
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.item.name);
+    _nameController =
+        TextEditingController(text: widget.item.name);
     _quantityController = TextEditingController(
         text: widget.item.quantity.toString());
-    _noteController = TextEditingController(text: widget.item.note);
+    _noteController =
+        TextEditingController(text: widget.item.note);
   }
 
   @override
@@ -888,126 +819,125 @@ class _SimpleEditSheetState extends State<_SimpleEditSheet> {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom + 28,
-          left: 20,
-          right: 20,
-          top: 20),
+        bottom: MediaQuery.of(context).viewInsets.bottom + 28,
+        left: 20,
+        right: 20,
+        top: 20,
+      ),
       child: Form(
         key: _formKey,
         child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                  child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                          color: Colors.grey[400],
-                          borderRadius:
-                              BorderRadius.circular(4)))),
-              const SizedBox(height: 18),
-              Text('Quick Edit',
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.w800)),
-              if (_error != null) ...[
-                const SizedBox(height: 8),
-                Text(_error!,
-                    style: const TextStyle(
-                        color: Colors.red, fontSize: 13)),
-              ],
-              const SizedBox(height: 16),
-              TextFormField(
-                  controller: _nameController,
-                  decoration: InputDecoration(
-                      labelText: 'Name',
-                      border: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(14)),
-                      filled: true),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty)
-                          ? 'Name is required'
-                          : null),
-              const SizedBox(height: 12),
-              TextFormField(
-                  controller: _quantityController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                      labelText: 'Quantity',
-                      border: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(14)),
-                      filled: true),
-                  validator: (value) {
-                    if (value == null ||
-                        value.trim().isEmpty) {
-                      return 'Quantity is required';
-                    }
-                    final parsed =
-                        int.tryParse(value.trim());
-                    if (parsed == null) {
-                      return 'Must be a valid number';
-                    }
-                    if (parsed < 0 ||
-                        parsed >
-                            InventoryItem.maxQuantity) {
-                      return 'Must be 0-${InventoryItem.maxQuantity}';
-                    }
-                    return null;
-                  }),
-              const SizedBox(height: 12),
-              TextFormField(
-                  controller: _noteController,
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                      labelText: 'Note',
-                      border: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(14)),
-                      filled: true)),
-              const SizedBox(height: 16),
-              Row(children: [
-                Expanded(
-                    child: OutlinedButton(
-                        onPressed: _saving
-                            ? null
-                            : () => Navigator.pop(context),
-                        style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 14),
-                            shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(
-                                        40))),
-                        child: const Text('Cancel'))),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: FilledButton(
-                        onPressed: _saving ? null : _save,
-                        style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 14),
-                            shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(
-                                        40))),
-                        child: _saving
-                            ? const SizedBox(
-                                height: 18,
-                                width: 18,
-                                child:
-                                    CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white))
-                            : const Text('Save',
-                                style: TextStyle(
-                                    fontWeight:
-                                        FontWeight.w700)))),
-              ]),
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[400],
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text('Quick Edit',
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w800)),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!,
+                  style: const TextStyle(
+                      color: Colors.red, fontSize: 13)),
+            ],
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _nameController,
+              decoration: InputDecoration(
+                labelText: 'Name',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                filled: true,
+              ),
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty)
+                      ? 'Name is required'
+                      : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _quantityController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Quantity',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                filled: true,
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Quantity is required';
+                }
+                final parsed = int.tryParse(value.trim());
+                if (parsed == null) return 'Must be a valid number';
+                if (parsed < 0 ||
+                    parsed > InventoryItem.maxQuantity) {
+                  return 'Must be 0-${InventoryItem.maxQuantity}';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _noteController,
+              maxLines: 2,
+              decoration: InputDecoration(
+                labelText: 'Note',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                filled: true,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _saving
+                      ? null
+                      : () => Navigator.pop(context),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(40)),
+                  ),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton(
+                  onPressed: _saving ? null : _save,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(40)),
+                  ),
+                  child: _saving
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('Save',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700)),
+                ),
+              ),
             ]),
+          ],
+        ),
       ),
     );
   }
