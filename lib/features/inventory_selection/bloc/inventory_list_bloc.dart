@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 import '../models/inventory_list_item.dart';
 import '../../inventory_management/services/inventory_service.dart';
 import '../../../core/services/activity_log_service.dart';
+import '../../../core/models/activity_log_entry.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/config/app_config.dart';
 
@@ -15,7 +17,6 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
   final InventoryService _inventoryService;
   final ActivityLogService _logService;
   final Box _cacheBox;
-  bool _initialLoadDone = false;
 
   InventoryListBloc({
     required InventoryService inventoryService,
@@ -68,13 +69,10 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
     return [];
   }
 
-  Future<List<Map<String, dynamic>>> _fetchFromSupabase(
-      String companyId) async {
+  Future<List<Map<String, dynamic>>> _fetchFromSupabase(String companyId) async {
     try {
-      final data = await Supabase.instance.client.rpc(
-        'get_company_inventories',
-        params: {'p_company_id': companyId},
-      );
+      final data = await Supabase.instance.client
+          .rpc('get_company_inventories', params: {'p_company_id': companyId});
       if (data is List) {
         return data.map((inv) => Map<String, dynamic>.from(inv as Map)).toList();
       }
@@ -85,27 +83,21 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
     }
   }
 
-  Future<void> _onLoad(
-      LoadInventories event, Emitter<InventoryListState> emit) async {
+  Future<void> _onLoad(LoadInventories event, Emitter<InventoryListState> emit) async {
     final companyId = await _getCurrentCompanyId();
     if (companyId == null) {
       emit(state.copyWith(
-        inventories: [],
-        isLoading: false,
-        isInitialized: true,
+        inventories: [], isLoading: false, isInitialized: true,
         error: 'No company assigned.',
       ));
       return;
     }
 
     final cached = _readCache(companyId);
-    if (cached.isNotEmpty && _initialLoadDone) {
+    if (cached.isNotEmpty) {
       emit(state.copyWith(
-        inventories: cached,
-        isLoading: false,
-        isInitialized: true,
-        isOffline: false,
-        isCacheOnly: true,
+        inventories: cached, isLoading: false, isInitialized: true,
+        isOffline: false, isCacheOnly: true,
       ));
     } else {
       emit(state.copyWith(isLoading: true));
@@ -128,23 +120,17 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
         }
 
         final items = _readCache(companyId);
-        _initialLoadDone = true;
         if (!isClosed) {
           emit(state.copyWith(
-            inventories: items,
-            isLoading: false,
-            isOffline: false,
-            isInitialized: true,
-            isCacheOnly: false,
+            inventories: items, isLoading: false, isOffline: false,
+            isInitialized: true, isCacheOnly: false,
           ));
         }
       } catch (e) {
         if (!isClosed) {
           emit(state.copyWith(
-            inventories: cached,
-            isLoading: false,
-            isOffline: cached.isNotEmpty,
-            isCacheOnly: true,
+            inventories: cached, isLoading: false,
+            isOffline: cached.isNotEmpty, isCacheOnly: true,
             error: cached.isEmpty ? 'No connection.' : null,
           ));
         }
@@ -152,38 +138,29 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
     }
   }
 
-  Future<void> _onRefresh(
-      RefreshInventories event, Emitter<InventoryListState> emit) async {
-    emit(state.copyWith(
-      isLoading: true,
-      error: null,
-      isCacheOnly: false,
-      successMessage: null,
-    ));
+  Future<void> _onRefresh(RefreshInventories event, Emitter<InventoryListState> emit) async {
+    emit(state.copyWith(isLoading: true, error: null, isCacheOnly: false, successMessage: null));
     add(const LoadInventories());
   }
 
-  Future<void> _onCreate(
-      CreateInventory event, Emitter<InventoryListState> emit) async {
+  Future<void> _onCreate(CreateInventory event, Emitter<InventoryListState> emit) async {
     final name = event.name.trim();
     final companyId = await _getCurrentCompanyId();
 
     if (!AppConfig.useSupabase || companyId == null) {
       if (!isClosed) {
-        emit(state.copyWith(
-            error: 'Cannot create while offline or no company assigned'));
+        emit(state.copyWith(error: 'Cannot create while offline or no company assigned'));
       }
       return;
     }
 
-    emit(state.copyWith(isLoading: true, error: null, successMessage: null));
+    emit(state.copyWith(error: null, successMessage: null));
 
     try {
       final user = Supabase.instance.client.auth.currentUser;
       final timestamp = DateTime.now();
       final userId = user?.id;
-      final userName =
-          user?.userMetadata?['full_name'] ?? user?.email ?? 'Unknown';
+      final userName = user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown';
 
       debugPrint('📦 Creating inventory: $name for company: $companyId');
 
@@ -197,31 +174,58 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
       }).select();
 
       if (response.isEmpty) {
-        debugPrint('❌ No response from inventory insert');
         if (!isClosed) {
-          emit(state.copyWith(
-              isLoading: false,
-              error: 'Failed to create inventory - no response from server'));
+          emit(state.copyWith(error: 'Failed to create inventory - no response from server'));
         }
         return;
       }
 
-      debugPrint('✅ Inventory created: ${response.first}');
+      final created = Map<String, dynamic>.from(response.first as Map);
+      debugPrint('✅ Inventory created: $created');
 
-      // Force a full reload from Supabase to get fresh data with RLS
-      _initialLoadDone = false;
-      add(const LoadInventories());
+      // Update cache
+      final cacheList = _getRawCache();
+      cacheList.add(created);
+      await _writeCache(cacheList);
+
+      // Initialize service for new inventory
+      try {
+        final newId = created['id']?.toString() ?? '';
+        await _inventoryService.initializeForInventory(newId);
+      } catch (e) {
+        debugPrint('⚠️ Failed to init new inventory: $e');
+      }
+
+      // Log activity
+      await _logService.addLog(ActivityLogEntry(
+        id: const Uuid().v4(),
+        timestamp: timestamp,
+        action: 'created',
+        entityType: 'inventory',
+        entityName: name,
+        inventoryId: created['id']?.toString(),
+        inventoryName: name,
+        details: 'Created: "$name"',
+      ));
+
+      // Reload list
+      if (!isClosed) {
+        final items = _readCache(companyId);
+        emit(state.copyWith(
+          inventories: items,
+          isCacheOnly: false,
+          successMessage: 'Inventory "$name" created!',
+        ));
+      }
     } catch (e) {
       debugPrint('❌ Create inventory error: $e');
       if (!isClosed) {
-        emit(state.copyWith(
-            isLoading: false, error: 'Failed to create inventory: $e'));
+        emit(state.copyWith(error: 'Failed to create inventory: $e'));
       }
     }
   }
 
-  Future<void> _onRename(
-      RenameInventory event, Emitter<InventoryListState> emit) async {
+  Future<void> _onRename(RenameInventory event, Emitter<InventoryListState> emit) async {
     try {
       if (AppConfig.useSupabase) {
         await Supabase.instance.client.from('inventories').update({
@@ -229,7 +233,6 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
           'updated_at': DateTime.now().toUtc().toIso8601String(),
         }).eq('id', event.id);
       }
-
       final cacheList = _getRawCache();
       for (final item in cacheList) {
         if (item['id']?.toString() == event.id) {
@@ -238,34 +241,31 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
         }
       }
       await _writeCache(cacheList);
-
       if (!isClosed) {
         final companyId = await _getCurrentCompanyId();
         emit(state.copyWith(inventories: _readCache(companyId)));
       }
     } catch (e) {
-      if (!isClosed) {
-        emit(state.copyWith(error: 'Failed to rename: $e'));
-      }
+      if (!isClosed) emit(state.copyWith(error: 'Failed to rename: $e'));
     }
   }
 
-  Future<void> _onDelete(
-      DeleteInventory event, Emitter<InventoryListState> emit) async {
+  Future<void> _onDelete(DeleteInventory event, Emitter<InventoryListState> emit) async {
     if (!isClosed) emit(state.copyWith(isLoading: true, error: null));
-
+    
     try {
+      // Soft-delete via RPC
       if (AppConfig.useSupabase) {
-        await Supabase.instance.client.from('inventories').update({
-          'is_deleted': true,
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
-        }).eq('id', event.id);
+        await Supabase.instance.client
+            .rpc('delete_inventory', params: {'p_inventory_id': event.id});
       }
 
+      // Update local cache immediately - remove from list
       final cacheList = _getRawCache();
       cacheList.removeWhere((item) => item['id']?.toString() == event.id);
       await _writeCache(cacheList);
 
+      // Clean up local data
       await _logService.clearLogs(inventoryId: event.id);
       await _inventoryService.deleteInventoryData(event.id);
 
@@ -274,13 +274,14 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
         final inventories = _readCache(companyId);
         emit(state.copyWith(
           inventories: inventories,
-          selectedInventoryId: state.selectedInventoryId == event.id
-              ? (inventories.isNotEmpty ? inventories.first.id : null)
-              : state.selectedInventoryId,
+          selectedInventoryId: null,
+          selectedInventoryName: null,
           isLoading: false,
+          successMessage: 'Inventory deleted',
         ));
       }
     } catch (e) {
+      debugPrint('❌ Delete inventory error: $e');
       if (!isClosed) {
         emit(state.copyWith(isLoading: false, error: 'Failed to delete: $e'));
       }
@@ -296,14 +297,16 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
       }
     }
     emit(state.copyWith(
-        selectedInventoryId: event.id, selectedInventoryName: name));
+      selectedInventoryId: event.id,
+      selectedInventoryName: name,
+    ));
   }
 
-  void _onClearSelection(
-      ClearSelection event, Emitter<InventoryListState> emit) {
+  void _onClearSelection(ClearSelection event, Emitter<InventoryListState> emit) {
     emit(state.copyWith(
-        selectedInventoryId: null,
-        selectedInventoryName: null,
-        successMessage: null));
+      selectedInventoryId: null,
+      selectedInventoryName: null,
+      successMessage: null,
+    ));
   }
 }

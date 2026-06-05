@@ -1,10 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:inventory_management/features/company/screens/company_setup_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/onboarding_step.dart';
 import '../widgets/onboarding_page.dart';
-import '../../inventory_selection/screens/inventory_selection_screen.dart';
 import '../../../core/constants/app_constants.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -125,9 +125,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (!mounted) return;
 
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const InventorySelectionScreen()),
-      (route) => false,
-    );
+  MaterialPageRoute(builder: (_) => const CompanySetupScreen()),
+  (route) => false,
+);
   }
 
   void _nextPage() {

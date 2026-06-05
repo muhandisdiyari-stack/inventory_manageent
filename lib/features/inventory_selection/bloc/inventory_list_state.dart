@@ -63,12 +63,7 @@ class InventoryListState {
 
   @override
   int get hashCode => Object.hash(
-        selectedInventoryId,
-        isLoading,
-        isInitialized,
-        isOffline,
-        isCacheOnly,
-        error,
-        successMessage,
+        selectedInventoryId, isLoading, isInitialized,
+        isOffline, isCacheOnly, error, successMessage,
       );
 }

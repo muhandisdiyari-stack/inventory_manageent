@@ -95,7 +95,6 @@ class InjectionContainer {
       BlocProvider<InventoryBloc>(
         create: (_) => InventoryBloc(
           inventoryService: inventoryService,
-          logService: logService,
           realtimeService: realtimeService,
         ),
       ),

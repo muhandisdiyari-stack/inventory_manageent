@@ -206,9 +206,10 @@ class InventoryCard extends StatelessWidget {
                 const SizedBox(width: 12),
                 Text(
                   'Rename Inventory',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                  style: Theme.of(context)
+                      .textTheme
+                      .headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
               ],
             ),
@@ -262,7 +263,8 @@ class InventoryCard extends StatelessWidget {
                         Navigator.pop(dialogContext);
                       }
                     },
-                    child: const Text('Rename', style: TextStyle(fontWeight: FontWeight.w700)),
+                    child: const Text('Rename',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
                   ),
                 ),
               ],

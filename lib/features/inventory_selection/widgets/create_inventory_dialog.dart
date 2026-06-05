@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/inventory_list_bloc.dart';
+import '../../company/bloc/company_bloc.dart';
 
 class CreateInventoryDialog {
   static void show(BuildContext context) {
@@ -105,10 +106,22 @@ class CreateInventoryDialog {
     String name,
     TextEditingController controller,
   ) {
-    // Dispatch to InventoryListBloc to create the inventory
+    // Verify company is selected
+    final companyState = screenContext.read<CompanyBloc>().state;
+    final companyId = companyState.selectedCompany?['id']?.toString();
+    
+    if (companyId == null || companyId.isEmpty) {
+      // Show error
+      ScaffoldMessenger.of(screenContext).showSnackBar(
+        const SnackBar(content: Text('No company selected. Please go back and select a company first.')),
+      );
+      return;
+    }
+
+    // Dispatch to InventoryListBloc
     screenContext.read<InventoryListBloc>().add(CreateInventory(name));
 
-    // Just pop the dialog — DON'T navigate
+    // Pop the dialog
     if (dialogContext.mounted) {
       Navigator.pop(dialogContext);
     }
