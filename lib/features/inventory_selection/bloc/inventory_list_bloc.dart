@@ -157,63 +157,42 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
     emit(state.copyWith(error: null, successMessage: null));
 
     try {
-      final user = Supabase.instance.client.auth.currentUser;
-      final timestamp = DateTime.now();
-      final userId = user?.id;
-      final userName = user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown';
-
       debugPrint('📦 Creating inventory: $name for company: $companyId');
 
-      final response = await Supabase.instance.client.from('inventories').insert({
-        'company_id': companyId,
-        'name': name,
-        'created_by': userId,
-        'created_by_name': userName,
-        'created_at': timestamp.toUtc().toIso8601String(),
-        'updated_at': timestamp.toUtc().toIso8601String(),
-      }).select();
+      final result = await Supabase.instance.client
+          .rpc('create_inventory_rpc', params: {
+            'p_company_id': companyId,
+            'p_name': name,
+          });
 
-      if (response.isEmpty) {
+      final resultMap = Map<String, dynamic>.from(result as Map);
+      debugPrint('📦 RPC result: $resultMap');
+
+      if (resultMap['success'] != true) {
         if (!isClosed) {
-          emit(state.copyWith(error: 'Failed to create inventory - no response from server'));
+          emit(state.copyWith(error: resultMap['message']?.toString() ?? 'Failed to create inventory'));
         }
         return;
       }
 
-      final created = Map<String, dynamic>.from(response.first as Map);
-      debugPrint('✅ Inventory created: $created');
-
-      // Update cache
-      final cacheList = _getRawCache();
-      cacheList.add(created);
-      await _writeCache(cacheList);
-
-      // Initialize service for new inventory
-      try {
-        final newId = created['id']?.toString() ?? '';
-        await _inventoryService.initializeForInventory(newId);
-      } catch (e) {
-        debugPrint('⚠️ Failed to init new inventory: $e');
-      }
+      // Reload the list from Supabase
+      add(const LoadInventories());
 
       // Log activity
+      final newId = resultMap['inventory_id']?.toString() ?? '';
       await _logService.addLog(ActivityLogEntry(
         id: const Uuid().v4(),
-        timestamp: timestamp,
+        timestamp: DateTime.now(),
         action: 'created',
         entityType: 'inventory',
         entityName: name,
-        inventoryId: created['id']?.toString(),
+        inventoryId: newId,
         inventoryName: name,
         details: 'Created: "$name"',
       ));
 
-      // Reload list
       if (!isClosed) {
-        final items = _readCache(companyId);
         emit(state.copyWith(
-          inventories: items,
-          isCacheOnly: false,
           successMessage: 'Inventory "$name" created!',
         ));
       }
