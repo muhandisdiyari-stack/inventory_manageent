@@ -27,7 +27,6 @@ class InventoryService {
   String? get currentCompanyId => _currentCompanyId;
 
   // ─── Initialization with Race Condition Fix ────────────────────
-
   Future<void> initializeForInventory(String inventoryId) {
     if (_initFuture != null && _currentInventoryId == inventoryId) return _initFuture!;
     _initFuture = _doInitialize(inventoryId).whenComplete(() => _initFuture = null);
@@ -87,16 +86,24 @@ class InventoryService {
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
+      // Get company_id from the first inventory the user is a member of
       final data = await Supabase.instance.client.from('inventory_members')
-          .select('inventories!inner(company_id)').eq('user_id', user.id).limit(1).maybeSingle();
-      if (data != null) { final inv = data['inventories'] as Map?; if (inv != null) { _currentCompanyId = inv['company_id']?.toString(); return; } }
-      final profile = await Supabase.instance.client.from('profiles').select('company_id').eq('id', user.id).maybeSingle();
-      _currentCompanyId = profile?['company_id']?.toString();
+          .select('inventories!inner(company_id)')
+          .eq('user_id', user.id)
+          .limit(1)
+          .maybeSingle();
+      if (data != null) {
+        final inv = data['inventories'] as Map?;
+        if (inv != null) {
+          _currentCompanyId = inv['company_id']?.toString();
+          return;
+        }
+      }
+      // Fallback: if no inventories, try profiles (though company_id is removed, this won't exist)
     } catch (e) { debugPrint('⚠️ Load company ID error: $e'); _currentCompanyId = null; }
   }
 
   // ─── Label Sync ─────────────────────────────────────────────────
-
   Future<void> syncLabelsFromSupabase(String inventoryId) async {
     if (!AppConfig.useSupabase) return;
     final companyId = _currentCompanyId; if (companyId == null) return;
@@ -126,7 +133,6 @@ class InventoryService {
   }
 
   // ─── Item Sync ──────────────────────────────────────────────────
-
   Future<void> _syncItemsFromSupabase(String inventoryId) async {
     if (!AppConfig.useSupabase) return;
     final companyId = _currentCompanyId; if (companyId == null) return;
@@ -160,17 +166,49 @@ class InventoryService {
           .from('inventory_items')
           .select()
           .eq('inventory_id', inventoryId)
-          .eq('is_deleted', false)
           .order('updated_at', ascending: false)
-          .limit(100);
-      
-      // Clear existing items in cache
-      await box.clear();
-      
-      // Re-add only non-deleted items from Supabase
+          .limit(200);
+
+      // Build sets of current Supabase IDs
+      final supabaseIds = <String>{};
+      final supabaseItems = <String, InventoryItem>{};
       for (final itemData in data) {
         final item = _itemFromSupabaseRow(Map<String, dynamic>.from(itemData));
-        await box.add(item);
+        final sid = item.supabaseId ?? '';
+        if (sid.isNotEmpty) {
+          supabaseIds.add(sid);
+          supabaseItems[sid] = item;
+        }
+      }
+
+      // Remove local items that no longer exist on the server (or are deleted)
+      final keysToDelete = <dynamic>[];
+      for (final key in box.keys) {
+        final localItem = box.get(key);
+        if (localItem != null && localItem.supabaseId != null && localItem.supabaseId!.isNotEmpty) {
+          if (!supabaseIds.contains(localItem.supabaseId)) {
+            keysToDelete.add(key);
+          }
+        }
+      }
+      for (final key in keysToDelete) {
+        await box.delete(key);
+      }
+
+      // Upsert items from server
+      for (final item in supabaseItems.values) {
+        bool found = false;
+        for (final existingItem in box.values) {
+          if (existingItem.supabaseId == item.supabaseId) {
+            _updateItemFields(existingItem, item);
+            await existingItem.save();
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          await box.add(item);
+        }
       }
     } catch (e) {
       debugPrint('⚠️ Realtime sync error: $e');
@@ -212,7 +250,6 @@ class InventoryService {
   }
 
   // ─── Label Accessors ───────────────────────────────────────────
-
   List<Label> get labels => _currentInventoryId != null ? (_labelsCache[_currentInventoryId!] ?? []) : [];
   List<String> get labelNames => labels.map((l) => l.name).toList();
   bool get hasLabels => labels.isNotEmpty;
@@ -233,7 +270,6 @@ class InventoryService {
   }
 
   // ─── Label CRUD ─────────────────────────────────────────────────
-
   Future<Label> createLabel(String name) async {
     if (_currentInventoryId == null) throw Exception('No inventory selected');
     if (_currentCompanyId == null) throw Exception('No company selected');
@@ -288,7 +324,6 @@ class InventoryService {
   }
 
   // ─── Item Management ───────────────────────────────────────────
-
   List<InventoryItem> getItemsByLabel(String label) {
     if (_currentInventoryId == null || !_itemsBoxes.containsKey(_currentInventoryId!)) return [];
     return _itemsBoxes[_currentInventoryId!]!.values.where((item) => item.label == label).toList();
@@ -297,7 +332,11 @@ class InventoryService {
   Future<void> saveItem(InventoryItem item) async {
     if (_currentInventoryId == null) return;
     final box = _itemsBoxes[_currentInventoryId!]; if (box == null) return;
-    item.inventoryId = _currentInventoryId; item.companyId = _currentCompanyId; item.isSynced = false;
+    item.inventoryId = _currentInventoryId; item.isSynced = false;
+    // Ensure company_id is set from cache or fetched
+    if (item.companyId == null && _currentCompanyId != null) {
+      item.companyId = _currentCompanyId;
+    }
     if (item.labelId == null && item.label.isNotEmpty) { final label = getLabelByName(item.label); if (label != null) item.labelId = label.id; }
     if (item.key != null) { await item.save(); } else { await box.add(item); }
     await _syncItemToSupabase(item);
@@ -305,10 +344,7 @@ class InventoryService {
   }
 
   Future<void> deleteItem(InventoryItem item) async {
-    // Remove from local Hive immediately
     await item.delete();
-
-    // Soft delete in Supabase
     if (AppConfig.useSupabase && item.supabaseId != null && item.supabaseId!.isNotEmpty) {
       await Supabase.instance.client.from('inventory_items').update({
         'is_deleted': true,
@@ -317,11 +353,30 @@ class InventoryService {
     }
   }
 
+  // ─── FIXED SYNC METHOD ─────────────────────────────────────────
   Future<void> _syncItemToSupabase(InventoryItem item) async {
     if (!AppConfig.useSupabase) return;
-    final companyId = _currentCompanyId;
-    final inventoryId = _currentInventoryId;
-    if (companyId == null || inventoryId == null) return;
+
+    final inventoryId = _currentInventoryId ?? item.inventoryId;
+    if (inventoryId == null) return;
+
+    // Resolve company_id reliably
+    String? companyId = item.companyId;
+    if (companyId == null || companyId.isEmpty) {
+      try {
+        final invData = await Supabase.instance.client
+            .from('inventories')
+            .select('company_id')
+            .eq('id', inventoryId)
+            .maybeSingle();
+        companyId = invData?['company_id']?.toString();
+        item.companyId = companyId;
+      } catch (e) {
+        debugPrint('❌ Could not fetch company_id for sync: $e');
+        return;
+      }
+    }
+    if (companyId == null) return;
 
     try {
       final client = Supabase.instance.client;
@@ -351,13 +406,11 @@ class InventoryService {
       final supabaseId = item.supabaseId;
 
       if (supabaseId != null && supabaseId.isNotEmpty) {
-        // UPDATE existing item
         data['updated_by'] = user?.id;
         data['updated_by_name'] = userName;
-        final response = await client.from('inventory_items').update(data).eq('id', supabaseId).select();
+        await client.from('inventory_items').update(data).eq('id', supabaseId).select();
         debugPrint('✅ Item updated in Supabase: ${item.name}');
       } else {
-        // INSERT new item
         data['id'] = item.id;
         data['created_at'] = item.createdAt.toUtc().toIso8601String();
         data['created_by'] = user?.id;

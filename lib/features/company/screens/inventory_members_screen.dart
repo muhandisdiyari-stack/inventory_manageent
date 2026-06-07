@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/utils/snackbar_utils.dart';
 import '../../../core/services/permission_service.dart';
 import '../../../core/models/user.dart';
+import '../../company/bloc/company_bloc.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 class InventoryMembersScreen extends StatefulWidget {
   final String inventoryId;
@@ -62,20 +64,29 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
         debugPrint('Failed to load invitations: $e');
       }
 
+      // Try to get company_id from the inventories table, then from CompanyBloc as fallback
+      String? companyId;
       try {
         final invData = await Supabase.instance.client
             .from('inventories')
             .select('company_id')
             .eq('id', widget.inventoryId)
             .single();
-        _companyId = invData['company_id']?.toString();
-      } catch (_) {}
+        companyId = invData['company_id']?.toString();
+      } catch (_) {
+        // Fallback: use the selected company from CompanyBloc
+        try {
+          final companyState = context.read<CompanyBloc>().state;
+          companyId = companyState.selectedCompany?['id']?.toString();
+        } catch (_) {}
+      }
 
       if (mounted) {
         setState(() {
           _permissions = perms;
           _members = members;
           _pendingInvitations = invitations;
+          _companyId = companyId;
           _isLoading = false;
         });
       }
@@ -107,8 +118,15 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
     }
 
     if (_companyId == null) {
-      SnackBarUtils.error(context, 'Could not determine company');
-      return;
+      // Try once more to get companyId from CompanyBloc
+      try {
+        final companyState = context.read<CompanyBloc>().state;
+        _companyId = companyState.selectedCompany?['id']?.toString();
+      } catch (_) {}
+      if (_companyId == null) {
+        SnackBarUtils.error(context, 'Could not determine company. Please go back and select a company.');
+        return;
+      }
     }
 
     setState(() => _isSending = true);
@@ -411,10 +429,7 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
           PopupMenuButton<String>(
             padding: EdgeInsets.zero,
             icon: const Icon(Icons.more_vert, size: 20),
-            onSelected: (action) { if (action == 'change_role') {
-              _changeRole(memberId, role, name);
-            // ignore: curly_braces_in_flow_control_structures
-            } else if (action == 'remove') _removeMember(memberId, name); },
+            onSelected: (action) { if (action == 'change_role') _changeRole(memberId, role, name); else if (action == 'remove') _removeMember(memberId, name); },
             itemBuilder: (ctx) => [
               const PopupMenuItem(value: 'change_role', child: Text('Change Role')),
               const PopupMenuItem(value: 'remove', child: Text('Remove', style: TextStyle(color: Colors.red))),
