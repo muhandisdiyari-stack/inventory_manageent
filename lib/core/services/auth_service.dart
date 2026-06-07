@@ -204,38 +204,25 @@ class AuthService {
     await _clearCache();
   }
 
-  bool hasPermission(String permission) {
-    if (_currentUser == null) return false;
-    switch (_currentUser!.role) {
-      case UserRole.owner:
-        return true;
-      case UserRole.admin:
-        return permission != 'manage_company';
-      case UserRole.dataOperator:
-        return [
-          'view_inventory',
-          'manage_inventory',
-          'export_reports',
-          'bulk_import'
-        ].contains(permission);
-      case UserRole.viewer:
-        return ['view_inventory', 'export_reports'].contains(permission);
-    }
+  /// Check a specific permission in an inventory permissions map.
+  bool hasInventoryPermission(Map<String, dynamic> permissions, String key) {
+    return permissions[key] == true;
   }
 
-// ─── Company Operations ──────────────────────────────────────
-
+  // ─── Company Operations ──────────────────────────────────────
   Future<Map<String, dynamic>?> createCompany(String name) async =>
       await _supabaseClient.createCompany(name);
 
   Future<bool> deleteCompany(String companyId) async =>
       await _supabaseClient.deleteCompanyCascade(companyId);
 
-  Future<Map<String, dynamic>?> getUserCompany() async =>
-      await _supabaseClient.getUserCompany();
+  Future<Map<String, dynamic>?> getUserCompany() async {
+    final companies = await _supabaseClient.getUserCompanies();
+    if (companies.isNotEmpty) return companies.first;
+    return null;
+  }
 
   // ─── Inventory Member Operations ─────────────────────────────
-
   Future<List<Map<String, dynamic>>> getInventoryMembers(
           String inventoryId) async =>
       await _supabaseClient.getInventoryMembers(inventoryId);
@@ -291,7 +278,6 @@ class AuthService {
           inventoryId, newOwnerUserId);
 
   // ─── Invitation Operations ───────────────────────────────────
-
   Future<Map<String, dynamic>?> createInvitation({
     required String companyId,
     required String inventoryId,
@@ -323,18 +309,65 @@ class AuthService {
     }
   }
 
-  // ─── Company Member Operations (legacy - ownership only) ─────
-
-  Future<List<Map<String, dynamic>>> getCompanyMembers(
-          String companyId) async =>
-      await _supabaseClient.getCompanyMembers(companyId);
-
+  // ─── Company Inventories ─────────────────────────────────────
   Future<List<Map<String, dynamic>>> getCompanyInventories(
           String companyId) async =>
       await _supabaseClient.getCompanyInventories(companyId);
 
-  // ─── Cache ───────────────────────────────────────────────────
+  // ─── Activity Log ────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> getInventoryActivity({
+    required String inventoryId,
+    DateTime? cursor,
+    int limit = 50,
+  }) async =>
+      await _supabaseClient.getInventoryActivity(
+        inventoryId: inventoryId,
+        cursor: cursor,
+        limit: limit,
+      );
 
+  Future<void> logActivity({
+    required String inventoryId,
+    required String action,
+    required String entityType,
+    required String entityName,
+    String? labelName,
+    String? details,
+    Map<String, dynamic>? changes,
+  }) async =>
+      await _supabaseClient.logActivity(
+        inventoryId: inventoryId,
+        action: action,
+        entityType: entityType,
+        entityName: entityName,
+        labelName: labelName,
+        details: details,
+        changes: changes,
+      );
+
+  // ─── Chat ────────────────────────────────────────────────────
+  Future<void> markChatRoomRead(String roomId) async =>
+      await _supabaseClient.markChatRoomRead(roomId);
+
+  // ─── Profile ─────────────────────────────────────────────────
+  Future<void> updateLastLogin() async =>
+      await _supabaseClient.updateLastLogin();
+
+  // ─── Notifications ───────────────────────────────────────────
+  Future<bool> sendNotification({
+    required String userId,
+    required String title,
+    required String message,
+    String type = 'info',
+  }) async =>
+      await _supabaseClient.sendNotificationViaRpc(
+        userId: userId,
+        title: title,
+        message: message,
+        type: type,
+      );
+
+  // ─── Cache ───────────────────────────────────────────────────
   Future<void> _cacheCurrentUser() async {
     if (_currentUser == null) return;
     try {

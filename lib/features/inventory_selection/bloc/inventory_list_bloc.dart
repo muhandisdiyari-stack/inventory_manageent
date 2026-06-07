@@ -74,7 +74,18 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
       final data = await Supabase.instance.client
           .rpc('get_company_inventories', params: {'p_company_id': companyId});
       if (data is List) {
-        return data.map((inv) => Map<String, dynamic>.from(inv as Map)).toList();
+        return data.map((inv) {
+          final map = Map<String, dynamic>.from(inv as Map);
+          return {
+            'id': map['id']?.toString(),
+            'name': map['name']?.toString(),
+            'company_id': companyId,
+            'role': map['role']?.toString(),
+            'created': map['created_at']?.toString(),
+            'modified': map['updated_at']?.toString(),
+            'created_by_name': map['created_by_name']?.toString(),
+          };
+        }).toList();
       }
       return [];
     } catch (e) {
@@ -175,10 +186,8 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
         return;
       }
 
-      // Reload the list from Supabase
       add(const LoadInventories());
 
-      // Log activity
       final newId = resultMap['inventory_id']?.toString() ?? '';
       await _logService.addLog(ActivityLogEntry(
         id: const Uuid().v4(),
@@ -207,10 +216,21 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
   Future<void> _onRename(RenameInventory event, Emitter<InventoryListState> emit) async {
     try {
       if (AppConfig.useSupabase) {
+        // Trigger handles updated_at/updated_by; do not send updated_at manually
         await Supabase.instance.client.from('inventories').update({
           'name': event.newName.trim(),
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
         }).eq('id', event.id);
+
+        // Log the rename activity
+        await _logService.addLog(ActivityLogEntry(
+          id: const Uuid().v4(),
+          timestamp: DateTime.now(),
+          action: 'modified',
+          entityType: 'inventory',
+          entityName: event.newName,
+          inventoryId: event.id,
+          details: 'Renamed to "${event.newName}"',
+        ));
       }
       final cacheList = _getRawCache();
       for (final item in cacheList) {
@@ -231,20 +251,17 @@ class InventoryListBloc extends Bloc<InventoryListEvent, InventoryListState> {
 
   Future<void> _onDelete(DeleteInventory event, Emitter<InventoryListState> emit) async {
     if (!isClosed) emit(state.copyWith(isLoading: true, error: null));
-    
+
     try {
-      // Soft-delete via RPC
       if (AppConfig.useSupabase) {
         await Supabase.instance.client
             .rpc('delete_inventory', params: {'p_inventory_id': event.id});
       }
 
-      // Update local cache immediately - remove from list
       final cacheList = _getRawCache();
       cacheList.removeWhere((item) => item['id']?.toString() == event.id);
       await _writeCache(cacheList);
 
-      // Clean up local data
       await _logService.clearLogs(inventoryId: event.id);
       await _inventoryService.deleteInventoryData(event.id);
 

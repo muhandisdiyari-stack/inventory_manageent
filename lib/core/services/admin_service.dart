@@ -6,44 +6,24 @@ class AdminService {
 
   AdminService({SupabaseClient? client}) : _client = client;
 
-  /// Returns the Supabase client safely.
   SupabaseClient get _safeClient {
     final client = _client;
     if (client != null) return client;
     return Supabase.instance.client;
   }
 
-  // ---------------------------------------------------------------------------
-  // Auth helpers
-  // ---------------------------------------------------------------------------
-
   Future<bool> isAdmin() async {
     try {
       final currentUser = _safeClient.auth.currentUser;
       if (currentUser == null) return false;
-
       final result = await _safeClient.rpc('is_admin',
           params: {'p_user_id': currentUser.id});
       return result == true;
-    } catch (_) {
-      try {
-        final currentUser = _safeClient.auth.currentUser;
-        if (currentUser == null) return false;
-        final data = await _safeClient
-            .from('admin_users')
-            .select('is_active')
-            .eq('user_id', currentUser.id)
-            .maybeSingle();
-        return data != null && data['is_active'] == true;
-      } catch (_) {
-        return false;
-      }
+    } catch (e) {
+      debugPrint('isAdmin check failed: $e');
+      return false;
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Statistics
-  // ---------------------------------------------------------------------------
 
   Future<Map<String, dynamic>> getStatistics() async {
     try {
@@ -56,26 +36,17 @@ class AdminService {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Users
-  // ---------------------------------------------------------------------------
-
-  Future<List<Map<String, dynamic>>> getAllUsers() async {
+  Future<List<Map<String, dynamic>>> getAllUsers({int offset = 0, int limit = 50}) async {
     try {
-      final data = await _safeClient.rpc('admin_get_all_users_full');
+      final data = await _safeClient.rpc('get_admin_users_list', params: {
+        'p_offset': offset,
+        'p_limit': limit,
+      });
       if (data is List) return List<Map<String, dynamic>>.from(data);
       return [];
-    } catch (_) {
-      try {
-        final data = await _safeClient
-            .from('profiles')
-            .select()
-            .order('created_at', ascending: false);
-        return List<Map<String, dynamic>>.from(data);
-      } catch (e) {
-        debugPrint('AdminService.getAllUsers error: $e');
-        return [];
-      }
+    } catch (e) {
+      debugPrint('AdminService.getAllUsers error: $e');
+      return [];
     }
   }
 
@@ -158,26 +129,30 @@ class AdminService {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Companies
-  // ---------------------------------------------------------------------------
-
-  Future<List<Map<String, dynamic>>> getAllCompanies() async {
+  /// Returns companies with owner_name mapped from full_name.
+  Future<List<Map<String, dynamic>>> getAllCompanies({int offset = 0, int limit = 50}) async {
     try {
-      final data = await _safeClient
-          .from('companies')
-          .select()
-          .order('created_at', ascending: false);
-      return List<Map<String, dynamic>>.from(data);
+      final data = await _safeClient.rpc('get_admin_companies_list', params: {
+        'p_offset': offset,
+        'p_limit': limit,
+      });
+      if (data is List) {
+        return data.map((item) {
+          final map = Map<String, dynamic>.from(item as Map);
+          // The RPC returns full_name, but our UI expects owner_name.
+          // Map it here to avoid changing the widget.
+          if (map.containsKey('full_name') && !map.containsKey('owner_name')) {
+            map['owner_name'] = map['full_name'];
+          }
+          return map;
+        }).toList();
+      }
+      return [];
     } catch (e) {
       debugPrint('AdminService.getAllCompanies error: $e');
       return [];
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Notifications
-  // ---------------------------------------------------------------------------
 
   Future<bool> sendNotification(
     String userId,
@@ -186,13 +161,13 @@ class AdminService {
     String type = 'info',
   }) async {
     try {
-      final result = await _safeClient.rpc('admin_send_notification', params: {
+      await _safeClient.rpc('send_notification', params: {
         'p_user_id': userId,
         'p_title': title,
         'p_message': message,
         'p_type': type,
       });
-      return result is Map && result['success'] == true;
+      return true;
     } catch (e) {
       debugPrint('AdminService.sendNotification error: $e');
       return false;
@@ -240,10 +215,6 @@ class AdminService {
       debugPrint('AdminService.markNotificationRead error: $e');
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Audit log
-  // ---------------------------------------------------------------------------
 
   Future<List<Map<String, dynamic>>> getAuditLogs({int limit = 50}) async {
     try {

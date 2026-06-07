@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../models/activity_log_entry.dart';
 import '../config/app_config.dart';
+import '../database/supabase/supabase_client.dart';
 import '../utils/file_export.dart';
 
 class ActivityLogService {
@@ -22,8 +23,6 @@ class ActivityLogService {
   List<ActivityLogEntry>? _cache;
   bool _initialized = false;
 
-  // ─── Initialization ─────────────────────────────────────────────
-
   Future<void> initialize() async {
     if (_initialized && _logBox != null && _logBox!.isOpen) return;
 
@@ -37,10 +36,9 @@ class ActivityLogService {
       }
 
       _initialized = true;
-      _cache = null; // Force reload on next read
+      _cache = null;
     } catch (e) {
       debugPrint('ActivityLogService initialization error: $e');
-      // Try to recover corrupted box
       try {
         await Hive.deleteBoxFromDisk(_logBoxName);
         _logBox = await Hive.openBox(_logBoxName);
@@ -64,23 +62,18 @@ class ActivityLogService {
     }
   }
 
-  // ─── Read ──────────────────────────────────────────────────────
-
   List<ActivityLogEntry> getLogs({String? inventoryId, String? entityType}) {
     if (!_initialized || _logBox == null) return [];
 
-    // Populate cache if empty
     _cache ??= _loadAllLogs();
 
     var result = _cache!;
 
     if (inventoryId != null) {
-      result =
-          result.where((l) => l.inventoryId == inventoryId).toList();
+      result = result.where((l) => l.inventoryId == inventoryId).toList();
     }
     if (entityType != null) {
-      result =
-          result.where((l) => l.entityType == entityType).toList();
+      result = result.where((l) => l.entityType == entityType).toList();
     }
 
     return result;
@@ -111,13 +104,10 @@ class ActivityLogService {
     }
   }
 
-  // ─── Write ─────────────────────────────────────────────────────
-
   Future<void> addLog(ActivityLogEntry entry) async {
     await _ensureInitialized();
     if (_logBox == null) return;
 
-    // Ensure entry has a valid UUID for database sync
     final logEntry = entry.id.isEmpty || !_isValidUUID(entry.id)
         ? ActivityLogEntry(
             id: const Uuid().v4(),
@@ -140,27 +130,23 @@ class ActivityLogService {
 
       rawLogs.add(jsonEncode(logEntry.toJson()));
 
-      // Prune oldest entries if we exceed the cap
       while (rawLogs.length > _maxLogEntries) {
         rawLogs.removeAt(0);
       }
 
       await _logBox!.put(_logKey, rawLogs);
 
-      // Update cache incrementally
       _cache?.insert(0, logEntry);
       if (_cache != null && _cache!.length > _maxLogEntries) {
         _cache = _cache!.sublist(0, _maxLogEntries);
       }
 
-      // Sync to Supabase if enabled
       await _syncLogToSupabase(logEntry);
     } catch (e) {
       debugPrint('Error adding log: $e');
     }
   }
 
-  /// Check if a string is a valid UUID format
   bool _isValidUUID(String value) {
     final uuidRegex = RegExp(
       r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
@@ -169,58 +155,67 @@ class ActivityLogService {
     return uuidRegex.hasMatch(value);
   }
 
-  /// Sync a single log entry to Supabase for cross-device visibility.
-  /// Sync a single log entry to Supabase for cross-device visibility.
+  /// Sync a single log entry to Supabase.
+  /// Fetches company_id from inventory before calling log_activity.
   Future<void> _syncLogToSupabase(ActivityLogEntry entry) async {
     if (!AppConfig.useSupabase) return;
 
     try {
-      // Get the actual company_id from the inventory
+      final supabaseService = SupabaseClientService();
+      if (entry.inventoryId == null || entry.inventoryId!.isEmpty) return;
+
+      // Fetch company_id from inventory
       String? companyId;
-      if (entry.inventoryId != null) {
-        try {
-          final data = await Supabase.instance.client
-              .from('inventories')
-              .select('company_id')
-              .eq('id', entry.inventoryId!)
-              .maybeSingle();
-          companyId = data?['company_id']?.toString();
-        } catch (_) {
-          debugPrint('⚠️ Could not fetch company_id for inventory ${entry.inventoryId}');
-        }
+      try {
+        final invData = await Supabase.instance.client
+            .from('inventories')
+            .select('company_id')
+            .eq('id', entry.inventoryId!)
+            .maybeSingle();
+        companyId = invData?['company_id']?.toString();
+      } catch (e) {
+        debugPrint('⚠️ Could not fetch company_id for inventory ${entry.inventoryId}: $e');
       }
 
-      // Don't send the id field - let Supabase generate the UUID
-      await Supabase.instance.client.from('activity_log').insert({
-        'company_id': companyId,
-        'inventory_id': entry.inventoryId,
-        'user_id': Supabase.instance.client.auth.currentUser?.id,
-        'user_name': Supabase.instance.client.auth.currentUser?.userMetadata?['display_name'],
-        'action': entry.action,
-        'entity_type': entry.entityType,
-        'entity_name': entry.entityName,
-        'label_name': entry.labelName,
-        'details': entry.details,
-        'changes': entry.changes?.map(
+      if (companyId == null) return;
+
+      await Supabase.instance.client.rpc('log_activity', params: {
+        'p_company_id': companyId,
+        'p_inventory_id': entry.inventoryId,
+        'p_action': entry.action,
+        'p_entity_type': entry.entityType,
+        'p_entity_name': entry.entityName,
+        'p_label_name': entry.labelName,
+        'p_details': entry.details,
+        'p_changes': entry.changes?.map(
             (key, value) => MapEntry(key, value.toJson())),
-        'created_at': entry.timestamp.toUtc().toIso8601String(),
       });
     } catch (e) {
       debugPrint('Activity log sync to Supabase failed: $e');
     }
   }
 
-  /// Fetch activity logs from Supabase and merge with local.
   Future<void> syncLogsFromSupabase(String inventoryId) async {
     if (!AppConfig.useSupabase) return;
 
     try {
-      final data = await Supabase.instance.client
-          .from('activity_log')
-          .select()
-          .eq('inventory_id', inventoryId)
-          .order('created_at', ascending: false)
-          .limit(_maxLogEntries);
+      final supabaseService = SupabaseClientService();
+      List<Map<String, dynamic>> data;
+      try {
+        data = await supabaseService.getInventoryActivity(
+          inventoryId: inventoryId,
+          limit: 100,
+        );
+      } catch (e) {
+        debugPrint('⚠️ get_inventory_activity failed, fallback direct query: $e');
+        final rawData = await Supabase.instance.client
+            .from('activity_log')
+            .select()
+            .eq('inventory_id', inventoryId)
+            .order('created_at', ascending: false)
+            .limit(100);
+        data = List<Map<String, dynamic>>.from(rawData);
+      }
 
       await _ensureInitialized();
       if (_logBox == null) return;
@@ -229,7 +224,6 @@ class ActivityLogService {
         _logBox!.get(_logKey, defaultValue: <String>[]) as List,
       );
 
-      // Track existing IDs to avoid duplicates
       final existingIds = <String>{};
       for (final raw in rawLogs) {
         try {
@@ -238,7 +232,6 @@ class ActivityLogService {
         } catch (_) {}
       }
 
-      // Add new entries from Supabase
       for (final row in data) {
         final id = row['id']?.toString() ?? '';
         if (existingIds.contains(id)) continue;
@@ -254,18 +247,27 @@ class ActivityLogService {
           inventoryId: row['inventory_id'] as String?,
           labelName: row['label_name'] as String?,
           details: row['details'] as String?,
+          changes: row['changes'] != null && (row['changes'] is Map)
+              ? (row['changes'] as Map<String, dynamic>).map(
+                  (key, value) => MapEntry(
+                    key,
+                    FieldChange.fromJson(value is Map
+                        ? Map<String, dynamic>.from(value)
+                        : {'oldValue': '', 'newValue': '$value'}),
+                  ),
+                )
+              : null,
         );
 
         rawLogs.add(jsonEncode(entry.toJson()));
       }
 
-      // Prune if over limit
       while (rawLogs.length > _maxLogEntries) {
         rawLogs.removeAt(0);
       }
 
       await _logBox!.put(_logKey, rawLogs);
-      _cache = null; // Force cache refresh
+      _cache = null;
     } catch (e) {
       debugPrint('Activity log sync from Supabase failed: $e');
     }
@@ -286,7 +288,7 @@ class ActivityLogService {
             final decoded = jsonDecode(json) as Map<String, dynamic>;
             return decoded['inventoryId'] != inventoryId;
           } catch (_) {
-            return true; // Keep unparseable entries
+            return true;
           }
         }).toList();
 
@@ -295,15 +297,12 @@ class ActivityLogService {
         await _logBox!.put(_logKey, <String>[]);
       }
 
-      _cache = null; // Full cache invalidation needed
+      _cache = null;
     } catch (e) {
       debugPrint('Error clearing logs: $e');
     }
   }
 
-  // ─── Convenience Methods ────────────────────────────────────────
-
-  /// Quick log for item creation
   Future<void> logItemCreated({
     required String itemName,
     required String inventoryId,
@@ -324,7 +323,6 @@ class ActivityLogService {
     ));
   }
 
-  /// Quick log for item modification
   Future<void> logItemModified({
     required String itemName,
     required String inventoryId,
@@ -346,8 +344,6 @@ class ActivityLogService {
       changes: changes,
     ));
   }
-
-  // ─── Export (unchanged) ────────────────────────────────────────
 
   String exportLogsAsText({String? inventoryId}) {
     final logs = getLogs(inventoryId: inventoryId);
@@ -413,7 +409,6 @@ class ActivityLogService {
         }
         await File(savedPath).writeAsBytes(bytes);
       } else {
-        // macOS / Linux
         final homeDir = Platform.environment['HOME'] ?? '/tmp';
         final downloadsDir = Directory('$homeDir/Downloads');
         if (await downloadsDir.exists()) {
@@ -431,8 +426,6 @@ class ActivityLogService {
       return null;
     }
   }
-
-  // ─── Statistics ────────────────────────────────────────────────
 
   Map<String, dynamic> getStatistics({String? inventoryId}) {
     final logs = getLogs(inventoryId: inventoryId);

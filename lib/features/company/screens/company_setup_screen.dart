@@ -226,9 +226,11 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                           ),
                         ...state.companies.map((c) {
                           final name = c['name']?.toString() ?? '';
-                          final role =
-                              (c['role']?.toString() ?? 'viewer').toUpperCase();
-                          final isOwner = role == 'OWNER';
+                          final isOwner = c['is_owner'] == true ||
+                              c['role']?.toString().toUpperCase() == 'OWNER';
+                          final roleText = isOwner
+                              ? 'OWNER'
+                              : (c['role']?.toString().toUpperCase() ?? 'MEMBER');
                           final companyId = c['id']?.toString() ?? '';
                           final isDeleting = _deletingCompanyId == companyId;
 
@@ -281,7 +283,7 @@ class _CompanySetupScreenState extends State<CompanySetupScreen> {
                                                 BorderRadius.circular(8),
                                           ),
                                           child: Text(
-                                            role,
+                                            roleText,
                                             style: TextStyle(
                                               fontSize: 11,
                                               fontWeight: FontWeight.w600,

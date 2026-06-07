@@ -51,8 +51,11 @@ class _CompaniesManagementState extends State<CompaniesManagement> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _detailRow('ID', company['id']?.toString() ?? '—'),
+            _detailRow('Owner', company['owner_name']?.toString() ?? company['full_name']?.toString() ?? '—'),
+            _detailRow('Owner Email', company['owner_email']?.toString() ?? '—'),
+            _detailRow('Inventories', company['inventory_count']?.toString() ?? '0'),
+            _detailRow('Items', company['item_count']?.toString() ?? '0'),
             _detailRow('Created', _formatDateTime(company['created_at']?.toString())),
-            _detailRow('Updated', _formatDateTime(company['updated_at']?.toString())),
           ],
         ),
         actions: [
@@ -104,6 +107,10 @@ class _CompaniesManagementState extends State<CompaniesManagement> {
                           itemBuilder: (_, i) {
                             final company = state.companies[i];
                             final name = company['name']?.toString() ?? 'Unknown';
+                            // owner_name is mapped in AdminService.getAllCompanies
+                            final ownerName = company['owner_name']?.toString() ?? '—';
+                            final inventoryCount = company['inventory_count']?.toString() ?? '0';
+                            final itemCount = company['item_count']?.toString() ?? '0';
                             final createdAt = _formatDate(company['created_at']?.toString());
 
                             return Card(
@@ -114,7 +121,8 @@ class _CompaniesManagementState extends State<CompaniesManagement> {
                                   child: const Icon(Icons.business, color: Colors.blue),
                                 ),
                                 title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                                subtitle: Text('Created: $createdAt'),
+                                subtitle: Text('Owner: $ownerName • $inventoryCount inventories • $itemCount items\nCreated: $createdAt'),
+                                isThreeLine: true,
                                 trailing: IconButton(
                                   icon: const Icon(Icons.info_outline),
                                   onPressed: () => _showCompanyDetails(company),

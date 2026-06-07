@@ -48,6 +48,7 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
         return;
       }
 
+      // Database now returns is_owner + synthetic role already mapped in getUserCompanies
       final currentSelectedId =
           state.selectedCompany?['id']?.toString();
       Map<String, dynamic>? targetCompany;
@@ -145,8 +146,9 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
   Future<void> _onDeleteCompany(
       DeleteCompany event, Emitter<CompanyState> emit) async {
     final company = _findCompany(event.companyId);
-    final role = company?['role']?.toString() ?? 'viewer';
-    if (role != 'owner') {
+    final isOwner = company?['is_owner'] == true ||
+        company?['role']?.toString() == 'owner';
+    if (!isOwner) {
       emit(state.copyWith(
           error: 'Only company owners can delete a company'));
       return;

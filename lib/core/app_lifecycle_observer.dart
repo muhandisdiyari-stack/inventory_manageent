@@ -4,7 +4,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/config/app_config.dart';
 import '../core/constants/app_constants.dart';
 
-/// Observes app lifecycle changes and performs necessary actions.
 class AppLifecycleObserver extends StatefulWidget {
   final Widget child;
 
@@ -57,6 +56,11 @@ class _AppLifecycleObserverState extends State<AppLifecycleObserver>
         if (session != null) {
           await client.auth.refreshSession();
           debugPrint('✅ Auth session refreshed');
+          try {
+            await client.rpc('update_last_login');
+          } catch (e) {
+            debugPrint('⚠️ Update last login failed: $e');
+          }
         }
       } catch (e) {
         debugPrint('⚠️ Failed to refresh session: $e');

@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/app_config.dart';
 
-/// Returns the correct redirect URL for email confirmation based on platform.
 String _getEmailRedirectTo() {
   if (kIsWeb) {
     final origin = Uri.base.origin;
@@ -15,7 +14,6 @@ String _getEmailRedirectTo() {
   return 'inventory://auth/callback';
 }
 
-/// Centralized Supabase client service.
 class SupabaseClientService {
   SupabaseClient? _client;
   bool _isInitialized = false;
@@ -62,7 +60,6 @@ class SupabaseClientService {
       (_isInitialized && _client != null) ? _client : null;
 
   // ─── Auth ─────────────────────────────────────────────────────
-
   Future<Map<String, dynamic>?> getCurrentUser() async {
     if (!isConfigured) return null;
     try {
@@ -101,7 +98,6 @@ class SupabaseClientService {
             .select()
             .eq('id', user.id)
             .maybeSingle();
-        debugPrint('🔍 Profile data: $profileData');
       } catch (e) {
         debugPrint('⚠️ Profile fetch error: $e');
       }
@@ -203,7 +199,6 @@ class SupabaseClientService {
   }
 
   // ─── Company ──────────────────────────────────────────────────
-
   Future<Map<String, dynamic>?> createCompany(String name) async {
     if (!isConfigured) return null;
     try {
@@ -214,20 +209,6 @@ class SupabaseClientService {
     } catch (e) {
       debugPrint('Create company error: $e');
       rethrow;
-    }
-  }
-
-  Future<bool> updateCompany(String companyId, String newName) async {
-    if (!isConfigured) return false;
-    try {
-      await _client!.from('companies').update({
-        'name': newName.trim(),
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      }).eq('id', companyId);
-      return true;
-    } catch (e) {
-      debugPrint('Update company error: $e');
-      return false;
     }
   }
 
@@ -243,29 +224,21 @@ class SupabaseClientService {
     }
   }
 
-  Future<Map<String, dynamic>?> getUserCompany() async {
-    if (!isConfigured) return null;
-    try {
-      final result = await _client!.rpc('get_user_company');
-      if (result is Map) {
-        final map = Map<String, dynamic>.from(result);
-        if (map['has_company'] == true) return map;
-      }
-      return null;
-    } catch (e) {
-      debugPrint('Get user company error: $e');
-      return null;
-    }
-  }
-
+  /// Returns companies where the user has membership.
+  /// The database returns `is_owner` boolean. We map it to also include
+  /// a synthetic `role` field for backward compatibility with existing UI.
   Future<List<Map<String, dynamic>>> getUserCompanies() async {
     if (!isConfigured) return [];
     try {
       final data = await _client!.rpc('get_user_companies');
       if (data is List) {
-        return data
-            .map((item) => Map<String, dynamic>.from(item as Map))
-            .toList();
+        return data.map((item) {
+          final map = Map<String, dynamic>.from(item as Map);
+          final isOwner = map['is_owner'] == true;
+          // Add synthetic 'role' field (the UI expects it)
+          map['role'] = isOwner ? 'owner' : 'member';
+          return map;
+        }).toList();
       }
       return [];
     } catch (e) {
@@ -292,8 +265,7 @@ class SupabaseClientService {
     }
   }
 
-  // ─── Inventory Members (NEW - authoritative access control) ───
-
+  // ─── Inventory Members ────────────────────────────────────────
   Future<List<Map<String, dynamic>>> getInventoryMembers(
       String inventoryId) async {
     if (!isConfigured) return [];
@@ -308,13 +280,17 @@ class SupabaseClientService {
     }
   }
 
+  /// Returns the current user's permissions in an inventory.
+  /// The RPC returns a table (RETURNS TABLE) so Supabase returns a List.
   Future<Map<String, dynamic>?> getUserInventoryPermissions(
       String inventoryId) async {
     if (!isConfigured) return null;
     try {
       final result = await _client!.rpc('get_user_inventory_permissions',
           params: {'p_inventory_id': inventoryId});
-      if (result is Map) return Map<String, dynamic>.from(result);
+      if (result is List && result.isNotEmpty) {
+        return Map<String, dynamic>.from(result.first as Map);
+      }
       return null;
     } catch (e) {
       debugPrint('Get user inventory permissions error: $e');
@@ -423,24 +399,7 @@ class SupabaseClientService {
     }
   }
 
-  // ─── Company Members (legacy - for ownership tracking only) ───
-
-  Future<List<Map<String, dynamic>>> getCompanyMembers(
-      String companyId) async {
-    if (!isConfigured) return [];
-    try {
-      final data = await _client!.rpc('get_company_members',
-          params: {'p_company_id': companyId});
-      if (data is List) return List<Map<String, dynamic>>.from(data);
-      return [];
-    } catch (e) {
-      debugPrint('Get company members error: $e');
-      return [];
-    }
-  }
-
-  // ─── Invitations (ALWAYS inventory-scoped) ───────────────────
-
+  // ─── Invitations ─────────────────────────────────────────────
   Future<Map<String, dynamic>?> createInvitation({
     required String companyId,
     required String inventoryId,
@@ -519,8 +478,112 @@ class SupabaseClientService {
     }
   }
 
-  // ─── Query helpers ────────────────────────────────────────────
+  // ─── Activity Log ────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> getInventoryActivity({
+    required String inventoryId,
+    DateTime? cursor,
+    int limit = 50,
+  }) async {
+    if (!isConfigured) return [];
+    try {
+      final data = await _client!.rpc('get_inventory_activity', params: {
+        'p_inventory_id': inventoryId,
+        'p_cursor': cursor?.toUtc().toIso8601String(),
+        'p_limit': limit,
+      });
+      if (data is List) {
+        return data
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Get inventory activity error: $e');
+      return [];
+    }
+  }
 
+  /// Logs an activity entry. Resolves company_id from inventory.
+  Future<void> logActivity({
+    required String inventoryId,
+    required String action,
+    required String entityType,
+    required String entityName,
+    String? labelName,
+    String? details,
+    Map<String, dynamic>? changes,
+  }) async {
+    if (!isConfigured) return;
+    try {
+      // Fetch company_id from the inventory
+      final invData = await _client!
+          .from('inventories')
+          .select('company_id')
+          .eq('id', inventoryId)
+          .maybeSingle();
+      final companyId = invData?['company_id']?.toString();
+      if (companyId == null) return;
+
+      await _client!.rpc('log_activity', params: {
+        'p_company_id': companyId,
+        'p_inventory_id': inventoryId,
+        'p_action': action,
+        'p_entity_type': entityType,
+        'p_entity_name': entityName,
+        'p_label_name': labelName,
+        'p_details': details,
+        'p_changes': changes,
+      });
+    } catch (e) {
+      debugPrint('Log activity error: $e');
+    }
+  }
+
+  // ─── Chat ────────────────────────────────────────────────────
+  Future<void> markChatRoomRead(String roomId) async {
+    if (!isConfigured) return;
+    try {
+      await _client!.rpc('mark_chat_room_read', params: {
+        'p_room_id': roomId,
+      });
+    } catch (e) {
+      debugPrint('Mark chat room read error: $e');
+    }
+  }
+
+  // ─── Profile ─────────────────────────────────────────────────
+  Future<void> updateLastLogin() async {
+    if (!isConfigured) return;
+    try {
+      await _client!.rpc('update_last_login');
+    } catch (e) {
+      debugPrint('Update last login error: $e');
+    }
+  }
+
+  // ─── Notifications ───────────────────────────────────────────
+  Future<bool> sendNotificationViaRpc({
+    required String userId,
+    required String title,
+    required String message,
+    String type = 'info',
+  }) async {
+    if (!isConfigured) return false;
+    try {
+      await _client!.rpc('send_notification', params: {
+        'p_user_id': userId,
+        'p_title': title,
+        'p_message': message,
+        'p_type': type,
+      });
+      return true;
+    } catch (e) {
+      debugPrint('Send notification error: $e');
+      return false;
+    }
+  }
+
+  // ─── Query helpers ────────────────────────────────────────────
   Future<List<Map<String, dynamic>>> queryWithRLS(
     String table, {
     String? companyId,
