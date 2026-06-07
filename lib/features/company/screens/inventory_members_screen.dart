@@ -411,7 +411,10 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
           PopupMenuButton<String>(
             padding: EdgeInsets.zero,
             icon: const Icon(Icons.more_vert, size: 20),
-            onSelected: (action) { if (action == 'change_role') _changeRole(memberId, role, name); else if (action == 'remove') _removeMember(memberId, name); },
+            onSelected: (action) { if (action == 'change_role') {
+              _changeRole(memberId, role, name);
+            // ignore: curly_braces_in_flow_control_structures
+            } else if (action == 'remove') _removeMember(memberId, name); },
             itemBuilder: (ctx) => [
               const PopupMenuItem(value: 'change_role', child: Text('Change Role')),
               const PopupMenuItem(value: 'remove', child: Text('Remove', style: TextStyle(color: Colors.red))),

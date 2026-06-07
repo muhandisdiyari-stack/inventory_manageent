@@ -11,17 +11,18 @@ import '../database/supabase/supabase_client.dart';
 import '../utils/file_export.dart';
 
 class ActivityLogService {
+  factory ActivityLogService() => _instance;
+
+  ActivityLogService._internal();
+
+  static final ActivityLogService _instance = ActivityLogService._internal();
   static const String _logBoxName = 'activity_logs';
   static const String _logKey = 'all_logs';
   static const int _maxLogEntries = 2000;
 
-  static final ActivityLogService _instance = ActivityLogService._internal();
-  factory ActivityLogService() => _instance;
-  ActivityLogService._internal();
-
-  Box? _logBox;
   List<ActivityLogEntry>? _cache;
   bool _initialized = false;
+  Box? _logBox;
 
   Future<void> initialize() async {
     if (_initialized && _logBox != null && _logBox!.isOpen) return;
@@ -56,12 +57,6 @@ class ActivityLogService {
     return _instance;
   }
 
-  Future<void> _ensureInitialized() async {
-    if (!_initialized || _logBox == null || !_logBox!.isOpen) {
-      await initialize();
-    }
-  }
-
   List<ActivityLogEntry> getLogs({String? inventoryId, String? entityType}) {
     if (!_initialized || _logBox == null) return [];
 
@@ -77,31 +72,6 @@ class ActivityLogService {
     }
 
     return result;
-  }
-
-  List<ActivityLogEntry> _loadAllLogs() {
-    if (_logBox == null) return [];
-
-    try {
-      final raw = _logBox!.get(_logKey, defaultValue: <String>[]) as List;
-      final parsed = <ActivityLogEntry>[];
-
-      for (final json in raw) {
-        try {
-          if (json is String && json.isNotEmpty) {
-            parsed.add(ActivityLogEntry.fromJson(jsonDecode(json)));
-          }
-        } catch (e) {
-          // Skip malformed entries
-        }
-      }
-
-      parsed.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-      return parsed;
-    } catch (e) {
-      debugPrint('Error loading logs: $e');
-      return [];
-    }
   }
 
   Future<void> addLog(ActivityLogEntry entry) async {
@@ -144,54 +114,6 @@ class ActivityLogService {
       await _syncLogToSupabase(logEntry);
     } catch (e) {
       debugPrint('Error adding log: $e');
-    }
-  }
-
-  bool _isValidUUID(String value) {
-    final uuidRegex = RegExp(
-      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-      caseSensitive: false,
-    );
-    return uuidRegex.hasMatch(value);
-  }
-
-  /// Sync a single log entry to Supabase.
-  /// Fetches company_id from inventory before calling log_activity.
-  Future<void> _syncLogToSupabase(ActivityLogEntry entry) async {
-    if (!AppConfig.useSupabase) return;
-
-    try {
-      final supabaseService = SupabaseClientService();
-      if (entry.inventoryId == null || entry.inventoryId!.isEmpty) return;
-
-      // Fetch company_id from inventory
-      String? companyId;
-      try {
-        final invData = await Supabase.instance.client
-            .from('inventories')
-            .select('company_id')
-            .eq('id', entry.inventoryId!)
-            .maybeSingle();
-        companyId = invData?['company_id']?.toString();
-      } catch (e) {
-        debugPrint('⚠️ Could not fetch company_id for inventory ${entry.inventoryId}: $e');
-      }
-
-      if (companyId == null) return;
-
-      await Supabase.instance.client.rpc('log_activity', params: {
-        'p_company_id': companyId,
-        'p_inventory_id': entry.inventoryId,
-        'p_action': entry.action,
-        'p_entity_type': entry.entityType,
-        'p_entity_name': entry.entityName,
-        'p_label_name': entry.labelName,
-        'p_details': entry.details,
-        'p_changes': entry.changes?.map(
-            (key, value) => MapEntry(key, value.toJson())),
-      });
-    } catch (e) {
-      debugPrint('Activity log sync to Supabase failed: $e');
     }
   }
 
@@ -446,5 +368,84 @@ class ActivityLogService {
       'byAction': byAction,
       'byType': byType,
     };
+  }
+
+  Future<void> _ensureInitialized() async {
+    if (!_initialized || _logBox == null || !_logBox!.isOpen) {
+      await initialize();
+    }
+  }
+
+  List<ActivityLogEntry> _loadAllLogs() {
+    if (_logBox == null) return [];
+
+    try {
+      final raw = _logBox!.get(_logKey, defaultValue: <String>[]) as List;
+      final parsed = <ActivityLogEntry>[];
+
+      for (final json in raw) {
+        try {
+          if (json is String && json.isNotEmpty) {
+            parsed.add(ActivityLogEntry.fromJson(jsonDecode(json)));
+          }
+        } catch (e) {
+          // Skip malformed entries
+        }
+      }
+
+      parsed.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return parsed;
+    } catch (e) {
+      debugPrint('Error loading logs: $e');
+      return [];
+    }
+  }
+
+  bool _isValidUUID(String value) {
+    final uuidRegex = RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+      caseSensitive: false,
+    );
+    return uuidRegex.hasMatch(value);
+  }
+
+  /// Sync a single log entry to Supabase.
+  /// Fetches company_id from inventory before calling log_activity.
+  Future<void> _syncLogToSupabase(ActivityLogEntry entry) async {
+    if (!AppConfig.useSupabase) return;
+
+    try {
+      final supabaseService = SupabaseClientService();
+      if (entry.inventoryId == null || entry.inventoryId!.isEmpty) return;
+
+      // Fetch company_id from inventory
+      String? companyId;
+      try {
+        final invData = await Supabase.instance.client
+            .from('inventories')
+            .select('company_id')
+            .eq('id', entry.inventoryId!)
+            .maybeSingle();
+        companyId = invData?['company_id']?.toString();
+      } catch (e) {
+        debugPrint('⚠️ Could not fetch company_id for inventory ${entry.inventoryId}: $e');
+      }
+
+      if (companyId == null) return;
+
+      await Supabase.instance.client.rpc('log_activity', params: {
+        'p_company_id': companyId,
+        'p_inventory_id': entry.inventoryId,
+        'p_action': entry.action,
+        'p_entity_type': entry.entityType,
+        'p_entity_name': entry.entityName,
+        'p_label_name': entry.labelName,
+        'p_details': entry.details,
+        'p_changes': entry.changes?.map(
+            (key, value) => MapEntry(key, value.toJson())),
+      });
+    } catch (e) {
+      debugPrint('Activity log sync to Supabase failed: $e');
+    }
   }
 }
