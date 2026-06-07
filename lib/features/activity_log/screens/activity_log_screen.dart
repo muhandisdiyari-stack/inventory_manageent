@@ -97,8 +97,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                       const SizedBox(width: 8),
                       _buildFilterChip(context, 'Created', 'created'),
                       const SizedBox(width: 8),
-                      _buildFilterChip(
-                          context, 'Modified', 'modified'),
+                      _buildFilterChip(context, 'Modified', 'modified'),
                       const SizedBox(width: 8),
                       _buildFilterChip(context, 'Deleted', 'deleted'),
                       if (listState.inventories.isNotEmpty) ...[
@@ -109,10 +108,8 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                               padding: const EdgeInsets.only(right: 8),
                               child: FilterChip(
                                 label: Text(inv.name,
-                                    style: const TextStyle(
-                                        fontSize: 12)),
-                                selected: state.filterInventoryId ==
-                                    inv.id,
+                                    style: const TextStyle(fontSize: 12)),
+                                selected: state.filterInventoryId == inv.id,
                                 onSelected: (selected) {
                                   context.read<ActivityLogBloc>().add(
                                       SetFilterInventory(
@@ -133,9 +130,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text('Statistics',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium),
+                              style: Theme.of(context).textTheme.titleMedium),
                           const SizedBox(height: 8),
                           _buildStatRow('Total Logs',
                               state.statistics['totalLogs'].toString()),
@@ -165,8 +160,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(Icons.history,
-                                      size: 64,
-                                      color: Colors.grey[400]),
+                                      size: 64, color: Colors.grey[400]),
                                   const SizedBox(height: 16),
                                   Text('No activity logged yet',
                                       style: TextStyle(
@@ -197,8 +191,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
     final isSelected = (entityType == null &&
             state.filterEntityType == null &&
             state.filterInventoryId == null) ||
-        (entityType != null &&
-            state.filterEntityType == entityType);
+        (entityType != null && state.filterEntityType == entityType);
     return FilterChip(
       label: Text(label, style: const TextStyle(fontSize: 12)),
       selected: isSelected,
@@ -216,8 +209,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label.capitalize(),
-              style: const TextStyle(fontSize: 13)),
+          Text(label.capitalize(), style: const TextStyle(fontSize: 13)),
           Text(value,
               style: const TextStyle(
                   fontWeight: FontWeight.bold, fontSize: 13)),
@@ -255,8 +247,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
         leading: Icon(icon, color: color, size: 24),
         title: Text(
           '${log.entityType.toUpperCase()}: ${log.entityName}',
-          style: const TextStyle(
-              fontWeight: FontWeight.w600, fontSize: 13),
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -285,8 +276,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                           fontWeight: FontWeight.w600,
                           color: Colors.grey[700])),
                   const SizedBox(height: 4),
-                  Text(log.details!,
-                      style: const TextStyle(fontSize: 13)),
+                  Text(log.details!, style: const TextStyle(fontSize: 13)),
                   const SizedBox(height: 12),
                 ],
                 if (log.changes != null && log.changes!.isNotEmpty) ...[
@@ -310,8 +300,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                           children: [
                             Expanded(
                               child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(change.key,
                                       style: TextStyle(
@@ -319,12 +308,9 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
                                           fontSize: 11,
                                           color: Colors.grey[600])),
                                   const SizedBox(height: 4),
-                                  Text(
-                                      'Old: ${change.value.oldValue}',
-                                      style: const TextStyle(
-                                          fontSize: 12)),
-                                  Text(
-                                      'New: ${change.value.newValue}',
+                                  Text('Old: ${change.value.oldValue}',
+                                      style: const TextStyle(fontSize: 12)),
+                                  Text('New: ${change.value.newValue}',
                                       style: TextStyle(
                                           fontSize: 12,
                                           color: Theme.of(context)
@@ -357,8 +343,7 @@ class _ActivityLogScreenState extends State<ActivityLogScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Export Activity Log'),
-        content:
-            const Text('Download the activity log as a text file?'),
+        content: const Text('Download the activity log as a text file?'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx),

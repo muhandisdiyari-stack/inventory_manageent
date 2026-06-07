@@ -107,7 +107,6 @@ class _CompaniesManagementState extends State<CompaniesManagement> {
                           itemBuilder: (_, i) {
                             final company = state.companies[i];
                             final name = company['name']?.toString() ?? 'Unknown';
-                            // owner_name is mapped in AdminService.getAllCompanies
                             final ownerName = company['owner_name']?.toString() ?? '—';
                             final inventoryCount = company['inventory_count']?.toString() ?? '0';
                             final itemCount = company['item_count']?.toString() ?? '0';

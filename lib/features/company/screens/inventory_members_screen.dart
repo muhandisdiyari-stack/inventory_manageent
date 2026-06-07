@@ -376,6 +376,7 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
     final name = (member['display_name'] ?? member['email'] ?? 'Unknown').toString();
     final role = (member['role'] ?? 'viewer').toString();
     final memberId = member['id']?.toString() ?? '';
+    final avatarUrl = member['avatar_url'] as String?;
     final isOwner = role == 'owner';
     final isCurrentUser = (member['user_id']?.toString() ?? '') == Supabase.instance.client.auth.currentUser?.id;
     final roleColor = _getRoleColor(role);
@@ -388,10 +389,22 @@ class _InventoryMembersScreenState extends State<InventoryMembersScreen> {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(children: [
-        CircleAvatar(radius: 18, backgroundColor: roleColor.withValues(alpha: 0.15), child: Text(name[0].toUpperCase(), style: TextStyle(color: roleColor, fontWeight: FontWeight.w700, fontSize: 14))),
+        CircleAvatar(
+          radius: 18,
+          backgroundColor: roleColor.withValues(alpha: 0.15),
+          backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+              ? NetworkImage(avatarUrl)
+              : null,
+          child: avatarUrl == null || avatarUrl.isEmpty
+              ? Text(name[0].toUpperCase(), style: TextStyle(color: roleColor, fontWeight: FontWeight.w700, fontSize: 14))
+              : null,
+        ),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [Flexible(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13), overflow: TextOverflow.ellipsis)), if (isCurrentUser) const Text(' (You)', style: TextStyle(fontSize: 10, color: Colors.grey))]),
+          Row(children: [
+            Flexible(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13), overflow: TextOverflow.ellipsis)),
+            if (isCurrentUser) const Text(' (You)', style: TextStyle(fontSize: 10, color: Colors.grey)),
+          ]),
         ])),
         Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: roleColor.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)), child: Text(_getRoleDisplayName(role), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: roleColor))),
         if (_canManageMembers && !isOwner && !isCurrentUser)

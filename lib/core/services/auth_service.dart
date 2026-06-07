@@ -204,12 +204,12 @@ class AuthService {
     await _clearCache();
   }
 
-  /// Check a specific permission in an inventory permissions map.
+  /// Use the actual permissions map returned by the database.
   bool hasInventoryPermission(Map<String, dynamic> permissions, String key) {
     return permissions[key] == true;
   }
 
-  // ─── Company Operations ──────────────────────────────────────
+  // ─── Company ──────────────────────────────────────────────────
   Future<Map<String, dynamic>?> createCompany(String name) async =>
       await _supabaseClient.createCompany(name);
 
@@ -218,11 +218,10 @@ class AuthService {
 
   Future<Map<String, dynamic>?> getUserCompany() async {
     final companies = await _supabaseClient.getUserCompanies();
-    if (companies.isNotEmpty) return companies.first;
-    return null;
+    return companies.isNotEmpty ? companies.first : null;
   }
 
-  // ─── Inventory Member Operations ─────────────────────────────
+  // ─── Inventory Members ───────────────────────────────────────
   Future<List<Map<String, dynamic>>> getInventoryMembers(
           String inventoryId) async =>
       await _supabaseClient.getInventoryMembers(inventoryId);
@@ -277,7 +276,7 @@ class AuthService {
       await _supabaseClient.transferInventoryOwnership(
           inventoryId, newOwnerUserId);
 
-  // ─── Invitation Operations ───────────────────────────────────
+  // ─── Invitations ─────────────────────────────────────────────
   Future<Map<String, dynamic>?> createInvitation({
     required String companyId,
     required String inventoryId,

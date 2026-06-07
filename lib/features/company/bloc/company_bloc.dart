@@ -48,7 +48,7 @@ class CompanyBloc extends Bloc<CompanyEvent, CompanyState> {
         return;
       }
 
-      // Database now returns is_owner + synthetic role already mapped in getUserCompanies
+      // The data already contains 'is_owner' and a synthetic 'role'
       final currentSelectedId =
           state.selectedCompany?['id']?.toString();
       Map<String, dynamic>? targetCompany;

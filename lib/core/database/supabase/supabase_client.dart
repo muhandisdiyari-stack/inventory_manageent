@@ -87,7 +87,6 @@ class SupabaseClientService {
       final response = await _client!.auth
           .signInWithPassword(email: email, password: password)
           .timeout(const Duration(seconds: 15));
-
       final user = response.user;
       if (user == null) return null;
 
@@ -129,19 +128,15 @@ class SupabaseClientService {
     try {
       final redirectUrl = _getEmailRedirectTo();
       debugPrint('📧 signUp emailRedirectTo: $redirectUrl');
-
       final response = await _client!.auth.signUp(
         email: email,
         password: password,
         data: {'full_name': fullName, 'display_name': fullName},
         emailRedirectTo: redirectUrl,
       );
-
       final user = response.user;
       if (user == null) return null;
-
       final requiresConfirmation = response.session == null;
-
       return {
         'id': user.id,
         'email': user.email,
@@ -173,15 +168,12 @@ class SupabaseClientService {
     try {
       final currentSession = _client!.auth.currentSession;
       if (currentSession == null) return false;
-
       final expiresAt = currentSession.expiresAt;
       final nowInSeconds =
           DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
-
       if (expiresAt != null && expiresAt > nowInSeconds) {
         return true;
       }
-
       try {
         await _client!.auth.refreshSession();
         return _client!.auth.currentSession != null;
@@ -224,9 +216,8 @@ class SupabaseClientService {
     }
   }
 
-  /// Returns companies where the user has membership.
-  /// The database returns `is_owner` boolean. We map it to also include
-  /// a synthetic `role` field for backward compatibility with existing UI.
+  /// Returns companies where user is owner or a member of an active inventory.
+  /// The DB now returns `is_owner`. We add a synthetic `role` for UI compatibility.
   Future<List<Map<String, dynamic>>> getUserCompanies() async {
     if (!isConfigured) return [];
     try {
@@ -235,7 +226,6 @@ class SupabaseClientService {
         return data.map((item) {
           final map = Map<String, dynamic>.from(item as Map);
           final isOwner = map['is_owner'] == true;
-          // Add synthetic 'role' field (the UI expects it)
           map['role'] = isOwner ? 'owner' : 'member';
           return map;
         }).toList();
@@ -266,13 +256,18 @@ class SupabaseClientService {
   }
 
   // ─── Inventory Members ────────────────────────────────────────
+  /// `get_inventory_members` still returns a List.
   Future<List<Map<String, dynamic>>> getInventoryMembers(
       String inventoryId) async {
     if (!isConfigured) return [];
     try {
       final data = await _client!.rpc('get_inventory_members',
           params: {'p_inventory_id': inventoryId});
-      if (data is List) return List<Map<String, dynamic>>.from(data);
+      if (data is List) {
+        return data
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+      }
       return [];
     } catch (e) {
       debugPrint('Get inventory members error: $e');
@@ -280,16 +275,16 @@ class SupabaseClientService {
     }
   }
 
-  /// Returns the current user's permissions in an inventory.
-  /// The RPC returns a table (RETURNS TABLE) so Supabase returns a List.
+  /// Now the RPC returns a JSON object -> Map.
   Future<Map<String, dynamic>?> getUserInventoryPermissions(
       String inventoryId) async {
     if (!isConfigured) return null;
     try {
       final result = await _client!.rpc('get_user_inventory_permissions',
           params: {'p_inventory_id': inventoryId});
-      if (result is List && result.isNotEmpty) {
-        return Map<String, dynamic>.from(result.first as Map);
+      // The function now returns a JSON object (Map), not a List.
+      if (result is Map) {
+        return Map<String, dynamic>.from(result);
       }
       return null;
     } catch (e) {
@@ -503,7 +498,7 @@ class SupabaseClientService {
     }
   }
 
-  /// Logs an activity entry. Resolves company_id from inventory.
+  /// Logs an activity entry. Fetches company_id from the inventory first.
   Future<void> logActivity({
     required String inventoryId,
     required String action,
@@ -515,7 +510,6 @@ class SupabaseClientService {
   }) async {
     if (!isConfigured) return;
     try {
-      // Fetch company_id from the inventory
       final invData = await _client!
           .from('inventories')
           .select('company_id')
@@ -523,7 +517,6 @@ class SupabaseClientService {
           .maybeSingle();
       final companyId = invData?['company_id']?.toString();
       if (companyId == null) return;
-
       await _client!.rpc('log_activity', params: {
         'p_company_id': companyId,
         'p_inventory_id': inventoryId,

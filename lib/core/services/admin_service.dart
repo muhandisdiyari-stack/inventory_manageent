@@ -3,7 +3,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AdminService {
   final SupabaseClient? _client;
-
   AdminService({SupabaseClient? client}) : _client = client;
 
   SupabaseClient get _safeClient {
@@ -129,7 +128,7 @@ class AdminService {
     }
   }
 
-  /// Returns companies with owner_name mapped from full_name.
+  /// The DB returns `full_name`, we map to `owner_name` for UI compatibility.
   Future<List<Map<String, dynamic>>> getAllCompanies({int offset = 0, int limit = 50}) async {
     try {
       final data = await _safeClient.rpc('get_admin_companies_list', params: {
@@ -139,8 +138,6 @@ class AdminService {
       if (data is List) {
         return data.map((item) {
           final map = Map<String, dynamic>.from(item as Map);
-          // The RPC returns full_name, but our UI expects owner_name.
-          // Map it here to avoid changing the widget.
           if (map.containsKey('full_name') && !map.containsKey('owner_name')) {
             map['owner_name'] = map['full_name'];
           }
