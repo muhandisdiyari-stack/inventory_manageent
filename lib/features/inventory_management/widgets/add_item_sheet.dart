@@ -8,6 +8,7 @@ import '../../auth/bloc/auth_bloc.dart';
 import '../../../core/services/activity_log_service.dart';
 import '../../../core/models/activity_log_entry.dart';
 import '../../../core/utils/snackbar_utils.dart';
+import '../bloc/inventory_bloc.dart';
 
 class AddItemSheet {
   static void show(
@@ -104,9 +105,7 @@ class _AddItemFormState extends State<_AddItemForm> {
     _sizeCtrl.dispose();
     _noteCtrl.dispose();
     _quantityCtrl.dispose();
-    for (final c in _customCtrls.values) {
-      c.dispose();
-    }
+    for (final c in _customCtrls.values) { c.dispose(); }
     super.dispose();
   }
 
@@ -118,10 +117,7 @@ class _AddItemFormState extends State<_AddItemForm> {
       context,
       onBarcodeScanned: (b) {
         if (mounted) {
-          setState(() {
-            _barcodeCtrl.text = b;
-            _error = null;
-          });
+          setState(() { _barcodeCtrl.text = b; _error = null; });
           SnackBarUtils.success(context, 'Barcode scanned: $b');
         }
       },
@@ -129,26 +125,15 @@ class _AddItemFormState extends State<_AddItemForm> {
   }
 
   void _clearBarcode() {
-    setState(() {
-      _barcodeCtrl.clear();
-      _error = null;
-    });
+    setState(() { _barcodeCtrl.clear(); _error = null; });
   }
 
   String _uid() {
-    try {
-      return context.read<AuthBloc>().state.user?.id ?? 'unknown';
-    } catch (_) {
-      return 'unknown';
-    }
+    try { return context.read<AuthBloc>().state.user?.id ?? 'unknown'; } catch (_) { return 'unknown'; }
   }
 
   String _uname() {
-    try {
-      return context.read<AuthBloc>().state.user?.displayNameOrEmail ?? 'Unknown';
-    } catch (_) {
-      return 'Unknown';
-    }
+    try { return context.read<AuthBloc>().state.user?.displayNameOrEmail ?? 'Unknown'; } catch (_) { return 'Unknown'; }
   }
 
   @override
@@ -157,9 +142,7 @@ class _AddItemFormState extends State<_AddItemForm> {
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(c).viewInsets.bottom + 28,
-        left: 20,
-        right: 20,
-        top: 20,
+        left: 20, right: 20, top: 20,
       ),
       child: Form(
         key: _formKey,
@@ -170,12 +153,8 @@ class _AddItemFormState extends State<_AddItemForm> {
             children: [
               Center(
                 child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[400],
-                    borderRadius: BorderRadius.circular(4),
-                  ),
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(color: Colors.grey[400], borderRadius: BorderRadius.circular(4)),
                 ),
               ),
               const SizedBox(height: 18),
@@ -200,17 +179,12 @@ class _AddItemFormState extends State<_AddItemForm> {
                 ),
               ],
               const SizedBox(height: 16),
+
+              // --- Fields (identical to previous, removed for brevity but keep all) ---
               if (_enabled('Name'))
-                _tf(
-                  ctrl: _nameCtrl, label: 'Name', hint: 'Enter item name',
-                  icon: Icons.label, required: _required('Name'),
-                  cap: TextCapitalization.words, autofocus: true, maxLen: 200,
-                ),
+                _tf(ctrl: _nameCtrl, label: 'Name', hint: 'Enter item name', icon: Icons.label, required: _required('Name'), cap: TextCapitalization.words, autofocus: true, maxLen: 200),
               if (_enabled('Code'))
-                _tf(
-                  ctrl: _codeCtrl, label: 'Code', hint: 'Enter item code',
-                  icon: Icons.code, required: _required('Code'), maxLen: 100,
-                ),
+                _tf(ctrl: _codeCtrl, label: 'Code', hint: 'Enter item code', icon: Icons.code, required: _required('Code'), maxLen: 100),
               if (_enabled('Barcode'))
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -221,48 +195,24 @@ class _AddItemFormState extends State<_AddItemForm> {
                       labelText: _required('Barcode') ? 'Barcode *' : 'Barcode',
                       hintText: 'Enter barcode manually or scan',
                       prefixIcon: const Icon(Icons.qr_code, size: 20),
-                      suffixIcon: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_barcodeCtrl.text.isNotEmpty)
-                            IconButton(
-                              icon: const Icon(Icons.clear, size: 20),
-                              tooltip: 'Clear',
-                              onPressed: _clearBarcode,
-                            ),
-                          IconButton(
-                            icon: Icon(Icons.qr_code_scanner, size: 20, color: Theme.of(c).colorScheme.primary),
-                            tooltip: 'Scan',
-                            onPressed: _scan,
-                          ),
-                        ],
-                      ),
+                      suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
+                        if (_barcodeCtrl.text.isNotEmpty)
+                          IconButton(icon: const Icon(Icons.clear, size: 20), tooltip: 'Clear', onPressed: _clearBarcode),
+                        IconButton(icon: Icon(Icons.qr_code_scanner, size: 20, color: Theme.of(c).colorScheme.primary), tooltip: 'Scan', onPressed: _scan),
+                      ]),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                       filled: true,
                       counterText: '',
                     ),
-                    validator: _required('Barcode')
-                        ? (v) => (v == null || v.trim().isEmpty) ? 'Required' : null
-                        : null,
+                    validator: _required('Barcode') ? (v) => (v == null || v.trim().isEmpty) ? 'Required' : null : null,
                   ),
                 ),
               if (_enabled('Color'))
-                _tf(
-                  ctrl: _colorCtrl, label: 'Color', hint: 'Enter color',
-                  icon: Icons.color_lens, required: _required('Color'),
-                  cap: TextCapitalization.words,
-                ),
+                _tf(ctrl: _colorCtrl, label: 'Color', hint: 'Enter color', icon: Icons.color_lens, required: _required('Color'), cap: TextCapitalization.words),
               if (_enabled('Material'))
-                _tf(
-                  ctrl: _materialCtrl, label: 'Material', hint: 'Enter material',
-                  icon: Icons.texture, required: _required('Material'),
-                  cap: TextCapitalization.words,
-                ),
+                _tf(ctrl: _materialCtrl, label: 'Material', hint: 'Enter material', icon: Icons.texture, required: _required('Material'), cap: TextCapitalization.words),
               if (_enabled('Size'))
-                _tf(
-                  ctrl: _sizeCtrl, label: 'Size', hint: 'Enter size (e.g., S, M, L)',
-                  icon: Icons.straighten, required: _required('Size'),
-                ),
+                _tf(ctrl: _sizeCtrl, label: 'Size', hint: 'Enter size (e.g., S, M, L)', icon: Icons.straighten, required: _required('Size')),
               if (_enabled('Quantity'))
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -287,32 +237,17 @@ class _AddItemFormState extends State<_AddItemForm> {
                   ),
                 ),
               if (_enabled('Production Date'))
-                _df(
-                  label: 'Production Date', required: _required('Production Date'),
-                  value: _productionDate,
-                  onPick: (d) => setState(() => _productionDate = d),
-                  onClear: () => setState(() => _productionDate = null),
-                ),
+                _df(label: 'Production Date', required: _required('Production Date'), value: _productionDate, onPick: (d) => setState(() => _productionDate = d), onClear: () => setState(() => _productionDate = null)),
               if (_enabled('Expire Date'))
-                _df(
-                  label: 'Expire Date', required: _required('Expire Date'),
-                  value: _expireDate,
-                  onPick: (d) => setState(() => _expireDate = d),
-                  onClear: () => setState(() => _expireDate = null),
-                ),
+                _df(label: 'Expire Date', required: _required('Expire Date'), value: _expireDate, onPick: (d) => setState(() => _expireDate = d), onClear: () => setState(() => _expireDate = null)),
               if (_enabled('Note'))
-                _tf(
-                  ctrl: _noteCtrl, label: 'Note', hint: 'Enter notes',
-                  icon: Icons.note, maxLines: 3, required: _required('Note'),
-                  cap: TextCapitalization.sentences,
-                ),
+                _tf(ctrl: _noteCtrl, label: 'Note', hint: 'Enter notes', icon: Icons.note, maxLines: 3, required: _required('Note'), cap: TextCapitalization.sentences),
               ..._customCtrls.entries.map((e) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: TextFormField(
                       controller: e.value,
                       decoration: InputDecoration(
-                        labelText: e.key,
-                        hintText: 'Enter ${e.key}',
+                        labelText: e.key, hintText: 'Enter ${e.key}',
                         prefixIcon: const Icon(Icons.edit_note, size: 20),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                         filled: true,
@@ -325,10 +260,7 @@ class _AddItemFormState extends State<_AddItemForm> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: _saving ? null : () => Navigator.pop(c),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
-                    ),
+                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40))),
                     child: const Text('Cancel'),
                   ),
                 ),
@@ -336,13 +268,8 @@ class _AddItemFormState extends State<_AddItemForm> {
                 Expanded(
                   child: FilledButton(
                     onPressed: _saving ? null : _submit,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
-                    ),
-                    child: _saving
-                        ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : Text(editing ? 'Update' : 'Save', style: const TextStyle(fontWeight: FontWeight.w700)),
+                    style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40))),
+                    child: _saving ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : Text(editing ? 'Update' : 'Save', style: const TextStyle(fontWeight: FontWeight.w700)),
                   ),
                 ),
               ]),
@@ -354,94 +281,7 @@ class _AddItemFormState extends State<_AddItemForm> {
     );
   }
 
-  Widget _tf({
-    required TextEditingController ctrl,
-    required String label,
-    required String hint,
-    required IconData icon,
-    bool required = false,
-    int maxLines = 1,
-    int? maxLen,
-    TextInputType? kb,
-    TextCapitalization cap = TextCapitalization.none,
-    bool autofocus = false,
-    bool enabled = true,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextFormField(
-        controller: ctrl,
-        maxLines: maxLines,
-        maxLength: maxLen,
-        keyboardType: kb,
-        textCapitalization: cap,
-        autofocus: autofocus,
-        enabled: enabled,
-        decoration: InputDecoration(
-          labelText: required ? '$label *' : label,
-          hintText: hint,
-          prefixIcon: Icon(icon, size: 20),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-          filled: true,
-          counterText: '',
-        ),
-        validator: required
-            ? (v) => (v == null || v.trim().isEmpty) ? '$label is required' : null
-            : null,
-      ),
-    );
-  }
-
-  Widget _df({
-    required String label,
-    required bool required,
-    required DateTime? value,
-    required Function(DateTime) onPick,
-    required VoidCallback onClear,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: FormField<DateTime?>(
-        initialValue: value,
-        validator: required ? (v) => v == null ? '$label is required' : null : null,
-        builder: (s) => InkWell(
-          onTap: () async {
-            try {
-              final p = await showDatePicker(
-                context: context,
-                initialDate: value ?? DateTime.now(),
-                firstDate: DateTime(2000),
-                lastDate: DateTime(2100),
-              );
-              if (p != null && mounted) {
-                onPick(p);
-                s.didChange(p);
-              }
-            } catch (_) {}
-          },
-          child: InputDecorator(
-            decoration: InputDecoration(
-              labelText: required ? '$label *' : label,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-              filled: true,
-              prefixIcon: const Icon(Icons.calendar_today, size: 18),
-              suffixIcon: value != null
-                  ? IconButton(icon: const Icon(Icons.clear, size: 18), onPressed: () { onClear(); s.didChange(null); })
-                  : null,
-              errorText: s.errorText,
-            ),
-            child: Text(
-              value != null
-                  ? '${value!.year}-${value!.month.toString().padLeft(2, '0')}-${value!.day.toString().padLeft(2, '0')}'
-                  : 'Select date',
-              style: TextStyle(color: value != null ? null : Colors.grey, fontSize: 16),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
+  // ─── FIXED _submit with mounted checks before using context ───
   Future<void> _submit() async {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
@@ -479,6 +319,11 @@ class _AddItemFormState extends State<_AddItemForm> {
         old.updatedBy = uid;
         old.updatedByName = uname;
         await old.save();
+
+        // Sync edit to Supabase – guard context use
+        if (!mounted) return;
+        final inventoryService = context.read<InventoryBloc>().inventoryService;
+        await inventoryService.saveItem(old);
 
         final ch = _detectChanges(ov, old, cf);
         if (ch.isNotEmpty) {
@@ -544,5 +389,48 @@ class _AddItemFormState extends State<_AddItemForm> {
     cmp('note', ni.note); cmp('quantity', ni.quantity.toString()); cmp('label', ni.label);
     for (final e in ncf.entries) { cmp(e.key, e.value); }
     return ch;
+  }
+
+  Widget _tf({required TextEditingController ctrl, required String label, required String hint, required IconData icon, bool required = false, int maxLines = 1, int? maxLen, TextInputType? kb, TextCapitalization cap = TextCapitalization.none, bool autofocus = false, bool enabled = true}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: ctrl, maxLines: maxLines, maxLength: maxLen, keyboardType: kb, textCapitalization: cap, autofocus: autofocus, enabled: enabled,
+        decoration: InputDecoration(
+          labelText: required ? '$label *' : label, hintText: hint, prefixIcon: Icon(icon, size: 20),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)), filled: true, counterText: '',
+        ),
+        validator: required ? (v) => (v == null || v.trim().isEmpty) ? '$label is required' : null : null,
+      ),
+    );
+  }
+
+  Widget _df({required String label, required bool required, required DateTime? value, required Function(DateTime) onPick, required VoidCallback onClear}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: FormField<DateTime?>(
+        initialValue: value,
+        validator: required ? (v) => v == null ? '$label is required' : null : null,
+        builder: (s) => InkWell(
+          onTap: () async {
+            try {
+              final p = await showDatePicker(context: context, initialDate: value ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100));
+              if (p != null && mounted) { onPick(p); s.didChange(p); }
+            } catch (_) {}
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              labelText: required ? '$label *' : label,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+              filled: true,
+              prefixIcon: const Icon(Icons.calendar_today, size: 18),
+              suffixIcon: value != null ? IconButton(icon: const Icon(Icons.clear, size: 18), onPressed: () { onClear(); s.didChange(null); }) : null,
+              errorText: s.errorText,
+            ),
+            child: Text(value != null ? '${value!.year}-${value!.month.toString().padLeft(2, '0')}-${value!.day.toString().padLeft(2, '0')}' : 'Select date', style: TextStyle(color: value != null ? null : Colors.grey, fontSize: 16)),
+          ),
+        ),
+      ),
+    );
   }
 }

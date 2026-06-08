@@ -74,6 +74,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
 
     if (_roomId != null && _roomId!.isNotEmpty) {
       _setupRealtime();
+      await _markRoomRead();
       await _loadMessages();
     } else {
       if (mounted) {
@@ -83,65 +84,9 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
     }
   }
 
-  Future<void> _loadInventories() async {
-    if (_isDisposed) return;
-    try {
-      final data = await Supabase.instance.client.rpc(
-        'get_inventory_chats',
-        params: {'p_company_id': widget.companyId},
-      );
-      if (_isDisposed) return;
-      if (mounted) {
-        setState(() =>
-            _inventories = List<Map<String, dynamic>>.from(data as List));
-      }
-    } catch (e) {
-      debugPrint('Failed to load inventory list: $e');
-    }
-  }
-
-  Future<void> _loadMessages({DateTime? cursor}) async {
-    if (_roomId == null || _isDisposed) return;
-    try {
-      final data = await Supabase.instance.client.rpc(
-        'get_chat_room_messages',
-        params: {
-          'p_room_id': _roomId!,
-          'p_cursor': cursor?.toUtc().toIso8601String(),
-        },
-      );
-
-      if (_isDisposed) return;
-
-      final msgs = List<Map<String, dynamic>>.from(data as List).reversed.toList();
-      if (mounted) {
-        setState(() {
-          _messages = cursor != null ? [...msgs, ..._messages] : msgs;
-          _hasMore = msgs.length >= 50;
-          _cursor = msgs.isNotEmpty
-              ? DateTime.parse(msgs.first['created_at'] as String)
-              : null;
-          _loading = false;
-          _loadingMore = false;
-          _error = null;
-        });
-
-        if (cursor == null) {
-          _scrollToBottom();
-        }
-      }
-    } catch (e) {
-      debugPrint('Failed to load messages: $e');
-      if (_isDisposed) return;
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _loadingMore = false;
-          _error = 'Failed to load messages';
-        });
-      }
-    }
-  }
+  // ═══════════════════════════════════════════════════════════════
+  // REALTIME SETUP – fixes instantaneous updates
+  // ═══════════════════════════════════════════════════════════════
 
   void _setupRealtime() {
     if (_roomId == null || _isDisposed) return;
@@ -165,7 +110,10 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                 setState(() {
                   _messages.add(m);
                 });
-                _scrollToBottom();
+                // Scroll after the frame rebuilds
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _scrollToBottom();
+                });
               }
             },
           )
@@ -201,15 +149,92 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
   }
 
   void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollCtrl.hasClients && mounted) {
-        _scrollCtrl.animateTo(
-          _scrollCtrl.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+    if (!_scrollCtrl.hasClients || !mounted) return;
+    _scrollCtrl.animateTo(
+      _scrollCtrl.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // MARK ROOM AS READ
+  // ═══════════════════════════════════════════════════════════════
+
+  Future<void> _markRoomRead() async {
+    if (_roomId == null) return;
+    try {
+      await Supabase.instance.client.rpc('mark_chat_room_read', params: {
+        'p_room_id': _roomId!,
+      });
+    } catch (e) {
+      debugPrint('Failed to mark room read: $e');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // DATA LOADING
+  // ═══════════════════════════════════════════════════════════════
+
+  Future<void> _loadInventories() async {
+    if (_isDisposed) return;
+    try {
+      final data = await Supabase.instance.client.rpc(
+        'get_inventory_chats',
+        params: {'p_company_id': widget.companyId},
+      );
+      if (_isDisposed) return;
+      if (mounted) {
+        setState(() =>
+            _inventories = List<Map<String, dynamic>>.from(data as List));
       }
-    });
+    } catch (e) {
+      debugPrint('Failed to load inventory list: $e');
+    }
+  }
+
+  Future<void> _loadMessages({DateTime? cursor}) async {
+    if (_roomId == null || _isDisposed) return;
+    try {
+      final data = await Supabase.instance.client.rpc(
+        'get_chat_room_messages',
+        params: {
+          'p_room_id': _roomId!,
+          'p_cursor': cursor?.toUtc().toIso8601String(),
+        },
+      );
+
+      if (_isDisposed) return;
+
+      final msgs =
+          List<Map<String, dynamic>>.from(data as List).reversed.toList();
+      if (mounted) {
+        setState(() {
+          _messages = cursor != null ? [...msgs, ..._messages] : msgs;
+          _hasMore = msgs.length >= 50;
+          _cursor = msgs.isNotEmpty
+              ? DateTime.parse(msgs.first['created_at'] as String)
+              : null;
+          _loading = false;
+          _loadingMore = false;
+          _error = null;
+        });
+
+        if (cursor == null) {
+          _scrollToBottom();
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to load messages: $e');
+      if (_isDisposed) return;
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadingMore = false;
+          _error = 'Failed to load messages';
+        });
+      }
+    }
   }
 
   void _switchRoom(String rid, String name) {
@@ -224,6 +249,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
       _error = null;
     });
     _setupRealtime();
+    _markRoomRead();
     _loadMessages();
     _loadInventories();
   }
@@ -280,8 +306,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
           if (i >= 0) _messages[i]['status'] = 'failed';
           _sending = false;
         });
-        SnackBarUtils.error(
-            context, 'Failed to send message. Pull to retry.');
+        SnackBarUtils.error(context, 'Failed to send message. Pull to retry.');
       }
     }
   }
@@ -341,8 +366,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Message'),
-        content:
-            const Text('Delete this message? This cannot be undone.'),
+        content: const Text('Delete this message? This cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -350,8 +374,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child:
-                const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -724,8 +747,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child:
-                              CircularProgressIndicator(strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2),
                         )
                       : const Text('Load older messages'),
                 ),
@@ -835,25 +858,30 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
   }
 
   Widget _buildGroup(_MsgGroup g) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      if (g.date != null)
-        Center(
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 12),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(12),
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (g.date != null)
+            Center(
+              child: Container(
+                margin:
+                    const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  g.date!,
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[600]),
+                ),
+              ),
             ),
-            child: Text(
-              g.date!,
-              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-            ),
-          ),
-        ),
-      ...g.msgs.map((m) => _buildBubble(m)),
-    ]);
+          ...g.msgs.map((m) => _buildBubble(m)),
+        ]);
   }
 
   Widget _buildBubble(Map<String, dynamic> m) {
@@ -876,9 +904,11 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
               padding: const EdgeInsets.only(right: 8),
               child: CircleAvatar(
                 radius: 14,
-                backgroundColor: Colors.blue.withValues(alpha: 0.1),
+                backgroundColor:
+                    Colors.blue.withValues(alpha: 0.1),
                 child: Text(
-                  (m['sender_name']?.toString() ?? '?')[0].toUpperCase(),
+                  (m['sender_name']?.toString() ?? '?')[0]
+                      .toUpperCase(),
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
@@ -898,7 +928,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 14, vertical: 10),
                 constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.7,
+                  maxWidth:
+                      MediaQuery.of(context).size.width * 0.7,
                 ),
                 decoration: BoxDecoration(
                   color: isDel
@@ -918,7 +949,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                   ),
                   border: isFailed
                       ? Border.all(
-                          color: Colors.red.withValues(alpha: 0.3))
+                          color: Colors.red
+                              .withValues(alpha: 0.3))
                       : null,
                 ),
                 child: Column(
@@ -926,7 +958,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                   children: [
                     if (!isMine)
                       Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
+                        padding:
+                            const EdgeInsets.only(bottom: 4),
                         child: Text(
                           m['sender_name']?.toString() ?? '',
                           style: TextStyle(
@@ -940,7 +973,9 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                       m['content']?.toString() ?? '',
                       style: TextStyle(
                         fontSize: 14,
-                        fontStyle: isDel ? FontStyle.italic : null,
+                        fontStyle: isDel
+                            ? FontStyle.italic
+                            : null,
                         color: isDel
                             ? Colors.grey
                             : (isOpt && !isFailed
@@ -949,39 +984,44 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Row(mainAxisSize: MainAxisSize.min, children: [
-                      Text(
-                        _fmtTime(m['created_at'] as String?),
-                        style: TextStyle(
-                            fontSize: 9, color: Colors.grey[500]),
-                      ),
-                      if (isEdit && !isDel) ...[
-                        const SizedBox(width: 4),
-                        Text(
-                          'edited',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontStyle: FontStyle.italic,
-                            color: Colors.grey[500],
+                    Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _fmtTime(
+                                m['created_at'] as String?),
+                            style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.grey[500]),
                           ),
-                        ),
-                      ],
-                      if (isMine) ...[
-                        const SizedBox(width: 4),
-                        _statusIcon(m['status'] as String?),
-                      ],
-                      if (isFailed) ...[
-                        const SizedBox(width: 4),
-                        Text(
-                          'Tap to retry',
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: Colors.red.shade400,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ],
-                    ]),
+                          if (isEdit && !isDel) ...[
+                            const SizedBox(width: 4),
+                            Text(
+                              'edited',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontStyle: FontStyle.italic,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ],
+                          if (isMine) ...[
+                            const SizedBox(width: 4),
+                            _statusIcon(
+                                m['status'] as String?),
+                          ],
+                          if (isFailed) ...[
+                            const SizedBox(width: 4),
+                            Text(
+                              'Tap to retry',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.red.shade400,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ],
+                        ]),
                   ],
                 ),
               ),
@@ -998,14 +1038,18 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
         return const SizedBox(
           width: 12,
           height: 12,
-          child: CircularProgressIndicator(strokeWidth: 1.5),
+          child:
+              CircularProgressIndicator(strokeWidth: 1.5),
         );
       case 'sent':
-        return Icon(Icons.check, size: 14, color: Colors.grey[400]);
+        return Icon(Icons.check,
+            size: 14, color: Colors.grey[400]);
       case 'delivered':
-        return const Icon(Icons.done_all, size: 14, color: Colors.grey);
+        return const Icon(Icons.done_all,
+            size: 14, color: Colors.grey);
       case 'seen':
-        return const Icon(Icons.done_all, size: 14, color: Colors.blue);
+        return const Icon(Icons.done_all,
+            size: 14, color: Colors.blue);
       case 'failed':
         return const Icon(Icons.error_outline,
             size: 14, color: Colors.red);
@@ -1041,12 +1085,13 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                 title: const Text('Edit'),
                 onTap: () {
                   Navigator.pop(ctx);
-                  _edit(m['id'] as String, m['content'] as String);
+                  _edit(m['id'] as String,
+                      m['content'] as String);
                 },
               ),
               ListTile(
-                leading:
-                    const Icon(Icons.delete, color: Colors.red),
+                leading: const Icon(Icons.delete,
+                    color: Colors.red),
                 title: const Text('Delete',
                     style: TextStyle(color: Colors.red)),
                 onTap: () {

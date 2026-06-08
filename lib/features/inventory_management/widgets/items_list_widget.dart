@@ -4,7 +4,7 @@ import '../models/inventory_item.dart';
 class ItemsListWidget extends StatelessWidget {
   final List<InventoryItem> items;
   final String label;
-  final TextEditingController searchController;   // kept for external use, but not used internally
+  final TextEditingController searchController;
   final Function(InventoryItem, int) onAdjustQuantity;
   final Function(InventoryItem) onDeleteItem;
   final VoidCallback onAddItem;
@@ -31,9 +31,7 @@ class ItemsListWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Remove duplicate search bar – parent already provides one
-
-    // Remove duplicates by ID before sorting
+    // Parent already provides the search bar; we just display what we receive.
     final seenIds = <String>{};
     final uniqueItems = items.where((item) => seenIds.add(item.id)).toList();
 
@@ -48,17 +46,18 @@ class ItemsListWidget extends StatelessWidget {
 
     if (items.isEmpty) return _buildEmptyState(context);
 
-    return Expanded(
-      child: sortedItems.isEmpty
-          ? Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
+    return Column(children: [
+      Expanded(
+        child: sortedItems.isEmpty
+            ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                 Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
                 const SizedBox(height: 12),
                 Text('No items match your search',
                     style: TextStyle(color: Colors.grey[600])),
               ]))
-          : _buildRefreshableList(sortedItems, context),
-    );
+            : _buildRefreshableList(sortedItems, context),
+      ),
+    ]);
   }
 
   Widget _buildRefreshableList(
@@ -82,9 +81,7 @@ class ItemsListWidget extends StatelessWidget {
       },
     );
 
-    if (onRefresh != null) {
-      return RefreshIndicator(onRefresh: onRefresh!, child: listView);
-    }
+    if (onRefresh != null) return RefreshIndicator(onRefresh: onRefresh!, child: listView);
     return listView;
   }
 
@@ -154,18 +151,14 @@ class _ItemCardState extends State<_ItemCard> {
     if (_isUpdating) return;
     setState(() => _isUpdating = true);
     widget.onIncrement();
-    Future.microtask(() {
-      if (mounted) setState(() => _isUpdating = false);
-    });
+    Future.microtask(() { if (mounted) setState(() => _isUpdating = false); });
   }
 
   void _handleDecrement() {
     if (_isUpdating) return;
     setState(() => _isUpdating = true);
     widget.onDecrement();
-    Future.microtask(() {
-      if (mounted) setState(() => _isUpdating = false);
-    });
+    Future.microtask(() { if (mounted) setState(() => _isUpdating = false); });
   }
 
   @override

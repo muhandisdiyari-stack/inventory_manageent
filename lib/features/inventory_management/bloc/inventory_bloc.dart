@@ -12,6 +12,9 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
   final InventoryService _inventoryService;
   final SupabaseRealtimeService _realtimeService;
 
+  /// Expose the service so that the add‑item sheet can sync edits directly.
+  InventoryService get inventoryService => _inventoryService;
+
   Timer? _itemsDebounce;
   Timer? _labelsDebounce;
   String? _currentSubscribedInventory;

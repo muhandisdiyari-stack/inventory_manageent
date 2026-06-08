@@ -26,7 +26,7 @@ class InventoryService {
   String? get currentInventoryId => _currentInventoryId;
   String? get currentCompanyId => _currentCompanyId;
 
-  // ─── Initialization with Race Condition Fix ────────────────────
+  // ─── Initialization ────────────────────────────────────────────
   Future<void> initializeForInventory(String inventoryId) {
     if (_initFuture != null && _currentInventoryId == inventoryId) return _initFuture!;
     _initFuture = _doInitialize(inventoryId).whenComplete(() => _initFuture = null);
@@ -81,26 +81,41 @@ class InventoryService {
     }
   }
 
+  // ─── FIXED: resolves company_id from current inventory first ──────
   Future<void> _loadCompanyId() async {
     if (!AppConfig.useSupabase || _currentCompanyId != null) return;
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
-      // Get company_id from the first inventory the user is a member of
-      final data = await Supabase.instance.client.from('inventory_members')
+      // 1. Try the currently selected inventory
+      if (_currentInventoryId != null) {
+        final invData = await Supabase.instance.client
+            .from('inventories')
+            .select('company_id')
+            .eq('id', _currentInventoryId!)
+            .maybeSingle();
+        if (invData != null && invData['company_id'] != null) {
+          _currentCompanyId = invData['company_id'].toString();
+          return;
+        }
+      }
+      // 2. Any inventory the user belongs to
+      final data = await Supabase.instance.client
+          .from('inventory_members')
           .select('inventories!inner(company_id)')
           .eq('user_id', user.id)
           .limit(1)
           .maybeSingle();
       if (data != null) {
         final inv = data['inventories'] as Map?;
-        if (inv != null) {
-          _currentCompanyId = inv['company_id']?.toString();
-          return;
+        if (inv != null && inv['company_id'] != null) {
+          _currentCompanyId = inv['company_id'].toString();
         }
       }
-      // Fallback: if no inventories, try profiles (though company_id is removed, this won't exist)
-    } catch (e) { debugPrint('⚠️ Load company ID error: $e'); _currentCompanyId = null; }
+    } catch (e) {
+      debugPrint('⚠️ Load company ID error: $e');
+      _currentCompanyId = null;
+    }
   }
 
   // ─── Label Sync ─────────────────────────────────────────────────
@@ -169,7 +184,6 @@ class InventoryService {
           .order('updated_at', ascending: false)
           .limit(200);
 
-      // Build sets of current Supabase IDs
       final supabaseIds = <String>{};
       final supabaseItems = <String, InventoryItem>{};
       for (final itemData in data) {
@@ -181,7 +195,7 @@ class InventoryService {
         }
       }
 
-      // Remove local items that no longer exist on the server (or are deleted)
+      // Remove local items that no longer exist on server
       final keysToDelete = <dynamic>[];
       for (final key in box.keys) {
         final localItem = box.get(key);
@@ -195,7 +209,7 @@ class InventoryService {
         await box.delete(key);
       }
 
-      // Upsert items from server
+      // Upsert items
       for (final item in supabaseItems.values) {
         bool found = false;
         for (final existingItem in box.values) {
@@ -272,28 +286,55 @@ class InventoryService {
   // ─── Label CRUD ─────────────────────────────────────────────────
   Future<Label> createLabel(String name) async {
     if (_currentInventoryId == null) throw Exception('No inventory selected');
-    if (_currentCompanyId == null) throw Exception('No company selected');
-    final user = Supabase.instance.client.auth.currentUser; final now = DateTime.now();
+    if (_currentCompanyId == null) {
+      await _loadCompanyId();
+      if (_currentCompanyId == null) throw Exception('No company selected');
+    }
+    final user = Supabase.instance.client.auth.currentUser;
+    final now = DateTime.now();
+    final userName = user?.userMetadata?['full_name'] ?? user?.email ?? 'Unknown';
+
     if (AppConfig.useSupabase) {
       try {
         final response = await Supabase.instance.client.from('labels').insert({
-          'company_id': _currentCompanyId, 'inventory_id': _currentInventoryId!, 'name': name,
-          'created_by': user?.id, 'created_by_name': user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown',
-          'created_at': now.toUtc().toIso8601String(), 'updated_at': now.toUtc().toIso8601String(),
+          'company_id': _currentCompanyId,
+          'inventory_id': _currentInventoryId!,
+          'name': name,
+          'created_by': user?.id,
+          'created_by_name': userName,
+          'created_at': now.toUtc().toIso8601String(),
+          'updated_at': now.toUtc().toIso8601String(),
         }).select().single();
-        final label = Label.fromSupabase(Map<String, dynamic>.from(response)); _addLabelToCache(label); return label;
+        final label = Label.fromSupabase(Map<String, dynamic>.from(response));
+        _addLabelToCache(label);
+        return label;
       } on PostgrestException catch (e) {
         if (e.code == '23505') {
           final existing = await Supabase.instance.client.from('labels').select()
-              .eq('company_id', _currentCompanyId as Object).eq('inventory_id', _currentInventoryId!)
-              .eq('name', name).eq('is_deleted', false).maybeSingle();
-          if (existing != null) { final label = Label.fromSupabase(Map<String, dynamic>.from(existing)); _addLabelToCache(label); return label; }
+              .eq('company_id', _currentCompanyId as Object)
+              .eq('inventory_id', _currentInventoryId!)
+              .eq('name', name)
+              .eq('is_deleted', false)
+              .maybeSingle();
+          if (existing != null) {
+            final label = Label.fromSupabase(Map<String, dynamic>.from(existing));
+            _addLabelToCache(label);
+            return label;
+          }
         }
         rethrow;
       }
     }
-    final label = Label.create(name: name, companyId: _currentCompanyId!, inventoryId: _currentInventoryId!, createdBy: 'offline', createdByName: 'Offline User');
-    _addLabelToCache(label); return label;
+    // Offline fallback
+    final label = Label.create(
+      name: name,
+      companyId: _currentCompanyId!,
+      inventoryId: _currentInventoryId!,
+      createdBy: 'offline',
+      createdByName: 'Offline User',
+    );
+    _addLabelToCache(label);
+    return label;
   }
 
   void _addLabelToCache(Label label) {
@@ -333,7 +374,6 @@ class InventoryService {
     if (_currentInventoryId == null) return;
     final box = _itemsBoxes[_currentInventoryId!]; if (box == null) return;
     item.inventoryId = _currentInventoryId; item.isSynced = false;
-    // Ensure company_id is set from cache or fetched
     if (item.companyId == null && _currentCompanyId != null) {
       item.companyId = _currentCompanyId;
     }
@@ -378,11 +418,17 @@ class InventoryService {
     }
     if (companyId == null) return;
 
+    // Ensure label_id is set
+    if (item.labelId == null && item.label.isNotEmpty) {
+      final label = getLabelByName(item.label);
+      if (label != null) item.labelId = label.id;
+    }
+
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
       final now = DateTime.now().toUtc().toIso8601String();
-      final userName = user?.userMetadata?['display_name'] ?? user?.email ?? 'Unknown';
+      final userName = user?.userMetadata?['full_name'] ?? user?.email ?? 'Unknown';
 
       final data = <String, dynamic>{
         'company_id': companyId,
