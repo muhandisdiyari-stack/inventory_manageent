@@ -74,7 +74,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
 
     if (_roomId != null && _roomId!.isNotEmpty) {
       _setupRealtime();
-      await _markRoomRead();
+      await _markRoomRead();          // FIX: clear unread on entry
       await _loadMessages();
     } else {
       if (mounted) {
@@ -84,10 +84,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // REALTIME SETUP – fixes instantaneous updates
-  // ═══════════════════════════════════════════════════════════════
-
+  // ─────────── Realtime setup (unchanged except filter safety) ───
   void _setupRealtime() {
     if (_roomId == null || _isDisposed) return;
     _channel?.unsubscribe();
@@ -106,14 +103,22 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
             callback: (p) {
               if (_isDisposed) return;
               final m = Map<String, dynamic>.from(p.newRecord);
-              if (mounted && !_messages.any((x) => x['id'] == m['id'])) {
-                setState(() {
-                  _messages.add(m);
-                });
-                // Scroll after the frame rebuilds
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _scrollToBottom();
-                });
+              if (!mounted) return;
+
+              // FIX: Replace optimistic message if it exists
+              if (m['sender_id'] == _uid) {
+                final idx = _messages.indexWhere((x) =>
+                    x['id'].toString().startsWith('opt_') &&
+                    x['content'] == m['content']);
+                if (idx != -1) {
+                  setState(() => _messages[idx] = m);
+                  return;
+                }
+              }
+              // Otherwise add new message
+              if (!_messages.any((x) => x['id'] == m['id'])) {
+                setState(() => _messages.add(m));
+                WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
               }
             },
           )
@@ -127,21 +132,16 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
               value: _roomId!,
             ),
             callback: (p) {
-              if (_isDisposed) return;
+              if (_isDisposed || !mounted) return;
               final m = Map<String, dynamic>.from(p.newRecord);
-              if (mounted) {
-                setState(() {
-                  final i =
-                      _messages.indexWhere((x) => x['id'] == m['id']);
-                  if (i >= 0) _messages[i] = m;
-                });
-              }
+              setState(() {
+                final i = _messages.indexWhere((x) => x['id'] == m['id']);
+                if (i >= 0) _messages[i] = m;
+              });
             },
           )
           .subscribe((status, [error]) {
-            if (error != null) {
-              debugPrint('Chat subscription error: $error');
-            }
+            if (error != null) debugPrint('Chat subscription error: $error');
           });
     } catch (e) {
       debugPrint('Failed to setup chat realtime: $e');
@@ -157,10 +157,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // MARK ROOM AS READ
-  // ═══════════════════════════════════════════════════════════════
-
+  // ─────────── Mark room as read ──────────────────────────────────
   Future<void> _markRoomRead() async {
     if (_roomId == null) return;
     try {

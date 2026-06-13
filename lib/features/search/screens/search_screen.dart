@@ -52,13 +52,18 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _loadPermissions() {
     try {
+      // Use the AuthBloc's stored permissions if available
       final user = context.read<AuthBloc>().state.user;
-      _permissions = user?.inventoryPermissions ??
-          InventoryPermissions.fromRole(user?.role.name ?? 'viewer');
+      if (user?.inventoryPermissions != null) {
+        _permissions = user!.inventoryPermissions;
+      } else {
+        // Fallback: viewer-level permissions (safe default)
+        _permissions = const InventoryPermissions();
+      }
     } catch (_) {
       _permissions = const InventoryPermissions();
     }
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   bool get _canUpdate => _permissions?.canUpdate ?? false;
@@ -127,8 +132,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _hasSearched = true;
       });
     } catch (e) {
-      debugPrint(
-          '⚠️ Server search failed, falling back to local: $e');
+      debugPrint('⚠️ Server search failed, falling back to local: $e');
       if (mounted) _performLocalSearch(query);
     }
   }
@@ -194,8 +198,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-              'You do not have permission to edit items'),
+          content: Text('You do not have permission to edit items'),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
@@ -208,8 +211,7 @@ class _SearchScreenState extends State<SearchScreen> {
       isScrollControlled: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius:
-            BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) => _SimpleEditSheet(item: item),
     );
@@ -224,8 +226,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-              'You do not have permission to update quantities'),
+          content: Text('You do not have permission to update quantities'),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
@@ -239,22 +240,15 @@ class _SearchScreenState extends State<SearchScreen> {
 
     item.quantity = newQuantity;
     item.modified = DateTime.now();
-    context
-        .read<InventoryBloc>()
-        .add(AdjustQuantity(item, delta));
+    context.read<InventoryBloc>().add(AdjustQuantity(item, delta));
   }
 
   void _navigateToInventory(String inventoryId) {
-    context
-        .read<InventoryListBloc>()
-        .add(SelectInventory(inventoryId));
-    context
-        .read<InventoryBloc>()
-        .add(InitializeInventory(inventoryId));
+    context.read<InventoryListBloc>().add(SelectInventory(inventoryId));
+    context.read<InventoryBloc>().add(InitializeInventory(inventoryId));
     Navigator.push(
       context,
-      MaterialPageRoute(
-          builder: (_) => const InventoryHomeScreen()),
+      MaterialPageRoute(builder: (_) => const InventoryHomeScreen()),
     );
   }
 
@@ -288,8 +282,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         ? 'Searching server (tap for local)'
                         : 'Searching local cache (tap for server)',
                     onPressed: () {
-                      setState(() => _isServerSearch =
-                          !_isServerSearch);
+                      setState(() => _isServerSearch = !_isServerSearch);
                       if (_searchController.text.isNotEmpty) {
                         _performSearch(_searchController.text);
                       }
@@ -324,8 +317,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   SizedBox(height: 8),
                   Text(
                     'Checking across all your inventories',
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey),
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ],
               ),
@@ -345,17 +337,14 @@ class _SearchScreenState extends State<SearchScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.search_off,
-                      size: 64, color: Colors.grey[400]),
+                  Icon(Icons.search_off, size: 64, color: Colors.grey[400]),
                   const SizedBox(height: 16),
                   Text('No results found',
-                      style: TextStyle(
-                          color: Colors.grey[600], fontSize: 16)),
+                      style: TextStyle(color: Colors.grey[600], fontSize: 16)),
                   const SizedBox(height: 8),
                   Text(
                     'Try a different search term or check spelling',
-                    style: TextStyle(
-                        color: Colors.grey[400], fontSize: 13),
+                    style: TextStyle(color: Colors.grey[400], fontSize: 13),
                   ),
                   if (!_isServerSearch) ...[
                     const SizedBox(height: 16),
@@ -394,8 +383,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     fontWeight: FontWeight.w600,
                     color: Colors.grey[600])),
             const SizedBox(height: 8),
-            Text(
-                'Search by name, code, barcode, size, color, or material',
+            Text('Search by name, code, barcode, size, color, or material',
                 style: TextStyle(color: Colors.grey[500]),
                 textAlign: TextAlign.center),
             const SizedBox(height: 24),
@@ -403,17 +391,10 @@ class _SearchScreenState extends State<SearchScreen> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                'name',
-                'code',
-                'barcode',
-                'size',
-                'color',
-                'material',
-                'note'
+                'name', 'code', 'barcode', 'size', 'color', 'material', 'note'
               ]
                   .map((f) => Chip(
-                      label: Text(f,
-                          style: const TextStyle(fontSize: 12)),
+                      label: Text(f, style: const TextStyle(fontSize: 12)),
                       visualDensity: VisualDensity.compact))
                   .toList(),
             ),
@@ -424,29 +405,23 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildResults(List<Map<String, dynamic>> results) {
-    final groupedResults =
-        <String, List<Map<String, dynamic>>>{};
+    final groupedResults = <String, List<Map<String, dynamic>>>{};
     for (var result in results) {
-      final inventoryName =
-          (result['inventoryName'] as String?) ?? 'Unknown';
-      groupedResults
-          .putIfAbsent(inventoryName, () => [])
-          .add(result);
+      final inventoryName = (result['inventoryName'] as String?) ?? 'Unknown';
+      groupedResults.putIfAbsent(inventoryName, () => []).add(result);
     }
 
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           color: Theme.of(context)
               .colorScheme
               .primaryContainer
               .withValues(alpha: 0.3),
           child: Row(children: [
             Icon(Icons.search,
-                size: 16,
-                color: Theme.of(context).colorScheme.primary),
+                size: 16, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -454,9 +429,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .primary)),
+                      color: Theme.of(context).colorScheme.primary)),
             ),
           ]),
         ),
@@ -465,15 +438,13 @@ class _SearchScreenState extends State<SearchScreen> {
             padding: const EdgeInsets.all(8),
             itemCount: groupedResults.length,
             itemBuilder: (context, index) {
-              final inventoryName =
-                  groupedResults.keys.elementAt(index);
+              final inventoryName = groupedResults.keys.elementAt(index);
               final items = groupedResults[inventoryName]!;
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                        16, 16, 16, 8),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                     child: Row(children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -482,8 +453,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           color: Theme.of(context)
                               .colorScheme
                               .primaryContainer,
-                          borderRadius:
-                              BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -507,22 +477,20 @@ class _SearchScreenState extends State<SearchScreen> {
                       const Spacer(),
                       TextButton.icon(
                         onPressed: () {
-                          final inventoryId = items
-                              .first['inventoryId'] as String?;
+                          final inventoryId =
+                              items.first['inventoryId'] as String?;
                           if (inventoryId != null) {
                             _navigateToInventory(inventoryId);
                           }
                         },
-                        icon: const Icon(Icons.open_in_new,
-                            size: 16),
+                        icon: const Icon(Icons.open_in_new, size: 16),
                         label: const Text('Open',
                             style: TextStyle(fontSize: 12)),
                       ),
                     ]),
                   ),
                   ...items.map((result) => _buildItemCard(
-                      result['item'] as InventoryItem,
-                      inventoryName)),
+                      result['item'] as InventoryItem, inventoryName)),
                   const SizedBox(height: 8),
                 ],
               );
@@ -533,15 +501,12 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildItemCard(
-      InventoryItem item, String inventoryName) {
+  Widget _buildItemCard(InventoryItem item, String inventoryName) {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Card(
-      margin: const EdgeInsets.symmetric(
-          horizontal: 8, vertical: 4),
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
         leading: CircleAvatar(
           backgroundColor: item.isExpired
@@ -560,8 +525,7 @@ class _SearchScreenState extends State<SearchScreen> {
         title: Row(children: [
           Expanded(
               child: Text(item.displayName,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis)),
           if (item.isExpired)
@@ -573,23 +537,21 @@ class _SearchScreenState extends State<SearchScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (item.code.isNotEmpty)
-              Text('Code: ${item.code}',
-                  style: const TextStyle(fontSize: 12)),
+              Text('Code: ${item.code}', style: const TextStyle(fontSize: 12)),
             if (item.barcode.isNotEmpty)
               Text('Barcode: ${item.barcode}',
                   style: const TextStyle(fontSize: 12)),
             const SizedBox(height: 6),
             Row(children: [
-              _buildInfoChip(Icons.label, item.label,
-                  colorScheme.secondaryContainer),
+              _buildInfoChip(
+                  Icons.label, item.label, colorScheme.secondaryContainer),
               const SizedBox(width: 8),
               _buildInfoChip(Icons.inventory_2, inventoryName,
                   colorScheme.tertiaryContainer),
             ]),
             const SizedBox(height: 2),
             Text('👤 ${item.creatorDisplayName}',
-                style: TextStyle(
-                    fontSize: 10, color: Colors.grey[500])),
+                style: TextStyle(fontSize: 10, color: Colors.grey[500])),
           ],
         ),
         trailing: Column(
@@ -601,8 +563,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     .titleMedium
                     ?.copyWith(fontWeight: FontWeight.w700)),
             Text('Qty',
-                style: TextStyle(
-                    color: Colors.grey[600], fontSize: 11)),
+                style: TextStyle(color: Colors.grey[600], fontSize: 11)),
           ],
         ),
         children: [
@@ -611,22 +572,18 @@ class _SearchScreenState extends State<SearchScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (item.barcode.isNotEmpty)
-                  _infoRow('Barcode', item.barcode),
-                if (item.color.isNotEmpty)
-                  _infoRow('Color', item.color),
+                if (item.barcode.isNotEmpty) _infoRow('Barcode', item.barcode),
+                if (item.color.isNotEmpty) _infoRow('Color', item.color),
                 if (item.material.isNotEmpty)
                   _infoRow('Material', item.material),
-                if (item.size.isNotEmpty)
-                  _infoRow('Size', item.size),
+                if (item.size.isNotEmpty) _infoRow('Size', item.size),
                 if (item.productionDate != null)
                   _infoRow('Production',
                       item.productionDate.toString().split(' ')[0]),
                 if (item.expireDate != null)
-                  _infoRow('Expires',
-                      item.expireDate.toString().split(' ')[0]),
-                if (item.note.isNotEmpty)
-                  _infoRow('Note', item.note),
+                  _infoRow(
+                      'Expires', item.expireDate.toString().split(' ')[0]),
+                if (item.note.isNotEmpty) _infoRow('Note', item.note),
                 ...item.userCustomFields.entries
                     .map((e) => _infoRow(e.key, e.value)),
                 const Divider(height: 16),
@@ -635,13 +592,11 @@ class _SearchScreenState extends State<SearchScreen> {
                 _infoRow('Created by', item.creatorDisplayName),
                 if (item.updatedByName != null &&
                     item.updatedByName != item.createdByName)
-                  _infoRow(
-                      'Updated by', item.updaterDisplayName),
+                  _infoRow('Updated by', item.updaterDisplayName),
                 const SizedBox(height: 8),
                 if (_canUpdate)
                   Row(
-                    mainAxisAlignment:
-                        MainAxisAlignment.spaceEvenly,
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       IconButton.filled(
                         onPressed: item.quantity > 0
@@ -649,27 +604,22 @@ class _SearchScreenState extends State<SearchScreen> {
                             : null,
                         icon: const Icon(Icons.remove, size: 20),
                         style: IconButton.styleFrom(
-                            backgroundColor:
-                                colorScheme.errorContainer,
+                            backgroundColor: colorScheme.errorContainer,
                             foregroundColor: colorScheme.error),
                       ),
                       Text('${item.quantity}',
                           style: Theme.of(context)
                               .textTheme
                               .titleMedium
-                              ?.copyWith(
-                                  fontWeight: FontWeight.w700)),
+                              ?.copyWith(fontWeight: FontWeight.w700)),
                       IconButton.filled(
-                        onPressed: item.quantity <
-                                InventoryItem.maxQuantity
+                        onPressed: item.quantity < InventoryItem.maxQuantity
                             ? () => _adjustQuantity(item, 1)
                             : null,
                         icon: const Icon(Icons.add, size: 20),
                         style: IconButton.styleFrom(
-                            backgroundColor:
-                                colorScheme.primaryContainer,
-                            foregroundColor:
-                                colorScheme.primary),
+                            backgroundColor: colorScheme.primaryContainer,
+                            foregroundColor: colorScheme.primary),
                       ),
                       IconButton(
                         onPressed: () => _editItem(item),
@@ -682,8 +632,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   Center(
                     child: Text('View only',
                         style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey[500])),
+                            fontSize: 11, color: Colors.grey[500])),
                   ),
               ],
             ),
@@ -695,27 +644,21 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildBadge(String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-          horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-            color: color.withValues(alpha: 0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Text(label,
           style: TextStyle(
-              fontSize: 9,
-              color: color,
-              fontWeight: FontWeight.w700)),
+              fontSize: 9, color: color, fontWeight: FontWeight.w700)),
     );
   }
 
-  Widget _buildInfoChip(
-      IconData icon, String label, Color color) {
+  Widget _buildInfoChip(IconData icon, String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-          horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(12),
@@ -725,9 +668,7 @@ class _SearchScreenState extends State<SearchScreen> {
         const SizedBox(width: 4),
         Flexible(
           child: Text(label,
-              style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500),
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
               overflow: TextOverflow.ellipsis),
         ),
       ]),
@@ -744,11 +685,8 @@ class _SearchScreenState extends State<SearchScreen> {
               width: 120,
               child: Text('$label: ',
                   style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13))),
-          Expanded(
-              child: Text(value,
-                  style: const TextStyle(fontSize: 13))),
+                      fontWeight: FontWeight.w600, fontSize: 13))),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
         ],
       ),
     );
@@ -774,12 +712,10 @@ class _SimpleEditSheetState extends State<_SimpleEditSheet> {
   @override
   void initState() {
     super.initState();
-    _nameController =
-        TextEditingController(text: widget.item.name);
-    _quantityController = TextEditingController(
-        text: widget.item.quantity.toString());
-    _noteController =
-        TextEditingController(text: widget.item.note);
+    _nameController = TextEditingController(text: widget.item.name);
+    _quantityController =
+        TextEditingController(text: widget.item.quantity.toString());
+    _noteController = TextEditingController(text: widget.item.note);
   }
 
   @override
@@ -799,8 +735,7 @@ class _SimpleEditSheetState extends State<_SimpleEditSheet> {
     try {
       widget.item.name = _nameController.text.trim();
       widget.item.quantity =
-          int.tryParse(_quantityController.text) ??
-              widget.item.quantity;
+          int.tryParse(_quantityController.text) ?? widget.item.quantity;
       widget.item.note = _noteController.text.trim();
       widget.item.modified = DateTime.now();
       await widget.item.save();
@@ -848,9 +783,7 @@ class _SimpleEditSheetState extends State<_SimpleEditSheet> {
                     ?.copyWith(fontWeight: FontWeight.w800)),
             if (_error != null) ...[
               const SizedBox(height: 8),
-              Text(_error!,
-                  style: const TextStyle(
-                      color: Colors.red, fontSize: 13)),
+              Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 13)),
             ],
             const SizedBox(height: 16),
             TextFormField(
@@ -862,9 +795,7 @@ class _SimpleEditSheetState extends State<_SimpleEditSheet> {
                 filled: true,
               ),
               validator: (v) =>
-                  (v == null || v.trim().isEmpty)
-                      ? 'Name is required'
-                      : null,
+                  (v == null || v.trim().isEmpty) ? 'Name is required' : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -882,8 +813,7 @@ class _SimpleEditSheetState extends State<_SimpleEditSheet> {
                 }
                 final parsed = int.tryParse(value.trim());
                 if (parsed == null) return 'Must be a valid number';
-                if (parsed < 0 ||
-                    parsed > InventoryItem.maxQuantity) {
+                if (parsed < 0 || parsed > InventoryItem.maxQuantity) {
                   return 'Must be 0-${InventoryItem.maxQuantity}';
                 }
                 return null;
@@ -904,9 +834,7 @@ class _SimpleEditSheetState extends State<_SimpleEditSheet> {
             Row(children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: _saving
-                      ? null
-                      : () => Navigator.pop(context),
+                  onPressed: _saving ? null : () => Navigator.pop(context),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
@@ -931,8 +859,7 @@ class _SimpleEditSheetState extends State<_SimpleEditSheet> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white))
                       : const Text('Save',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w700)),
+                          style: TextStyle(fontWeight: FontWeight.w700)),
                 ),
               ),
             ]),

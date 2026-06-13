@@ -81,7 +81,7 @@ class InventoryService {
     }
   }
 
-  // ─── FIXED: resolves company_id from current inventory first ──────
+  // FIXED: Try current inventory first, then fallback to any membership.
   Future<void> _loadCompanyId() async {
     if (!AppConfig.useSupabase || _currentCompanyId != null) return;
     try {
@@ -195,7 +195,7 @@ class InventoryService {
         }
       }
 
-      // Remove local items that no longer exist on server
+      // Remove local items that are synced but no longer exist on server
       final keysToDelete = <dynamic>[];
       for (final key in box.keys) {
         final localItem = box.get(key);
@@ -205,11 +205,8 @@ class InventoryService {
           }
         }
       }
-      for (final key in keysToDelete) {
-        await box.delete(key);
-      }
+      for (final key in keysToDelete) { await box.delete(key); }
 
-      // Upsert items
       for (final item in supabaseItems.values) {
         bool found = false;
         for (final existingItem in box.values) {
@@ -220,13 +217,9 @@ class InventoryService {
             break;
           }
         }
-        if (!found) {
-          await box.add(item);
-        }
+        if (!found) { await box.add(item); }
       }
-    } catch (e) {
-      debugPrint('⚠️ Realtime sync error: $e');
-    }
+    } catch (e) { debugPrint('⚠️ Realtime sync error: $e'); }
   }
 
   void _updateItemFields(InventoryItem target, InventoryItem source) {
@@ -292,6 +285,7 @@ class InventoryService {
     }
     final user = Supabase.instance.client.auth.currentUser;
     final now = DateTime.now();
+    // FIXED: use full_name from user metadata (matching signup field)
     final userName = user?.userMetadata?['full_name'] ?? user?.email ?? 'Unknown';
 
     if (AppConfig.useSupabase) {
@@ -307,6 +301,8 @@ class InventoryService {
         }).select().single();
         final label = Label.fromSupabase(Map<String, dynamic>.from(response));
         _addLabelToCache(label);
+        // Persist to Hive immediately so the label survives restart
+        _persistLabelsToHive(_currentInventoryId!);
         return label;
       } on PostgrestException catch (e) {
         if (e.code == '23505') {
@@ -319,13 +315,13 @@ class InventoryService {
           if (existing != null) {
             final label = Label.fromSupabase(Map<String, dynamic>.from(existing));
             _addLabelToCache(label);
+            _persistLabelsToHive(_currentInventoryId!);
             return label;
           }
         }
         rethrow;
       }
     }
-    // Offline fallback
     final label = Label.create(
       name: name,
       companyId: _currentCompanyId!,
@@ -334,6 +330,7 @@ class InventoryService {
       createdByName: 'Offline User',
     );
     _addLabelToCache(label);
+    _persistLabelsToHive(_currentInventoryId!);
     return label;
   }
 
@@ -342,6 +339,15 @@ class InventoryService {
     final idx = list.indexWhere((l) => l.id == label.id);
     if (idx != -1) { list[idx] = label; } else { list.add(label); }
     _labelsCache[_currentInventoryId!] = list;
+  }
+
+  void _persistLabelsToHive(String inventoryId) {
+    final box = _labelsBoxes[inventoryId];
+    if (box != null) {
+      final cached = _labelsCache[inventoryId] ?? [];
+      box.put('labels_cache', cached.map((l) => l.toSupabaseJson()).toList());
+      box.put('label_names', cached.map((l) => l.name).toList());
+    }
   }
 
   Future<void> renameLabel(String oldName, String newName) async {
@@ -393,7 +399,7 @@ class InventoryService {
     }
   }
 
-  // ─── FIXED SYNC METHOD ─────────────────────────────────────────
+  // ─── FIXED SYNC ────────────────────────────────────────────────
   Future<void> _syncItemToSupabase(InventoryItem item) async {
     if (!AppConfig.useSupabase) return;
 
