@@ -74,7 +74,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
 
     if (_roomId != null && _roomId!.isNotEmpty) {
       _setupRealtime();
-      await _markRoomRead();          // FIX: clear unread on entry
+      await _markRoomRead();          // clear unread on entry
       await _loadMessages();
     } else {
       if (mounted) {
@@ -84,7 +84,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
     }
   }
 
-  // ─────────── Realtime setup (unchanged except filter safety) ───
+  // ─────────── Realtime setup ──────────────────────────────────────
   void _setupRealtime() {
     if (_roomId == null || _isDisposed) return;
     _channel?.unsubscribe();
@@ -105,7 +105,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
               final m = Map<String, dynamic>.from(p.newRecord);
               if (!mounted) return;
 
-              // FIX: Replace optimistic message if it exists
+              // If the message is from the current user, replace the optimistic one
               if (m['sender_id'] == _uid) {
                 final idx = _messages.indexWhere((x) =>
                     x['id'].toString().startsWith('opt_') &&
@@ -115,7 +115,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                   return;
                 }
               }
-              // Otherwise add new message
+
+              // Add new message if not already present (prevents duplicates)
               if (!_messages.any((x) => x['id'] == m['id'])) {
                 setState(() => _messages.add(m));
                 WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
@@ -141,7 +142,9 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
             },
           )
           .subscribe((status, [error]) {
-            if (error != null) debugPrint('Chat subscription error: $error');
+            if (error != null) {
+              debugPrint('Chat subscription error: $error');
+            }
           });
     } catch (e) {
       debugPrint('Failed to setup chat realtime: $e');
@@ -169,10 +172,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // DATA LOADING
-  // ═══════════════════════════════════════════════════════════════
-
+  // ─────────── Data loading ───────────────────────────────────────
   Future<void> _loadInventories() async {
     if (_isDisposed) return;
     try {
@@ -425,8 +425,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
           children: [
             Text(
               _selInvName ?? widget.inventoryName,
-              style: const TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.w600),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             Text(
               widget.companyName,
@@ -861,8 +860,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
           if (g.date != null)
             Center(
               child: Container(
-                margin:
-                    const EdgeInsets.symmetric(vertical: 12),
+                margin: const EdgeInsets.symmetric(vertical: 12),
                 padding: const EdgeInsets.symmetric(
                     horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
@@ -872,8 +870,7 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                 child: Text(
                   g.date!,
                   style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[600]),
+                      fontSize: 11, color: Colors.grey[600]),
                 ),
               ),
             ),

@@ -131,7 +131,6 @@ class LabelListWidget extends StatelessWidget {
 
   Widget _buildLabelTile(BuildContext context, String label) {
     final isSelected = label == currentLabel;
-    // 🔑 FIX: Use getLabelByName instead of removed getLabelInfo
     final labelInfo = inventoryService?.getLabelByName(label);
     final colorScheme = Theme.of(context).colorScheme;
 
