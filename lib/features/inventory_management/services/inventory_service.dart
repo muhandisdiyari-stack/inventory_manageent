@@ -26,7 +26,6 @@ class InventoryService {
   String? get currentInventoryId => _currentInventoryId;
   String? get currentCompanyId => _currentCompanyId;
 
-  // ─── Initialization ────────────────────────────────────────────
   Future<void> initializeForInventory(String inventoryId) {
     if (_initFuture != null && _currentInventoryId == inventoryId) return _initFuture!;
     _initFuture = _doInitialize(inventoryId).whenComplete(() => _initFuture = null);
@@ -358,7 +357,7 @@ class InventoryService {
         }).select().single();
         final label = Label.fromSupabase(Map<String, dynamic>.from(response));
         _addLabelToCache(label);
-        _persistLabelsToHive(_currentInventoryId!);
+        _persistLabelsToHive(_currentInventoryId!);   // FIXED: persist immediately
         return label;
       } on PostgrestException catch (e) {
         if (e.code == '23505') {
@@ -397,6 +396,7 @@ class InventoryService {
     _labelsCache[_currentInventoryId!] = list;
   }
 
+  // FIXED: Persist labels to Hive immediately after any change
   void _persistLabelsToHive(String inventoryId) {
     final box = _labelsBoxes[inventoryId];
     if (box != null) {
@@ -418,6 +418,7 @@ class InventoryService {
     final idx = list.indexWhere((l) => l.id == label.id);
     if (idx != -1) { list[idx] = label.copyWith(name: newName); _labelsCache[_currentInventoryId!] = list; }
     for (final item in getItemsByLabel(oldName)) { item.label = newName; await item.save(); }
+    _persistLabelsToHive(_currentInventoryId!);
   }
 
   Future<void> deleteLabel(String name) async {
@@ -435,6 +436,7 @@ class InventoryService {
     if (box != null) {
       for (final item in box.values.where((i) => i.label == name).toList()) { await item.delete(); }
     }
+    _persistLabelsToHive(_currentInventoryId!);
   }
 
   // ─── Item Management ───────────────────────────────────────────

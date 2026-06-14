@@ -73,9 +73,9 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
     _selInvName = inv['inventory_name'] as String? ?? widget.inventoryName;
 
     if (_roomId != null && _roomId!.isNotEmpty) {
-      _setupRealtime();
-      await _markRoomRead();          // clear unread on entry
-      await _loadMessages();
+      await _loadMessages();    // Load messages FIRST
+      _setupRealtime();         // THEN subscribe to realtime
+      await _markRoomRead();
     } else {
       if (mounted) {
         setState(() => _loading = false);
@@ -105,10 +105,10 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
               final m = Map<String, dynamic>.from(p.newRecord);
               if (!mounted) return;
 
-              // If the message is from the current user, replace the optimistic one
+              // Replace the optimistic message if it's from the current user
               if (m['sender_id'] == _uid) {
                 final idx = _messages.indexWhere((x) =>
-                    x['id'].toString().startsWith('opt_') &&
+                    (x['id'] as String).startsWith('opt_') &&
                     x['content'] == m['content']);
                 if (idx != -1) {
                   setState(() => _messages[idx] = m);
@@ -116,10 +116,14 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
                 }
               }
 
-              // Add new message if not already present (prevents duplicates)
+              // Otherwise add if not already present
               if (!_messages.any((x) => x['id'] == m['id'])) {
-                setState(() => _messages.add(m));
-                WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+                setState(() {
+                  _messages.add(m);
+                });
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _scrollToBottom();
+                });
               }
             },
           )
@@ -144,6 +148,8 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
           .subscribe((status, [error]) {
             if (error != null) {
               debugPrint('Chat subscription error: $error');
+            } else {
+              debugPrint('✅ Chat subscription active: $status');
             }
           });
     } catch (e) {
@@ -245,9 +251,10 @@ class _InventoryChatScreenState extends State<InventoryChatScreen> {
       _cursor = null;
       _error = null;
     });
-    _setupRealtime();
-    _markRoomRead();
-    _loadMessages();
+    _loadMessages().then((_) {
+      _setupRealtime();
+      _markRoomRead();
+    });
     _loadInventories();
   }
 
