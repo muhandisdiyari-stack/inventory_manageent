@@ -186,10 +186,13 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
     _itemsDebounce = Timer(_realtimeDebounceDuration, () async {
       if (isClosed) return;
       if (state.inventoryId != null) {
+        // Sync from Supabase first
         await _inventoryService.syncItemsFromRealtime(state.inventoryId!);
+        // Also sync labels in case a new label was created
+        await _inventoryService.syncLabelsFromSupabase(state.inventoryId!);
       }
       if (isClosed) return;
-      // Directly update the UI with fresh data from Hive
+      // Emit fresh state from Hive
       emit(state.copyWith(
         labels: _getCurrentLabels(),
         currentItems: state.selectedLabel != null
@@ -201,8 +204,16 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
 
   void _onRealtimeLabelsChanged(RealtimeLabelsChanged event, Emitter<InventoryState> emit) {
     _labelsDebounce?.cancel();
-    _labelsDebounce = Timer(_realtimeDebounceDuration, () {
+    _labelsDebounce = Timer(_realtimeDebounceDuration, () async {
       if (isClosed) return;
+      if (state.inventoryId != null) {
+        // Sync labels from Supabase first
+        await _inventoryService.syncLabelsFromSupabase(state.inventoryId!);
+        // Also sync items
+        await _inventoryService.syncItemsFromRealtime(state.inventoryId!);
+      }
+      if (isClosed) return;
+      // Emit fresh state from Hive
       emit(state.copyWith(
         labels: _getCurrentLabels(),
         currentItems: state.selectedLabel != null
