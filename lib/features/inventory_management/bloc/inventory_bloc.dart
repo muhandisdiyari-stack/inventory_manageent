@@ -18,7 +18,7 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
   Timer? _itemsDebounce;
   Timer? _labelsDebounce;
   String? _currentSubscribedInventory;
-  static const _realtimeDebounceDuration = Duration(milliseconds: 800);
+  static const _realtimeDebounceDuration = Duration(milliseconds: 500);
 
   InventoryBloc({
     required InventoryService inventoryService,
@@ -81,19 +81,29 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
     if (_currentSubscribedInventory == inventoryId) return;
     if (_currentSubscribedInventory != null) _realtimeService.unsubscribeFromInventory(_currentSubscribedInventory!);
     _currentSubscribedInventory = inventoryId;
-    _realtimeService.subscribeToInventoryItems(inventoryId, onChange: () { if (!isClosed) add(const RealtimeItemsChanged()); });
-    _realtimeService.subscribeToLabels(inventoryId, onChange: () { if (!isClosed) add(const RealtimeLabelsChanged()); });
+    _realtimeService.subscribeToInventoryItems(inventoryId, onChange: () {
+      if (!isClosed) add(const RealtimeItemsChanged());
+    });
+    _realtimeService.subscribeToLabels(inventoryId, onChange: () {
+      if (!isClosed) add(const RealtimeLabelsChanged());
+    });
   }
 
-  void _onLoadLabels(LoadLabels event, Emitter<InventoryState> emit) => emit(state.copyWith(labels: _getCurrentLabels()));
+  void _onLoadLabels(LoadLabels event, Emitter<InventoryState> emit) {
+    emit(state.copyWith(labels: _getCurrentLabels()));
+  }
 
   Future<void> _onCreateLabel(CreateLabel event, Emitter<InventoryState> emit) async {
     if (event.name.trim().isEmpty) { emit(state.copyWith(error: 'Label name cannot be empty')); return; }
     final newLabels = List<String>.from(state.labels);
     if (!newLabels.contains(event.name)) { newLabels.add(event.name); newLabels.sort(); }
     emit(state.copyWith(labels: newLabels, selectedLabel: event.name, currentItems: []));
-    try { await _inventoryService.createLabel(event.name); emit(state.copyWith(labels: _getCurrentLabels())); }
-    catch (e) { emit(state.copyWith(labels: _getCurrentLabels(), error: 'Failed: $e')); }
+    try {
+      await _inventoryService.createLabel(event.name);
+      emit(state.copyWith(labels: _getCurrentLabels()));
+    } catch (e) {
+      emit(state.copyWith(labels: _getCurrentLabels(), error: 'Failed: $e'));
+    }
   }
 
   Future<void> _onRenameLabel(RenameLabel event, Emitter<InventoryState> emit) async {
@@ -105,16 +115,24 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
       items = items.map((item) { if (item.label == event.oldName) item.label = event.newName; return item; }).toList();
     }
     emit(state.copyWith(labels: newLabels, selectedLabel: newSel, currentItems: items));
-    try { await _inventoryService.renameLabel(event.oldName, event.newName); emit(state.copyWith(labels: _getCurrentLabels())); }
-    catch (e) { emit(state.copyWith(labels: _getCurrentLabels(), error: 'Failed: $e')); }
+    try {
+      await _inventoryService.renameLabel(event.oldName, event.newName);
+      emit(state.copyWith(labels: _getCurrentLabels()));
+    } catch (e) {
+      emit(state.copyWith(labels: _getCurrentLabels(), error: 'Failed: $e'));
+    }
   }
 
   Future<void> _onDeleteLabel(DeleteLabel event, Emitter<InventoryState> emit) async {
     final newLabels = state.labels.where((l) => l != event.name).toList();
     final newSel = state.selectedLabel == event.name ? (newLabels.isNotEmpty ? newLabels.first : null) : state.selectedLabel;
     emit(state.copyWith(labels: newLabels, selectedLabel: newSel, currentItems: newSel != null ? _inventoryService.getItemsByLabel(newSel) : []));
-    try { await _inventoryService.deleteLabel(event.name); emit(state.copyWith(labels: _getCurrentLabels())); }
-    catch (e) { emit(state.copyWith(labels: _getCurrentLabels(), error: 'Failed: $e')); }
+    try {
+      await _inventoryService.deleteLabel(event.name);
+      emit(state.copyWith(labels: _getCurrentLabels()));
+    } catch (e) {
+      emit(state.copyWith(labels: _getCurrentLabels(), error: 'Failed: $e'));
+    }
   }
 
   void _onLoadItems(LoadItems event, Emitter<InventoryState> emit) {
@@ -153,9 +171,15 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
 
   Future<void> _onImport(ImportItems event, Emitter<InventoryState> emit) async {
     emit(state.copyWith(isLoading: true));
-    try { await _inventoryService.importItems(event.label, event.items); emit(state.copyWith(labels: _getCurrentLabels(), currentItems: _getCurrentItems(), isLoading: false)); }
-    catch (e) { emit(state.copyWith(isLoading: false, error: 'Import failed: $e')); }
+    try {
+      await _inventoryService.importItems(event.label, event.items);
+      emit(state.copyWith(labels: _getCurrentLabels(), currentItems: _getCurrentItems(), isLoading: false));
+    } catch (e) {
+      emit(state.copyWith(isLoading: false, error: 'Import failed: $e'));
+    }
   }
+
+  // ─── FIXED: Realtime handlers directly emit new state ──────────
 
   void _onRealtimeItemsChanged(RealtimeItemsChanged event, Emitter<InventoryState> emit) {
     _itemsDebounce?.cancel();
@@ -165,9 +189,13 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
         await _inventoryService.syncItemsFromRealtime(state.inventoryId!);
       }
       if (isClosed) return;
-      if (state.selectedLabel != null) {
-        add(LoadItems(state.selectedLabel!));
-      }
+      // Directly update the UI with fresh data from Hive
+      emit(state.copyWith(
+        labels: _getCurrentLabels(),
+        currentItems: state.selectedLabel != null
+            ? _inventoryService.getItemsByLabel(state.selectedLabel!)
+            : state.currentItems,
+      ));
     });
   }
 
@@ -175,23 +203,39 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
     _labelsDebounce?.cancel();
     _labelsDebounce = Timer(_realtimeDebounceDuration, () {
       if (isClosed) return;
-      add(const LoadLabels());
+      emit(state.copyWith(
+        labels: _getCurrentLabels(),
+        currentItems: state.selectedLabel != null
+            ? _inventoryService.getItemsByLabel(state.selectedLabel!)
+            : state.currentItems,
+      ));
     });
   }
 
   Future<void> _onUpdateSettings(UpdateSettings event, Emitter<InventoryState> emit) async {
-    try { await _inventoryService.updateSettings(event.settings); emit(state.copyWith(settings: event.settings)); }
-    catch (e) { emit(state.copyWith(error: 'Failed: $e')); }
+    try {
+      await _inventoryService.updateSettings(event.settings);
+      emit(state.copyWith(settings: event.settings));
+    } catch (e) {
+      emit(state.copyWith(error: 'Failed: $e'));
+    }
   }
 
   void _onSearch(SearchItems event, Emitter<InventoryState> emit) {
-    try { if (event.query.trim().isEmpty) { emit(state.copyWith(searchResults: [])); return; } emit(state.copyWith(searchResults: _inventoryService.searchAllInventories(event.query))); }
-    catch (e) { emit(state.copyWith(error: 'Search failed: $e')); }
+    try {
+      if (event.query.trim().isEmpty) { emit(state.copyWith(searchResults: [])); return; }
+      emit(state.copyWith(searchResults: _inventoryService.searchAllInventories(event.query)));
+    } catch (e) {
+      emit(state.copyWith(error: 'Search failed: $e'));
+    }
   }
 
   void _onSelectLabel(SelectLabel event, Emitter<InventoryState> emit) {
-    if (event.label != null) { emit(state.copyWith(selectedLabel: event.label, currentItems: _inventoryService.getItemsByLabel(event.label!))); }
-    else { emit(state.copyWith(selectedLabel: null, currentItems: [])); }
+    if (event.label != null) {
+      emit(state.copyWith(selectedLabel: event.label, currentItems: _inventoryService.getItemsByLabel(event.label!)));
+    } else {
+      emit(state.copyWith(selectedLabel: null, currentItems: []));
+    }
   }
 
   void _onSetSortType(SetLabelSortType event, Emitter<InventoryState> emit) {
@@ -200,7 +244,9 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
 
   Future<void> _onLoadAllItems(LoadAllItems event, Emitter<InventoryState> emit) async {
     try {
-      if (_inventoryService.currentInventoryId != event.inventoryId) await _inventoryService.initializeForInventory(event.inventoryId);
+      if (_inventoryService.currentInventoryId != event.inventoryId) {
+        await _inventoryService.initializeForInventory(event.inventoryId);
+      }
       final allItemsMap = _inventoryService.getAllItems();
       final allItems = <InventoryItem>[];
       for (final entry in allItemsMap.entries) { allItems.addAll(entry.value); }

@@ -158,6 +158,41 @@ class SupabaseRealtimeService {
 
       switch (payload.eventType) {
         case PostgresChangeEvent.insert:
+          // FIXED: Actually add the new item from realtime event
+          if (payload.newRecord['id'] != null && payload.newRecord['is_deleted'] != true) {
+            final supabaseId = payload.newRecord['id'].toString();
+            bool exists = false;
+            for (final item in box.values) {
+              if (item.supabaseId == supabaseId) { exists = true; break; }
+            }
+            if (!exists) {
+              final item = InventoryItem(
+                id: supabaseId,
+                name: payload.newRecord['name']?.toString() ?? '',
+                code: payload.newRecord['code']?.toString() ?? '',
+                barcode: payload.newRecord['barcode']?.toString() ?? '',
+                color: payload.newRecord['color']?.toString() ?? '',
+                material: payload.newRecord['material']?.toString() ?? '',
+                size: payload.newRecord['size']?.toString() ?? '',
+                quantity: (payload.newRecord['quantity'] as int?) ?? 0,
+                label: payload.newRecord['label']?.toString() ?? '',
+                note: payload.newRecord['note']?.toString() ?? '',
+              );
+              item.supabaseId = supabaseId;
+              item.inventoryId = inventoryId;
+              item.companyId = payload.newRecord['company_id']?.toString();
+              item.createdBy = payload.newRecord['created_by']?.toString();
+              item.createdByName = payload.newRecord['created_by_name']?.toString();
+              item.isSynced = true;
+              item.createdAt = payload.newRecord['created_at'] != null
+                  ? DateTime.parse(payload.newRecord['created_at'] as String)
+                  : DateTime.now();
+              item.modified = payload.newRecord['updated_at'] != null
+                  ? DateTime.parse(payload.newRecord['updated_at'] as String)
+                  : DateTime.now();
+              box.add(item);
+            }
+          }
           break;
 
         case PostgresChangeEvent.update:
