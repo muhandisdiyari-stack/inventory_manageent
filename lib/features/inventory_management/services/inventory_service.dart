@@ -32,23 +32,9 @@ class InventoryService {
     return _initFuture!;
   }
 
- // ─── Initialization ────────────────────────────────────────────
   Future<void> _doInitialize(String inventoryId) async {
     try {
-      // Fetch company_id directly from this inventory FIRST
-      try {
-        final invData = await Supabase.instance.client
-            .from('inventories')
-            .select('company_id')
-            .eq('id', inventoryId)
-            .maybeSingle();
-        if (invData != null && invData['company_id'] != null) {
-          _currentCompanyId = invData['company_id'].toString();
-        }
-      } catch (e) {
-        debugPrint('⚠️ Could not fetch company during init: $e');
-      }
-
+      await _loadCompanyId();
       await _closeAllBoxes();
       _labelsBoxes[inventoryId] = await Hive.openBox('labels_$inventoryId');
       _itemsBoxes[inventoryId] = await Hive.openBox<InventoryItem>('items_$inventoryId');
@@ -59,13 +45,10 @@ class InventoryService {
       _settingsBoxes[inventoryId] = settingsBox;
       _currentInventoryId = inventoryId;
       _labelsCache.remove(inventoryId);
-
       if (AppConfig.useSupabase && _currentCompanyId != null) {
-        debugPrint('🔄 Syncing from Supabase for inventory $inventoryId (company: $_currentCompanyId)');
         await syncLabelsFromSupabase(inventoryId);
         await _syncItemsFromSupabase(inventoryId);
       } else {
-        debugPrint('📂 Loading from cache (no Supabase or no company)');
         _loadLabelsFromCache(inventoryId);
       }
     } catch (e) {
@@ -177,11 +160,9 @@ class InventoryService {
   }
 
   // ─── Item Sync ──────────────────────────────────────────────────
-  // ─── Item Sync ──────────────────────────────────────────────────
   Future<void> _syncItemsFromSupabase(String inventoryId) async {
     if (!AppConfig.useSupabase) return;
-    
-    // Fetch company_id directly from the inventory to avoid null/mismatch
+
     String? companyId = _currentCompanyId;
     if (companyId == null) {
       try {
@@ -209,7 +190,7 @@ class InventoryService {
           .eq('inventory_id', inventoryId)
           .eq('is_deleted', false)
           .order('updated_at', ascending: false);
-      
+
       final box = _itemsBoxes[inventoryId];
       if (box == null) return;
 
@@ -243,15 +224,22 @@ class InventoryService {
     }
   }
 
+  /// FIXED: Only remove items that are confirmed synced AND deleted on server.
+  /// Preserves unsynced local items (isSynced = false or no supabaseId).
   Future<void> syncItemsFromRealtime(String inventoryId) async {
     if (!AppConfig.useSupabase) return;
     final box = _itemsBoxes[inventoryId];
     if (box == null) return;
     try {
+      final companyId = _currentCompanyId;
+      if (companyId == null) return;
+
       final data = await Supabase.instance.client
           .from('inventory_items')
           .select()
+          .eq('company_id', companyId)
           .eq('inventory_id', inventoryId)
+          .eq('is_deleted', false)
           .order('updated_at', ascending: false)
           .limit(200);
 
@@ -266,19 +254,26 @@ class InventoryService {
         }
       }
 
+      // ONLY remove items that:
+      // 1. Have a supabaseId (were synced before)
+      // 2. Are marked as synced (confirmed they reached server)
+      // 3. No longer exist on server (were deleted)
       final keysToDelete = <dynamic>[];
       for (final key in box.keys) {
         final localItem = box.get(key);
-        if (localItem != null && localItem.supabaseId != null && localItem.supabaseId!.isNotEmpty) {
-          if (!supabaseIds.contains(localItem.supabaseId)) {
-            keysToDelete.add(key);
-          }
+        if (localItem != null &&
+            localItem.supabaseId != null &&
+            localItem.supabaseId!.isNotEmpty &&
+            localItem.isSynced &&
+            !supabaseIds.contains(localItem.supabaseId)) {
+          keysToDelete.add(key);
         }
       }
       for (final key in keysToDelete) {
         await box.delete(key);
       }
 
+      // Upsert items from server (update existing, add new)
       for (final item in supabaseItems.values) {
         bool found = false;
         for (final existingItem in box.values) {
@@ -403,7 +398,7 @@ class InventoryService {
         }).select().single();
         final label = Label.fromSupabase(Map<String, dynamic>.from(response));
         _addLabelToCache(label);
-        _persistLabelsToHive(_currentInventoryId!);   // FIXED: persist immediately
+        _persistLabelsToHive(_currentInventoryId!);
         return label;
       } on PostgrestException catch (e) {
         if (e.code == '23505') {
@@ -442,7 +437,6 @@ class InventoryService {
     _labelsCache[_currentInventoryId!] = list;
   }
 
-  // FIXED: Persist labels to Hive immediately after any change
   void _persistLabelsToHive(String inventoryId) {
     final box = _labelsBoxes[inventoryId];
     if (box != null) {
