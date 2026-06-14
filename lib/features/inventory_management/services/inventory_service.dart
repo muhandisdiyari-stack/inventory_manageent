@@ -32,9 +32,23 @@ class InventoryService {
     return _initFuture!;
   }
 
+ // ─── Initialization ────────────────────────────────────────────
   Future<void> _doInitialize(String inventoryId) async {
     try {
-      await _loadCompanyId();
+      // Fetch company_id directly from this inventory FIRST
+      try {
+        final invData = await Supabase.instance.client
+            .from('inventories')
+            .select('company_id')
+            .eq('id', inventoryId)
+            .maybeSingle();
+        if (invData != null && invData['company_id'] != null) {
+          _currentCompanyId = invData['company_id'].toString();
+        }
+      } catch (e) {
+        debugPrint('⚠️ Could not fetch company during init: $e');
+      }
+
       await _closeAllBoxes();
       _labelsBoxes[inventoryId] = await Hive.openBox('labels_$inventoryId');
       _itemsBoxes[inventoryId] = await Hive.openBox<InventoryItem>('items_$inventoryId');
@@ -45,10 +59,13 @@ class InventoryService {
       _settingsBoxes[inventoryId] = settingsBox;
       _currentInventoryId = inventoryId;
       _labelsCache.remove(inventoryId);
+
       if (AppConfig.useSupabase && _currentCompanyId != null) {
+        debugPrint('🔄 Syncing from Supabase for inventory $inventoryId (company: $_currentCompanyId)');
         await syncLabelsFromSupabase(inventoryId);
         await _syncItemsFromSupabase(inventoryId);
       } else {
+        debugPrint('📂 Loading from cache (no Supabase or no company)');
         _loadLabelsFromCache(inventoryId);
       }
     } catch (e) {
@@ -160,16 +177,44 @@ class InventoryService {
   }
 
   // ─── Item Sync ──────────────────────────────────────────────────
+  // ─── Item Sync ──────────────────────────────────────────────────
   Future<void> _syncItemsFromSupabase(String inventoryId) async {
     if (!AppConfig.useSupabase) return;
-    final companyId = _currentCompanyId;
+    
+    // Fetch company_id directly from the inventory to avoid null/mismatch
+    String? companyId = _currentCompanyId;
+    if (companyId == null) {
+      try {
+        final invData = await Supabase.instance.client
+            .from('inventories')
+            .select('company_id')
+            .eq('id', inventoryId)
+            .maybeSingle();
+        companyId = invData?['company_id']?.toString();
+        if (companyId != null) {
+          _currentCompanyId = companyId;
+        }
+      } catch (e) {
+        debugPrint('⚠️ Could not fetch company_id for sync: $e');
+        return;
+      }
+    }
     if (companyId == null) return;
+
     try {
-      final data = await Supabase.instance.client.from('inventory_items')
-          .select('*, labels(name)').eq('company_id', companyId).eq('inventory_id', inventoryId)
-          .eq('is_deleted', false).order('updated_at', ascending: false);
+      final data = await Supabase.instance.client
+          .from('inventory_items')
+          .select('*, labels(name)')
+          .eq('company_id', companyId)
+          .eq('inventory_id', inventoryId)
+          .eq('is_deleted', false)
+          .order('updated_at', ascending: false);
+      
       final box = _itemsBoxes[inventoryId];
       if (box == null) return;
+
+      debugPrint('📦 Synced ${data.length} items from Supabase for inventory $inventoryId');
+
       int updated = 0, added = 0;
       for (final itemData in data) {
         try {
@@ -192,6 +237,7 @@ class InventoryService {
           debugPrint('⚠️ Sync item error: $e');
         }
       }
+      debugPrint('📦 Sync complete: $updated updated, $added added');
     } catch (e) {
       debugPrint('⚠️ Item sync error: $e');
     }
