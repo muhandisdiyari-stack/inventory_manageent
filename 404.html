@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Inventory Pro</title>
+  <script>
+    // Redirect 404s back to index.html preserving the hash
+    // so Flutter router and Supabase auth callback both work.
+    var path = window.location.pathname;
+    var hash = window.location.hash;
+    window.location.replace(
+      window.location.origin + '/' + 
+      path.split('/').slice(1, 2).join('/') + 
+      '/?' + path.split('/').slice(2).join('/').replace(/&/g, '~and~') +
+      (hash ? '&hash=' + hash.slice(1) : '')
+    );
+  </script>
+</head>
+</html>
