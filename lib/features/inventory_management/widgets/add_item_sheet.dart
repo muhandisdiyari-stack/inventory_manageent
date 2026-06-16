@@ -427,7 +427,7 @@ class _AddItemFormState extends State<_AddItemForm> {
               suffixIcon: value != null ? IconButton(icon: const Icon(Icons.clear, size: 18), onPressed: () { onClear(); s.didChange(null); }) : null,
               errorText: s.errorText,
             ),
-            child: Text(value != null ? '${value!.year}-${value!.month.toString().padLeft(2, '0')}-${value!.day.toString().padLeft(2, '0')}' : 'Select date', style: TextStyle(color: value != null ? null : Colors.grey, fontSize: 16)),
+            child: Text(value != null ? '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}' : 'Select date', style: TextStyle(color: value != null ? null : Colors.grey, fontSize: 16)),
           ),
         ),
       ),

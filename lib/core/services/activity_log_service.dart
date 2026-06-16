@@ -415,7 +415,6 @@ class ActivityLogService {
     if (!AppConfig.useSupabase) return;
 
     try {
-      final supabaseService = SupabaseClientService();
       if (entry.inventoryId == null || entry.inventoryId!.isEmpty) return;
 
       // Fetch company_id from inventory
