@@ -38,6 +38,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   void _syncCustomFields() {
+    if (_fieldsInitialized) return;
     final inventoryState = context.read<InventoryBloc>().state;
     final settings = inventoryState.settings;
     if (settings != null && settings.customFieldNames.isNotEmpty) {
@@ -109,10 +110,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget build(BuildContext context) {
     return BlocBuilder<InventoryBloc, InventoryState>(
       builder: (context, inventoryState) {
-        // FIXED: Sync custom fields whenever the inventory state changes
-        // and the inventory is initialized (settings might have loaded)
+        // FIXED: Try to sync custom fields once when settings become available
         if (inventoryState.isInitialized && !_fieldsInitialized) {
-          _syncCustomFields();
+          // Use post-frame callback to avoid dispatching during build
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _syncCustomFields();
+          });
         }
 
         final inventoryName = inventoryState.inventoryName ?? '';
@@ -205,9 +208,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     FieldSelectorCard(
                       availableFields: reportsState.availableFields,
                       selectedFields: reportsState.selectedFields,
-                      onSelectionChanged: () => context
-                          .read<ReportsBloc>()
-                          .add(const ClearReportMessages()),
+                      onSelectionChanged: () {},
                       onToggleField: (fieldName) => context
                           .read<ReportsBloc>()
                           .add(ToggleField(fieldName)),
