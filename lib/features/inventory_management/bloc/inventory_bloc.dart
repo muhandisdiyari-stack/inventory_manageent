@@ -12,13 +12,12 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
   final InventoryService _inventoryService;
   final SupabaseRealtimeService _realtimeService;
 
-  /// Expose the service so that the add‑item sheet can sync edits directly.
   InventoryService get inventoryService => _inventoryService;
 
-  Timer? _itemsDebounce;
-  Timer? _labelsDebounce;
   String? _currentSubscribedInventory;
   static const _realtimeDebounceDuration = Duration(milliseconds: 500);
+  DateTime _lastItemsUpdate = DateTime(2000);
+  DateTime _lastLabelsUpdate = DateTime(2000);
 
   InventoryBloc({
     required InventoryService inventoryService,
@@ -98,12 +97,8 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
     final newLabels = List<String>.from(state.labels);
     if (!newLabels.contains(event.name)) { newLabels.add(event.name); newLabels.sort(); }
     emit(state.copyWith(labels: newLabels, selectedLabel: event.name, currentItems: []));
-    try {
-      await _inventoryService.createLabel(event.name);
-      emit(state.copyWith(labels: _getCurrentLabels()));
-    } catch (e) {
-      emit(state.copyWith(labels: _getCurrentLabels(), error: 'Failed: $e'));
-    }
+    try { await _inventoryService.createLabel(event.name); emit(state.copyWith(labels: _getCurrentLabels())); }
+    catch (e) { emit(state.copyWith(labels: _getCurrentLabels(), error: 'Failed: $e')); }
   }
 
   Future<void> _onRenameLabel(RenameLabel event, Emitter<InventoryState> emit) async {
@@ -115,24 +110,16 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
       items = items.map((item) { if (item.label == event.oldName) item.label = event.newName; return item; }).toList();
     }
     emit(state.copyWith(labels: newLabels, selectedLabel: newSel, currentItems: items));
-    try {
-      await _inventoryService.renameLabel(event.oldName, event.newName);
-      emit(state.copyWith(labels: _getCurrentLabels()));
-    } catch (e) {
-      emit(state.copyWith(labels: _getCurrentLabels(), error: 'Failed: $e'));
-    }
+    try { await _inventoryService.renameLabel(event.oldName, event.newName); emit(state.copyWith(labels: _getCurrentLabels())); }
+    catch (e) { emit(state.copyWith(labels: _getCurrentLabels(), error: 'Failed: $e')); }
   }
 
   Future<void> _onDeleteLabel(DeleteLabel event, Emitter<InventoryState> emit) async {
     final newLabels = state.labels.where((l) => l != event.name).toList();
     final newSel = state.selectedLabel == event.name ? (newLabels.isNotEmpty ? newLabels.first : null) : state.selectedLabel;
     emit(state.copyWith(labels: newLabels, selectedLabel: newSel, currentItems: newSel != null ? _inventoryService.getItemsByLabel(newSel) : []));
-    try {
-      await _inventoryService.deleteLabel(event.name);
-      emit(state.copyWith(labels: _getCurrentLabels()));
-    } catch (e) {
-      emit(state.copyWith(labels: _getCurrentLabels(), error: 'Failed: $e'));
-    }
+    try { await _inventoryService.deleteLabel(event.name); emit(state.copyWith(labels: _getCurrentLabels())); }
+    catch (e) { emit(state.copyWith(labels: _getCurrentLabels(), error: 'Failed: $e')); }
   }
 
   void _onLoadItems(LoadItems event, Emitter<InventoryState> emit) {
@@ -171,82 +158,60 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
 
   Future<void> _onImport(ImportItems event, Emitter<InventoryState> emit) async {
     emit(state.copyWith(isLoading: true));
-    try {
-      await _inventoryService.importItems(event.label, event.items);
-      emit(state.copyWith(labels: _getCurrentLabels(), currentItems: _getCurrentItems(), isLoading: false));
-    } catch (e) {
-      emit(state.copyWith(isLoading: false, error: 'Import failed: $e'));
+    try { await _inventoryService.importItems(event.label, event.items); emit(state.copyWith(labels: _getCurrentLabels(), currentItems: _getCurrentItems(), isLoading: false)); }
+    catch (e) { emit(state.copyWith(isLoading: false, error: 'Import failed: $e')); }
+  }
+
+  // FIXED: Use Future.delayed with proper async handler
+  Future<void> _onRealtimeItemsChanged(RealtimeItemsChanged event, Emitter<InventoryState> emit) async {
+    final now = DateTime.now();
+    if (now.difference(_lastItemsUpdate) < _realtimeDebounceDuration) return;
+    _lastItemsUpdate = now;
+    
+    if (state.inventoryId != null) {
+      await _inventoryService.syncItemsFromRealtime(state.inventoryId!);
+      await _inventoryService.syncLabelsFromSupabase(state.inventoryId!);
     }
+    if (isClosed) return;
+    emit(state.copyWith(
+      labels: _getCurrentLabels(),
+      currentItems: state.selectedLabel != null
+          ? _inventoryService.getItemsByLabel(state.selectedLabel!)
+          : state.currentItems,
+    ));
   }
 
-  // ─── FIXED: Realtime handlers directly emit new state ──────────
-
-  void _onRealtimeItemsChanged(RealtimeItemsChanged event, Emitter<InventoryState> emit) {
-    _itemsDebounce?.cancel();
-    _itemsDebounce = Timer(_realtimeDebounceDuration, () async {
-      if (isClosed) return;
-      if (state.inventoryId != null) {
-        // Sync from Supabase first
-        await _inventoryService.syncItemsFromRealtime(state.inventoryId!);
-        // Also sync labels in case a new label was created
-        await _inventoryService.syncLabelsFromSupabase(state.inventoryId!);
-      }
-      if (isClosed) return;
-      // Emit fresh state from Hive
-      emit(state.copyWith(
-        labels: _getCurrentLabels(),
-        currentItems: state.selectedLabel != null
-            ? _inventoryService.getItemsByLabel(state.selectedLabel!)
-            : state.currentItems,
-      ));
-    });
-  }
-
-  void _onRealtimeLabelsChanged(RealtimeLabelsChanged event, Emitter<InventoryState> emit) {
-    _labelsDebounce?.cancel();
-    _labelsDebounce = Timer(_realtimeDebounceDuration, () async {
-      if (isClosed) return;
-      if (state.inventoryId != null) {
-        // Sync labels from Supabase first
-        await _inventoryService.syncLabelsFromSupabase(state.inventoryId!);
-        // Also sync items
-        await _inventoryService.syncItemsFromRealtime(state.inventoryId!);
-      }
-      if (isClosed) return;
-      // Emit fresh state from Hive
-      emit(state.copyWith(
-        labels: _getCurrentLabels(),
-        currentItems: state.selectedLabel != null
-            ? _inventoryService.getItemsByLabel(state.selectedLabel!)
-            : state.currentItems,
-      ));
-    });
+  Future<void> _onRealtimeLabelsChanged(RealtimeLabelsChanged event, Emitter<InventoryState> emit) async {
+    final now = DateTime.now();
+    if (now.difference(_lastLabelsUpdate) < _realtimeDebounceDuration) return;
+    _lastLabelsUpdate = now;
+    
+    if (state.inventoryId != null) {
+      await _inventoryService.syncLabelsFromSupabase(state.inventoryId!);
+      await _inventoryService.syncItemsFromRealtime(state.inventoryId!);
+    }
+    if (isClosed) return;
+    emit(state.copyWith(
+      labels: _getCurrentLabels(),
+      currentItems: state.selectedLabel != null
+          ? _inventoryService.getItemsByLabel(state.selectedLabel!)
+          : state.currentItems,
+    ));
   }
 
   Future<void> _onUpdateSettings(UpdateSettings event, Emitter<InventoryState> emit) async {
-    try {
-      await _inventoryService.updateSettings(event.settings);
-      emit(state.copyWith(settings: event.settings));
-    } catch (e) {
-      emit(state.copyWith(error: 'Failed: $e'));
-    }
+    try { await _inventoryService.updateSettings(event.settings); emit(state.copyWith(settings: event.settings)); }
+    catch (e) { emit(state.copyWith(error: 'Failed: $e')); }
   }
 
   void _onSearch(SearchItems event, Emitter<InventoryState> emit) {
-    try {
-      if (event.query.trim().isEmpty) { emit(state.copyWith(searchResults: [])); return; }
-      emit(state.copyWith(searchResults: _inventoryService.searchAllInventories(event.query)));
-    } catch (e) {
-      emit(state.copyWith(error: 'Search failed: $e'));
-    }
+    try { if (event.query.trim().isEmpty) { emit(state.copyWith(searchResults: [])); return; } emit(state.copyWith(searchResults: _inventoryService.searchAllInventories(event.query))); }
+    catch (e) { emit(state.copyWith(error: 'Search failed: $e')); }
   }
 
   void _onSelectLabel(SelectLabel event, Emitter<InventoryState> emit) {
-    if (event.label != null) {
-      emit(state.copyWith(selectedLabel: event.label, currentItems: _inventoryService.getItemsByLabel(event.label!)));
-    } else {
-      emit(state.copyWith(selectedLabel: null, currentItems: []));
-    }
+    if (event.label != null) { emit(state.copyWith(selectedLabel: event.label, currentItems: _inventoryService.getItemsByLabel(event.label!))); }
+    else { emit(state.copyWith(selectedLabel: null, currentItems: [])); }
   }
 
   void _onSetSortType(SetLabelSortType event, Emitter<InventoryState> emit) {
@@ -255,9 +220,7 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
 
   Future<void> _onLoadAllItems(LoadAllItems event, Emitter<InventoryState> emit) async {
     try {
-      if (_inventoryService.currentInventoryId != event.inventoryId) {
-        await _inventoryService.initializeForInventory(event.inventoryId);
-      }
+      if (_inventoryService.currentInventoryId != event.inventoryId) await _inventoryService.initializeForInventory(event.inventoryId);
       final allItemsMap = _inventoryService.getAllItems();
       final allItems = <InventoryItem>[];
       for (final entry in allItemsMap.entries) { allItems.addAll(entry.value); }
@@ -269,8 +232,6 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
 
   @override
   Future<void> close() {
-    _itemsDebounce?.cancel();
-    _labelsDebounce?.cancel();
     if (_currentSubscribedInventory != null) _realtimeService.unsubscribeFromInventory(_currentSubscribedInventory!);
     return super.close();
   }
