@@ -19,24 +19,32 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
+  bool _fieldsInitialized = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         context.read<ReportsBloc>().add(const InitializeReportFields());
+        _syncCustomFields();
         final inventoryState = context.read<InventoryBloc>().state;
-        final settings = inventoryState.settings;
-        if (settings != null && settings.customFieldNames.isNotEmpty) {
-          context.read<ReportsBloc>().add(
-              UpdateAvailableFields(customFieldNames: settings.customFieldNames));
-        }
         if (inventoryState.inventoryId != null) {
           context.read<InventoryBloc>().add(
               LoadAllItems(inventoryState.inventoryId!));
         }
       }
     });
+  }
+
+  void _syncCustomFields() {
+    final inventoryState = context.read<InventoryBloc>().state;
+    final settings = inventoryState.settings;
+    if (settings != null && settings.customFieldNames.isNotEmpty) {
+      context.read<ReportsBloc>().add(
+          UpdateAvailableFields(customFieldNames: settings.customFieldNames));
+      _fieldsInitialized = true;
+    }
   }
 
   List<InventoryItem> _getAllItems(InventoryState state) {
@@ -101,6 +109,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget build(BuildContext context) {
     return BlocBuilder<InventoryBloc, InventoryState>(
       builder: (context, inventoryState) {
+        // FIXED: Sync custom fields whenever the inventory state changes
+        // and the inventory is initialized (settings might have loaded)
+        if (inventoryState.isInitialized && !_fieldsInitialized) {
+          _syncCustomFields();
+        }
+
         final inventoryName = inventoryState.inventoryName ?? '';
 
         return BlocListener<ReportsBloc, ReportsState>(
