@@ -19,7 +19,7 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  bool _fieldsInitialized = false;
+  List<String>? _lastCustomFields;
 
   @override
   void initState() {
@@ -38,14 +38,26 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   void _syncCustomFields() {
-    if (_fieldsInitialized) return;
     final inventoryState = context.read<InventoryBloc>().state;
     final settings = inventoryState.settings;
-    if (settings != null && settings.customFieldNames.isNotEmpty) {
+    final customFields = settings?.customFieldNames ?? [];
+    
+    // Only update if custom fields changed (or first time)
+    if (customFields.isNotEmpty && !_listEquals(customFields, _lastCustomFields)) {
+      _lastCustomFields = List.from(customFields);
       context.read<ReportsBloc>().add(
-          UpdateAvailableFields(customFieldNames: settings.customFieldNames));
-      _fieldsInitialized = true;
+          UpdateAvailableFields(customFieldNames: customFields));
     }
+  }
+
+  bool _listEquals(List<String>? a, List<String>? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   List<InventoryItem> _getAllItems(InventoryState state) {
@@ -110,9 +122,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget build(BuildContext context) {
     return BlocBuilder<InventoryBloc, InventoryState>(
       builder: (context, inventoryState) {
-        // FIXED: Try to sync custom fields once when settings become available
-        if (inventoryState.isInitialized && !_fieldsInitialized) {
-          // Use post-frame callback to avoid dispatching during build
+        // Try to sync custom fields whenever inventory is initialized
+        if (inventoryState.isInitialized) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) _syncCustomFields();
           });
