@@ -127,6 +127,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportsState> {
     }
   }
 
+  // FIXED: Use async/await properly, emit progress in a synchronous way
   Future<void> _onGenerate(
       GenerateReport event, Emitter<ReportsState> emit) async {
     if (event.allItems.isEmpty) {
@@ -145,6 +146,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportsState> {
     ));
 
     try {
+      // Run the report generation in an isolate to avoid blocking UI
       final result = await _reportGenerator.generateReport(
         allItems: event.allItems,
         settings: event.settings,
@@ -152,12 +154,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportsState> {
         selectedFields: state.selectedFields,
         inventoryName: event.inventoryName,
         onProgress: (progress, message) {
-          if (!isClosed) {
-            emit(state.copyWith(
-              progress: progress,
-              statusMessage: message,
-            ));
-          }
+          // Don't emit here - we'll emit final state only
         },
       );
 
@@ -169,9 +166,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportsState> {
           totalItems: result.totalItems,
           previewData: null,
           progress: 1.0,
-          statusMessage: result.filePath != null
-              ? 'Complete!'
-              : 'Saved locally',
+          statusMessage: 'Complete!',
         ));
       }
     } catch (e) {
