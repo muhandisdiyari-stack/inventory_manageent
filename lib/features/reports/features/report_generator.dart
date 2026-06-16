@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import '../../inventory_management/models/inventory_item.dart';
 import '../../inventory_management/models/inventory_settings.dart';
 import '../services/csv_service.dart';
@@ -45,22 +44,23 @@ class ReportGenerator {
 
     final totalItems = filteredItems.length;
 
-    onProgress(0.05, 'Processing $totalItems items...');
+    onProgress(0.1, 'Processing $totalItems items...');
     await Future.delayed(const Duration(milliseconds: 50));
 
-    final csvString = await compute((_) {
-      return csvService.generateCsvWithFields(
-        filteredItems,
-        settings,
-        inventoryName,
-        reportType == 'all'
-            ? 'All Items'
-            : reportType == 'expiring'
-                ? 'Expiring Soon'
-                : 'Expired',
-        selectedFieldsList,
-      );
-    }, null);
+    // FIXED: Don't use compute() — Hive objects can't be sent across isolates.
+    // Generate CSV directly on the main thread. For large datasets this is fine
+    // because CsvService operations are fast (pure string manipulation).
+    final csvString = csvService.generateCsvWithFields(
+      filteredItems,
+      settings,
+      inventoryName,
+      reportType == 'all'
+          ? 'All Items'
+          : reportType == 'expiring'
+              ? 'Expiring Soon'
+              : 'Expired',
+      selectedFieldsList,
+    );
 
     onProgress(0.8, 'Saving file...');
     await Future.delayed(const Duration(milliseconds: 50));
