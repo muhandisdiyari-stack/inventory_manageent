@@ -281,7 +281,6 @@ class _AddItemFormState extends State<_AddItemForm> {
     );
   }
 
-  // ─── FIXED _submit with mounted checks before using context ───
   Future<void> _submit() async {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
@@ -314,13 +313,19 @@ class _AddItemFormState extends State<_AddItemForm> {
         old.note = _enabled('Note') ? _noteCtrl.text.trim() : '';
         old.quantity = int.tryParse(_quantityCtrl.text.trim()) ?? 0;
         old.label = widget.label;
-        old.customFields = cf;
+        // FIXED: Merge instead of replace to preserve internal sync fields
+        old.customFields.addAll(cf);
+        // Remove custom fields that were cleared (no longer in cf)
+        for (final key in old.customFields.keys.toList()) {
+          if (!key.startsWith('_') && !cf.containsKey(key)) {
+            old.customFields.remove(key);
+          }
+        }
         old.modified = now;
         old.updatedBy = uid;
         old.updatedByName = uname;
         await old.save();
 
-        // Sync edit to Supabase – guard context use
         if (!mounted) return;
         final inventoryService = context.read<InventoryBloc>().inventoryService;
         await inventoryService.saveItem(old);
